@@ -83,7 +83,7 @@ export default function ProtectorApp() {
     emergencyPhone: "",
   })
 
-  const [isDataLoaded, setIsDataLoaded] = useState(false)
+  const [isDataLoaded, setIsDataLoaded] = useState(true)
 
   const [selectedVehicle, setSelectedVehicle] = useState("")
   const [showChatThread, setShowChatThread] = useState(false)
@@ -883,7 +883,7 @@ export default function ProtectorApp() {
   }
 
   const renderLoginForm = () => (
-    <div className="max-w-sm mx-auto bg-gray-900 min-h-screen flex flex-col text-white">
+    <div className="w-full max-w-md mx-auto bg-gray-900 min-h-screen flex flex-col text-white">
       <div className="flex flex-col h-full p-4 pt-8">
         <div className="flex-1 flex flex-col justify-center w-full space-y-6">
           <div className="flex items-center justify-between">
@@ -1529,7 +1529,7 @@ export default function ProtectorApp() {
 
   if (!isDataLoaded) {
     return (
-      <div className="max-w-sm mx-auto bg-black min-h-screen flex flex-col text-white">
+      <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center space-y-4">
             <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
@@ -1542,7 +1542,7 @@ export default function ProtectorApp() {
 
   if (!isLoggedIn) {
     return (
-      <div className="max-w-sm mx-auto bg-black min-h-screen flex flex-col text-white">
+      <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
         <div className="flex flex-col h-full">
           {/* Welcome Screen */}
           <div className="flex-1 flex flex-col justify-center items-center p-6 space-y-8">
@@ -1592,9 +1592,9 @@ export default function ProtectorApp() {
   }
 
   return (
-    <div className="max-w-sm mx-auto bg-black min-h-screen flex flex-col text-white">
+    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
       {/* Header */}
-      <header className="fixed top-0 left-0 right-0 max-w-sm mx-auto bg-black text-white p-4 z-50 border-b border-gray-800">
+      <header className="fixed top-0 left-0 right-0 w-full max-w-md mx-auto bg-black text-white p-4 z-50 border-b border-gray-800">
         <div className="flex items-center justify-between">
           {activeTab === "booking" ? (
             <div className="flex items-center gap-3">
