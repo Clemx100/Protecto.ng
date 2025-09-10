@@ -1,10 +1,8 @@
-// import { updateSession } from "@/lib/supabase/middleware"
+import { updateSession } from "@/lib/supabase/middleware"
 import type { NextRequest } from "next/server"
 
 export async function middleware(request: NextRequest) {
-  // Temporarily disabled for testing
-  return
-  // return await updateSession(request)
+  return await updateSession(request)
 }
 
 export const config = {
