@@ -83,7 +83,7 @@ export default function ProtectorApp() {
     emergencyPhone: "",
   })
 
-  const [isDataLoaded, setIsDataLoaded] = useState(false)
+  const [isDataLoaded, setIsDataLoaded] = useState(true)
 
   const [selectedVehicle, setSelectedVehicle] = useState("")
   const [showChatThread, setShowChatThread] = useState(false)
@@ -247,11 +247,8 @@ export default function ProtectorApp() {
           }
         }
       } catch (error) {
-        console.error('Auth error:', error)
-        // If Supabase is not configured, show login form
-        setUser(null)
-        setIsLoggedIn(false)
-        setAuthStep("login")
+        console.error('Auth initialization error:', error)
+        // Continue with app even if auth fails
       } finally {
         setIsDataLoaded(true)
       }
@@ -260,11 +257,6 @@ export default function ProtectorApp() {
     // Check for verification first, then get session
     checkEmailVerification()
     getInitialSession()
-
-    // Add timeout to prevent infinite loading
-    const timeout = setTimeout(() => {
-      setIsDataLoaded(true)
-    }, 5000) // 5 second timeout
 
     // Listen for auth changes
     const {
@@ -321,8 +313,6 @@ export default function ProtectorApp() {
       if (verificationCheckIntervalRef.current) {
         clearInterval(verificationCheckIntervalRef.current)
       }
-      // Clean up timeout
-      clearTimeout(timeout)
     }
   }, [])
 
@@ -569,25 +559,7 @@ export default function ProtectorApp() {
         }
 
         setBookingPayload(payload)
-        
-        // Transform payload to match activeBookings structure
-        const activeBooking = {
-          id: payload.id,
-          type: payload.serviceType,
-          protectorName: "Protection Team",
-          vehicleType: Object.keys(payload.vehicles || {}).length > 0 ? 
-            vehicleTypes.find(v => payload.vehicles![v.id] > 0)?.name || "Executive Vehicle" : 
-            "Executive Vehicle",
-          status: "pending",
-          estimatedArrival: "Calculating...",
-          pickupLocation: payload.pickupDetails.location,
-          destination: payload.destinationDetails.primary,
-          startTime: payload.pickupDetails.time,
-          protectorImage: "/images/business-formal-agent.png",
-          currentLocation: { lat: 0, lng: 0 },
-        }
-        
-        setActiveBookings(prev => [activeBooking, ...prev])
+        setActiveBookings(prev => [payload, ...prev])
 
         // Navigate to chat page
         handleChatNavigation(payload)
@@ -622,25 +594,7 @@ export default function ProtectorApp() {
         }
 
         setBookingPayload(payload)
-        
-        // Transform payload to match activeBookings structure
-        const activeBooking = {
-          id: payload.id,
-          type: payload.serviceType,
-          protectorName: "Protection Team",
-          vehicleType: Object.keys(payload.vehicles || {}).length > 0 ? 
-            vehicleTypes.find(v => payload.vehicles![v.id] > 0)?.name || "Executive Vehicle" : 
-            "Executive Vehicle",
-          status: "pending",
-          estimatedArrival: "Calculating...",
-          pickupLocation: payload.pickupDetails.location,
-          destination: payload.destinationDetails.primary,
-          startTime: payload.pickupDetails.time,
-          protectorImage: "/images/business-formal-agent.png",
-          currentLocation: { lat: 0, lng: 0 },
-        }
-        
-        setActiveBookings(prev => [activeBooking, ...prev])
+        setActiveBookings(prev => [payload, ...prev])
 
         // Navigate to chat page
         handleChatNavigation(payload)
@@ -963,6 +917,7 @@ export default function ProtectorApp() {
                 <div className="flex items-center justify-center gap-2 mt-2">
                   <div className={`w-2 h-2 rounded-full ${authStep === "register" ? "bg-blue-500" : "bg-gray-600"}`}></div>
                   <div className={`w-2 h-2 rounded-full ${authStep === "email-verification" ? "bg-blue-500" : "bg-gray-600"}`}></div>
+                  <div className={`w-2 h-2 rounded-full ${authStep === "profile" ? "bg-blue-500" : "bg-gray-600"}`}></div>
                 </div>
               )}
             </div>
@@ -1578,18 +1533,19 @@ export default function ProtectorApp() {
     handleChatNavigation(testBooking)
   }
 
-  if (!isDataLoaded) {
-    return (
-      <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-gray-400">Loading...</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Remove loading screen - show app immediately
+  // if (!isDataLoaded) {
+  //   return (
+  //     <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+  //       <div className="flex-1 flex items-center justify-center">
+  //         <div className="text-center space-y-4">
+  //           <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+  //           <p className="text-gray-400">Loading...</p>
+  //         </div>
+  //       </div>
+  //     </div>
+  //   )
+  // }
 
   if (!isLoggedIn) {
     return (
