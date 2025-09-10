@@ -83,7 +83,7 @@ export default function ProtectorApp() {
     emergencyPhone: "",
   })
 
-  const [isDataLoaded, setIsDataLoaded] = useState(true)
+  const [isDataLoaded, setIsDataLoaded] = useState(false)
 
   const [selectedVehicle, setSelectedVehicle] = useState("")
   const [showChatThread, setShowChatThread] = useState(false)
@@ -227,30 +227,44 @@ export default function ProtectorApp() {
 
     // Get initial session
     const getInitialSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (session?.user) {
-        // Check if email is verified
-        if (session.user.email_confirmed_at) {
-          setUser(session.user)
-          setIsLoggedIn(true)
-          // Load user profile from database
-          await loadUserProfile(session.user.id)
-        } else {
-          // User exists but email not verified
-          setVerificationEmail(session.user.email || "")
-          setAuthStep("email-verification")
-          setEmailVerificationSent(true)
-          setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (session?.user) {
+          // Check if email is verified
+          if (session.user.email_confirmed_at) {
+            setUser(session.user)
+            setIsLoggedIn(true)
+            // Load user profile from database
+            await loadUserProfile(session.user.id)
+          } else {
+            // User exists but email not verified
+            setVerificationEmail(session.user.email || "")
+            setAuthStep("email-verification")
+            setEmailVerificationSent(true)
+            setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
+          }
         }
+      } catch (error) {
+        console.error('Auth error:', error)
+        // If Supabase is not configured, show login form
+        setUser(null)
+        setIsLoggedIn(false)
+        setAuthStep("login")
+      } finally {
+        setIsDataLoaded(true)
       }
-      setIsDataLoaded(true)
     }
 
     // Check for verification first, then get session
     checkEmailVerification()
     getInitialSession()
+
+    // Add timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      setIsDataLoaded(true)
+    }, 5000) // 5 second timeout
 
     // Listen for auth changes
     const {
@@ -307,6 +321,8 @@ export default function ProtectorApp() {
       if (verificationCheckIntervalRef.current) {
         clearInterval(verificationCheckIntervalRef.current)
       }
+      // Clean up timeout
+      clearTimeout(timeout)
     }
   }, [])
 
