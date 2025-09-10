@@ -3,7 +3,7 @@ import Stripe from 'stripe'
 import { createClient } from '@/lib/supabase/server'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
+  apiVersion: '2024-06-20',
 })
 
 export async function POST(request: NextRequest) {
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update database
-    const supabase = createClient()
+    const supabase = await createClient()
 
     // Update invoice status
     const { error: invoiceError } = await supabase
