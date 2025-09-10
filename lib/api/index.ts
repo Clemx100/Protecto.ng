@@ -3,7 +3,7 @@ export { AuthAPI } from './auth'
 export { BookingAPI } from './bookings'
 export { ServicesAPI } from './services'
 export { RealtimeAPI } from './realtime'
-export { PaymentAPI } from './payments'
+export { PaymentsAPI } from './payments'
 export { AdminAPI } from './admin'
 export { AdminAnalyticsAPI } from './admin-analytics'
 
