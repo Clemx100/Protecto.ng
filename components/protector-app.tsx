@@ -6,8 +6,7 @@ import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 
 export default function ProtectorApp() {
-  // Temporarily disable Supabase for testing
-  const supabase = null
+  const supabase = createClient()
 
   const [activeTab, setActiveTab] = useState("protector")
   const [selectedService, setSelectedService] = useState("")
@@ -230,7 +229,7 @@ export default function ProtectorApp() {
     const getInitialSession = async () => {
       const {
         data: { session },
-      } = supabase ? await supabase.auth.getSession() : { data: { session: null } }
+      } = await supabase.auth.getSession()
       if (session?.user) {
         // Check if email is verified
         if (session.user.email_confirmed_at) {
@@ -256,7 +255,7 @@ export default function ProtectorApp() {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase ? supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state change:', event, 'User:', session?.user?.email, 'Verified:', session?.user?.email_confirmed_at)
       
       if (session?.user) {
@@ -438,7 +437,7 @@ export default function ProtectorApp() {
     setAuthError("")
     
     try {
-      const { error } = supabase ? await supabase.auth.resend({
+      const { error } = await supabase.auth.resend({
         type: 'signup',
         email: verificationEmail,
         options: {
@@ -461,7 +460,7 @@ export default function ProtectorApp() {
   const checkVerificationStatus = async () => {
     try {
       console.log('Checking verification status...')
-      const { data: { session }, error } = supabase ? await supabase.auth.getSession() : { data: { session: null }, error: null }
+      const { data: { session }, error } = await supabase.auth.getSession()
       
       if (error) {
         console.error('Session error:', error)
@@ -712,7 +711,7 @@ export default function ProtectorApp() {
 
   const handleLogout = async () => {
     try {
-      if (supabase) await supabase.auth.signOut()
+      await supabase.auth.signOut()
       setIsLoggedIn(false)
       setUser(null)
       setUserProfile({
@@ -754,20 +753,11 @@ export default function ProtectorApp() {
 
     try {
       if (authStep === "login") {
-        const { data, error } = supabase ? await supabase.auth.signInWithPassword({
+        const { data, error } = await supabase.auth.signInWithPassword({
           email: authForm.email.trim().toLowerCase(), // Normalize email for consistency
           password: authForm.password,
-        }) : { data: null, error: null }
+        })
 
-        // Demo mode: simulate successful login
-        if (!supabase) {
-          setAuthSuccess("Demo mode: Login successful!")
-          setIsLoggedIn(true)
-          setUser({ email: authForm.email, email_confirmed_at: new Date().toISOString() })
-          setAuthStep("profile")
-          setAuthLoading(false)
-          return
-        }
 
         if (error) {
           if (error.message.includes("Invalid login credentials")) {
@@ -798,7 +788,7 @@ export default function ProtectorApp() {
         console.log('Attempting to register user with email:', authForm.email)
         console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
         
-        const { data, error } = supabase ? await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email: authForm.email.trim().toLowerCase(), // Normalize email for consistency
           password: authForm.password,
           options: {
@@ -808,17 +798,8 @@ export default function ProtectorApp() {
               last_name: authForm.lastName,
             },
           },
-        }) : { data: null, error: null }
+        })
 
-        // Demo mode: simulate successful login/registration
-        if (!supabase) {
-          setAuthSuccess("Demo mode: Authentication simulated successfully!")
-          setIsLoggedIn(true)
-          setUser({ email: authForm.email, email_confirmed_at: new Date().toISOString() })
-          setAuthStep("profile")
-          setAuthLoading(false)
-          return
-        }
 
         if (error) {
           console.error('Supabase auth error:', error)
