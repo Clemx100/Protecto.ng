@@ -1,17 +1,24 @@
 import { createBrowserClient } from "@supabase/ssr"
 
 export function createClient() {
-  // Provide fallback values if environment variables are not set
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co'
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key'
+  // Get environment variables
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   
   console.log('Supabase Client - URL:', supabaseUrl)
-  console.log('Supabase Client - Key exists:', !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  console.log('Supabase Client - Key exists:', !!supabaseAnonKey)
   
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    console.warn('Supabase environment variables are not set. Authentication features will not work.')
-    console.warn('URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
-    console.warn('Key:', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  // Validate URL format
+  if (!supabaseUrl || !supabaseUrl.startsWith('https://') || !supabaseUrl.includes('.supabase.co')) {
+    console.error('Invalid Supabase URL format. Expected: https://your-project-id.supabase.co')
+    console.error('Current URL:', supabaseUrl)
+    throw new Error('Invalid Supabase URL configuration')
+  }
+  
+  if (!supabaseAnonKey || !supabaseAnonKey.startsWith('eyJ')) {
+    console.error('Invalid Supabase anon key format. Expected: eyJ...')
+    console.error('Current key:', supabaseAnonKey ? 'Set but invalid format' : 'Not set')
+    throw new Error('Invalid Supabase anon key configuration')
   }
   
   return createBrowserClient(supabaseUrl, supabaseAnonKey, {
