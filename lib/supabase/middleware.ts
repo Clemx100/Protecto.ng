@@ -6,16 +6,16 @@ export async function updateSession(request: NextRequest) {
     request,
   })
 
-  // Check if Supabase environment variables are available
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    // In development, allow access without Supabase
-    if (process.env.NODE_ENV === 'development') {
-      return supabaseResponse
-    }
-    // In production, redirect to error page
-    const url = request.nextUrl.clone()
-    url.pathname = "/"
-    return NextResponse.redirect(url)
+  // Check if we're using mock Supabase credentials
+  const isUsingMockCredentials = 
+    !process.env.NEXT_PUBLIC_SUPABASE_URL || 
+    !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL.includes('mock-project') ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY.includes('mock_anon_key')
+
+  // If using mock credentials, skip authentication checks
+  if (isUsingMockCredentials) {
+    return supabaseResponse
   }
 
   // With Fluid compute, don't put this client in a global environment
@@ -49,7 +49,10 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Only redirect if we have a real Supabase setup and user is not authenticated
+  // Skip redirect for mock credentials to prevent redirect loops
   if (
+    !isUsingMockCredentials &&
     request.nextUrl.pathname !== "/" &&
     !user &&
     !request.nextUrl.pathname.startsWith("/api") &&
