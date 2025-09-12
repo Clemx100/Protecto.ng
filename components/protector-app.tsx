@@ -94,40 +94,34 @@ export default function ProtectorApp() {
   // Operator Dashboard State
   const [operatorBookings, setOperatorBookings] = useState([
     {
-      id: "REQ1757448303416",
-      clientName: "John Doe",
-      clientEmail: "john.doe@example.com",
-      clientPhone: "+234 2222222222",
+      id: "OP001",
+      clientName: "John Smith",
+      clientEmail: "john@example.com",
+      clientPhone: "+234-800-000-0001",
       service: "Armed Protection Service",
-      pickup: "123 Victoria Island, Lagos",
-      destination: "456 Ikoyi, Lagos",
-      date: "2/22/2025",
-      time: "12:45:00 PM",
-      duration: "1 day",
+      pickup: "123 Main St, Downtown",
+      destination: "456 Oak Ave, Uptown",
+      date: "2025-02-22",
+      time: "2:30 PM",
+      duration: "24 hours",
       status: "pending",
       pricing: "To be provided by operator",
-      submittedAt: "9/12/2025, 9:37:59 PM",
-      protectorCount: 1,
-      protecteeCount: 1,
-      dressCode: "Tactical Casual"
+      submittedAt: "2025-10-09 00:53:09"
     },
     {
-      id: "REQ1757448303417", 
-      clientName: "Jane Smith",
-      clientEmail: "jane.smith@example.com",
-      clientPhone: "+234 3333333333",
-      service: "Armed Protection Service",
-      pickup: "789 Lekki Phase 1, Lagos",
-      destination: "321 Banana Island, Lagos",
-      date: "2/23/2025",
-      time: "10:00 AM",
+      id: "OP002", 
+      clientName: "Sarah Johnson",
+      clientEmail: "sarah@example.com",
+      clientPhone: "+234-800-000-0002",
+      service: "Unarmed Protection Service",
+      pickup: "789 Business District",
+      destination: "321 Residential Area",
+      date: "2025-02-23",
+      time: "9:00 AM",
       duration: "8 hours",
       status: "accepted",
       pricing: "₦150,000",
-      submittedAt: "9/12/2025, 9:39:17 PM",
-      protectorCount: 2,
-      protecteeCount: 1,
-      dressCode: "Business Formal"
+      submittedAt: "2025-10-09 01:15:30"
     }
   ])
 
@@ -3146,50 +3140,42 @@ export default function ProtectorApp() {
           </div>
         )}
 
-        {/* Operator Dashboard Tab */}
+        {/* Operator Dashboard Tab - Desktop Optimized */}
         {activeTab === "operator" && userRole === "agent" && (
-          <div className="flex h-screen bg-gray-900">
-            {/* Left Sidebar - Active Bookings */}
-            <div className="w-1/3 bg-gray-800 border-r border-gray-700 flex flex-col">
-              {/* Sidebar Header */}
-              <div className="p-4 border-b border-gray-700">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-white">Active Bookings</h2>
-                  <button className="p-2 text-gray-400 hover:text-white">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </button>
+          <div className="flex h-full bg-gray-900">
+            {/* Left Sidebar - Bookings List */}
+            <div className="w-1/3 border-r border-gray-800 flex flex-col">
+              {/* Header */}
+              <div className="p-4 border-b border-gray-800">
+                <h2 className="text-xl font-semibold text-white">Active Bookings</h2>
+                <p className="text-gray-400 text-sm">Manage protection requests</p>
+              </div>
+
+              {/* Search and Filter */}
+              <div className="p-4 border-b border-gray-800 space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search bookings..."
+                    className="w-full bg-gray-800 text-white pl-10 pr-4 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-blue-500"
+                  />
                 </div>
-                
-                {/* Search and Filter */}
-                <div className="space-y-3">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Search bookings..."
-                      className="w-full bg-gray-700 text-white placeholder-gray-400 px-4 py-2 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
-                    />
-                    <svg className="absolute right-3 top-2.5 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  </div>
-                  <select className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none">
-                    <option>All Status</option>
-                    <option>Pending</option>
-                    <option>Accepted</option>
-                    <option>Deployed</option>
-                  </select>
-                </div>
+                <select className="w-full bg-gray-800 text-white px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-blue-500">
+                  <option>All Status</option>
+                  <option>Pending</option>
+                  <option>Accepted</option>
+                  <option>Deployed</option>
+                </select>
               </div>
 
               {/* Bookings List */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="flex-1 overflow-y-auto">
                 {operatorBookings.map((booking) => (
                   <div 
                     key={booking.id} 
-                    className={`bg-gray-700 rounded-lg p-3 border cursor-pointer transition-colors ${
-                      selectedBooking?.id === booking.id ? 'border-blue-500 bg-gray-600' : 'border-gray-600 hover:border-gray-500'
+                    className={`p-4 border-b border-gray-800 cursor-pointer hover:bg-gray-800 transition-colors ${
+                      selectedBooking?.id === booking.id ? 'bg-gray-800 border-l-4 border-l-blue-500' : ''
                     }`}
                     onClick={() => setSelectedBooking(booking)}
                   >
@@ -3197,116 +3183,127 @@ export default function ProtectorApp() {
                       <h3 className="text-sm font-semibold text-white">#{booking.id}</h3>
                       <span className={`px-2 py-1 rounded text-xs font-medium ${
                         booking.status === "pending" ? "bg-yellow-600 text-yellow-100" :
-                        booking.status === "accepted" ? "bg-blue-600 text-blue-100" :
-                        booking.status === "deployed" ? "bg-green-600 text-green-100" :
+                        booking.status === "accepted" ? "bg-green-600 text-green-100" :
+                        booking.status === "deployed" ? "bg-blue-600 text-blue-100" :
                         "bg-red-600 text-red-100"
                       }`}>
                         {booking.status.toUpperCase()}
                       </span>
                     </div>
-                    <div className="text-xs text-gray-300 space-y-1">
-                      <div className="font-medium text-white">{booking.clientName}</div>
-                      <div>{booking.pickup}</div>
-                      <div className="text-gray-400">{booking.submittedAt}</div>
-                    </div>
+                    <p className="text-white text-sm font-medium">{booking.clientName}</p>
+                    <p className="text-gray-400 text-xs">{booking.pickup}</p>
+                    <p className="text-gray-500 text-xs">{booking.submittedAt}</p>
                   </div>
                 ))}
               </div>
             </div>
 
             {/* Right Panel - Booking Details */}
-            <div className="flex-1 bg-gray-900 flex flex-col">
+            <div className="flex-1 flex flex-col">
               {selectedBooking ? (
                 <>
-                  {/* Header */}
-                  <div className="p-6 border-b border-gray-700">
-                    <div className="flex items-center justify-between mb-2">
-                      <h2 className="text-2xl font-semibold text-white">#{selectedBooking.id} - {selectedBooking.clientName}</h2>
+                  {/* Booking Header */}
+                  <div className="p-6 border-b border-gray-800">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h2 className="text-2xl font-semibold text-white">#{selectedBooking.id} - {selectedBooking.clientName}</h2>
+                        <p className="text-gray-400">{selectedBooking.pickup}</p>
+                      </div>
                       <span className={`px-3 py-1 rounded-full text-sm font-medium ${
                         selectedBooking.status === "pending" ? "bg-yellow-600 text-yellow-100" :
-                        selectedBooking.status === "accepted" ? "bg-blue-600 text-blue-100" :
-                        selectedBooking.status === "deployed" ? "bg-green-600 text-green-100" :
+                        selectedBooking.status === "accepted" ? "bg-green-600 text-green-100" :
+                        selectedBooking.status === "deployed" ? "bg-blue-600 text-blue-100" :
                         "bg-red-600 text-red-100"
                       }`}>
                         {selectedBooking.status.toUpperCase()}
                       </span>
                     </div>
-                    <p className="text-gray-400">{selectedBooking.pickup}</p>
                   </div>
 
-                  {/* Request Details */}
+                  {/* Booking Details */}
                   <div className="flex-1 p-6 overflow-y-auto">
                     <div className="bg-gray-800 rounded-lg p-6">
-                      <h3 className="text-xl font-semibold text-white mb-4">New Protection Request - #{selectedBooking.id}</h3>
+                      <h3 className="text-lg font-semibold text-white mb-4">Request Details</h3>
                       
-                      <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="grid grid-cols-2 gap-4 mb-6">
                         <div>
-                          <span className="text-gray-400">Service:</span>
-                          <div className="text-white font-medium">{selectedBooking.service}</div>
+                          <label className="text-sm font-medium text-gray-400">Service</label>
+                          <p className="text-white">{selectedBooking.service}</p>
                         </div>
                         <div>
-                          <span className="text-gray-400">Pickup:</span>
-                          <div className="text-white font-medium">{selectedBooking.pickup}</div>
+                          <label className="text-sm font-medium text-gray-400">Date & Time</label>
+                          <p className="text-white">{selectedBooking.date} at {selectedBooking.time}</p>
                         </div>
                         <div>
-                          <span className="text-gray-400">Date & Time:</span>
-                          <div className="text-white font-medium">{selectedBooking.date} at {selectedBooking.time}</div>
+                          <label className="text-sm font-medium text-gray-400">Duration</label>
+                          <p className="text-white">{selectedBooking.duration}</p>
                         </div>
                         <div>
-                          <span className="text-gray-400">Duration:</span>
-                          <div className="text-white font-medium">{selectedBooking.duration}</div>
+                          <label className="text-sm font-medium text-gray-400">Contact</label>
+                          <p className="text-white">{selectedBooking.clientPhone}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-sm font-medium text-gray-400">Pickup Location</label>
+                          <p className="text-white">{selectedBooking.pickup}</p>
+                        </div>
+                        <div className="col-span-2">
+                          <label className="text-sm font-medium text-gray-400">Destination</label>
+                          <p className="text-white">{selectedBooking.destination}</p>
                         </div>
                         <div>
-                          <span className="text-gray-400">Destination:</span>
-                          <div className="text-white font-medium">{selectedBooking.destination}</div>
+                          <label className="text-sm font-medium text-gray-400">Pricing</label>
+                          <p className="text-white">{selectedBooking.pricing}</p>
                         </div>
                         <div>
-                          <span className="text-gray-400">Personnel:</span>
-                          <div className="text-white font-medium">{selectedBooking.protectorCount || 1} protectors for {selectedBooking.protecteeCount || 1} protectees</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Contact:</span>
-                          <div className="text-white font-medium">{selectedBooking.clientPhone}</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Vehicle Type:</span>
-                          <div className="text-white font-medium">Mercedes S-Class</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Dress Code:</span>
-                          <div className="text-white font-medium">{selectedBooking.dressCode || 'Tactical Casual'}</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Special Requirements:</span>
-                          <div className="text-white font-medium">High-risk area protection</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Pricing:</span>
-                          <div className="text-white font-medium">{selectedBooking.pricing}</div>
-                        </div>
-                        <div>
-                          <span className="text-gray-400">Submitted:</span>
-                          <div className="text-white font-medium">{selectedBooking.submittedAt}</div>
+                          <label className="text-sm font-medium text-gray-400">Submitted</label>
+                          <p className="text-white">{selectedBooking.submittedAt}</p>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Operator Actions */}
-                    <div className="mt-6 bg-gray-800 rounded-lg p-6">
-                      <h3 className="text-lg font-semibold text-white mb-4">Operator Actions</h3>
-                      <div className="flex space-x-4">
-                        <button 
-                          onClick={() => handleAcceptBooking(selectedBooking.id)}
-                          className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 transition-colors"
-                        >
-                          Confirm
-                        </button>
-                        <button 
-                          onClick={() => setShowInvoiceModal(true)}
-                          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                          Send Invoice
-                        </button>
+                      {/* Action Buttons */}
+                      <div className="border-t border-gray-700 pt-4">
+                        <h4 className="text-lg font-semibold text-white mb-4">Operator Actions</h4>
+                        <div className="flex gap-3">
+                          {selectedBooking.status === "pending" && (
+                            <>
+                              <Button
+                                onClick={() => handleAcceptBooking(selectedBooking.id)}
+                                className="bg-green-600 text-white hover:bg-green-700 px-6 py-2"
+                              >
+                                Accept
+                              </Button>
+                              <Button
+                                onClick={() => handleRejectBooking(selectedBooking.id)}
+                                className="bg-red-600 text-white hover:bg-red-700 px-6 py-2"
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          )}
+
+                          {selectedBooking.status === "accepted" && (
+                            <>
+                              <Button
+                                onClick={() => handleSendInvoice(selectedBooking.id)}
+                                className="bg-blue-600 text-white hover:bg-blue-700 px-6 py-2"
+                              >
+                                Send Invoice
+                              </Button>
+                              <Button
+                                onClick={() => handleDeployBooking(selectedBooking.id)}
+                                className="bg-green-600 text-white hover:bg-green-700 px-6 py-2"
+                              >
+                                Deploy
+                              </Button>
+                            </>
+                          )}
+
+                          {selectedBooking.status === "deployed" && (
+                            <div className="bg-green-600 text-green-100 px-6 py-2 rounded text-center">
+                              ✅ Service Deployed
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -3314,140 +3311,14 @@ export default function ProtectorApp() {
               ) : (
                 <div className="flex-1 flex items-center justify-center">
                   <div className="text-center">
-                    <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                      </svg>
+                    <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <Calendar className="w-8 h-8 text-gray-400" />
                     </div>
-                    <h3 className="text-xl font-semibold text-white mb-2">Select a Booking</h3>
-                    <p className="text-gray-400">Choose a booking from the sidebar to view details and take action.</p>
+                    <h3 className="text-lg font-semibold text-white mb-2">No Booking Selected</h3>
+                    <p className="text-gray-400">Select a booking from the list to view details</p>
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        )}
-
-        {/* Invoice Modal */}
-        {showInvoiceModal && selectedBooking && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4">
-              <h3 className="text-xl font-semibold text-white mb-4">Create Invoice</h3>
-              
-              {/* Currency Selection */}
-              <div className="flex space-x-2 mb-6">
-                <button className={`px-4 py-2 rounded-lg ${invoiceForm.currency === 'NGN' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}>
-                  ₦ NGN
-                </button>
-                <button className={`px-4 py-2 rounded-lg ${invoiceForm.currency === 'USD' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300'}`}>
-                  $ USD
-                </button>
-              </div>
-
-              {/* Service Details */}
-              <div className="mb-6">
-                <h4 className="text-lg font-semibold text-white mb-2">Service Details</h4>
-                <p className="text-gray-300">{selectedBooking.service}</p>
-                <p className="text-gray-400 text-sm">{selectedBooking.protectorCount || 1} protectors for {selectedBooking.protecteeCount || 1} protectees</p>
-              </div>
-
-              {/* Pricing Inputs */}
-              <div className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Base Price</label>
-                  <input
-                    type="number"
-                    value={invoiceForm.basePrice}
-                    onChange={(e) => setInvoiceForm({...invoiceForm, basePrice: parseInt(e.target.value)})}
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Hourly Rate</label>
-                  <input
-                    type="number"
-                    value={invoiceForm.hourlyRate}
-                    onChange={(e) => setInvoiceForm({...invoiceForm, hourlyRate: parseInt(e.target.value)})}
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Vehicle Fee</label>
-                  <input
-                    type="number"
-                    value={invoiceForm.vehicleFee}
-                    onChange={(e) => setInvoiceForm({...invoiceForm, vehicleFee: parseInt(e.target.value)})}
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Personnel Fee</label>
-                  <input
-                    type="number"
-                    value={invoiceForm.personnelFee}
-                    onChange={(e) => setInvoiceForm({...invoiceForm, personnelFee: parseInt(e.target.value)})}
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Duration (hours)</label>
-                  <input
-                    type="number"
-                    value={invoiceForm.duration}
-                    onChange={(e) => setInvoiceForm({...invoiceForm, duration: parseInt(e.target.value)})}
-                    className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Invoice Summary */}
-              <div className="bg-gray-700 rounded-lg p-4 mb-6">
-                <h4 className="text-lg font-semibold text-white mb-3">Invoice Summary</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Base Price:</span>
-                    <span className="text-white">₦{invoiceForm.basePrice.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Hourly Rate ({invoiceForm.duration}h):</span>
-                    <span className="text-white">₦{(invoiceForm.hourlyRate * invoiceForm.duration).toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Vehicle Fee:</span>
-                    <span className="text-white">₦{invoiceForm.vehicleFee.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-300">Personnel Fee:</span>
-                    <span className="text-white">₦{invoiceForm.personnelFee.toLocaleString()}</span>
-                  </div>
-                  <div className="border-t border-gray-600 pt-2 mt-2">
-                    <div className="flex justify-between text-lg font-semibold">
-                      <span className="text-white">Total Amount:</span>
-                      <span className="text-green-400">₦{(invoiceForm.basePrice + (invoiceForm.hourlyRate * invoiceForm.duration) + invoiceForm.vehicleFee + invoiceForm.personnelFee).toLocaleString()}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => setShowInvoiceModal(false)}
-                  className="flex-1 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    // Handle send invoice
-                    setShowInvoiceModal(false)
-                    alert('Invoice sent successfully!')
-                  }}
-                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Send Invoice
-                </button>
-              </div>
             </div>
           </div>
         )}
