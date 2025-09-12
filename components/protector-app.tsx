@@ -9,7 +9,7 @@ export default function ProtectorApp() {
   const supabase = createClient()
 
   const [activeTab, setActiveTab] = useState("protector")
-  const [userRole, setUserRole] = useState("client") // "client", "agent", "admin"
+  const [userRole, setUserRole] = useState("agent") // "client", "agent", "admin" - Set to "agent" for testing operator dashboard
   const [selectedService, setSelectedService] = useState("")
   const [protectorArmed, setProtectorArmed] = useState(true)
   const [unarmedNeedsCar, setUnarmedNeedsCar] = useState(true)
