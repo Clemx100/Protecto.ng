@@ -9,6 +9,7 @@ export default function ProtectorApp() {
   const supabase = createClient()
 
   const [activeTab, setActiveTab] = useState("protector")
+  const [userRole, setUserRole] = useState("client") // "client", "agent", "admin"
   const [selectedService, setSelectedService] = useState("")
   const [protectorArmed, setProtectorArmed] = useState(true)
   const [unarmedNeedsCar, setUnarmedNeedsCar] = useState(true)
@@ -89,6 +90,52 @@ export default function ProtectorApp() {
   const [showChatThread, setShowChatThread] = useState(false)
   const [bookingPayload, setBookingPayload] = useState<any>(null)
   const [requestStatus, setRequestStatus] = useState("Pending Deployment")
+
+  // Operator Dashboard State
+  const [operatorBookings, setOperatorBookings] = useState([
+    {
+      id: "OP001",
+      clientName: "John Smith",
+      clientEmail: "john@example.com",
+      clientPhone: "+234-800-000-0001",
+      service: "Armed Protection Service",
+      pickup: "123 Main St, Downtown",
+      destination: "456 Oak Ave, Uptown",
+      date: "2025-02-22",
+      time: "2:30 PM",
+      duration: "24 hours",
+      status: "pending",
+      pricing: "To be provided by operator",
+      submittedAt: "2025-10-09 00:53:09"
+    },
+    {
+      id: "OP002", 
+      clientName: "Sarah Johnson",
+      clientEmail: "sarah@example.com",
+      clientPhone: "+234-800-000-0002",
+      service: "Unarmed Protection Service",
+      pickup: "789 Business District",
+      destination: "321 Residential Area",
+      date: "2025-02-23",
+      time: "9:00 AM",
+      duration: "8 hours",
+      status: "accepted",
+      pricing: "₦150,000",
+      submittedAt: "2025-10-09 01:15:30"
+    }
+  ])
+
+  const [selectedBooking, setSelectedBooking] = useState<any>(null)
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [invoiceForm, setInvoiceForm] = useState({
+    basePrice: 100000,
+    hourlyRate: 25000,
+    vehicleFee: 100000,
+    personnelFee: 40000,
+    duration: 24,
+    currency: "NGN" // "NGN" or "USD"
+  })
+  const [operatorChatMessage, setOperatorChatMessage] = useState("")
 
   const [activeBookings, setActiveBookings] = useState([
     {
@@ -233,11 +280,13 @@ export default function ProtectorApp() {
         } = await supabase.auth.getSession()
         if (session?.user) {
           // Check if email is verified
-          if (session.user.email_confirmed_at) {
-            setUser(session.user)
-            setIsLoggedIn(true)
-            // Load user profile from database
-            await loadUserProfile(session.user.id)
+        if (session.user.email_confirmed_at) {
+          setUser(session.user)
+          setIsLoggedIn(true)
+          // Load user profile from database
+          await loadUserProfile(session.user.id)
+          // Check user role
+          await checkUserRole(session.user.id)
           } else {
             // User exists but email not verified
             setVerificationEmail(session.user.email || "")
@@ -338,6 +387,101 @@ export default function ProtectorApp() {
       }
     } catch (error) {
       console.error("Error loading user profile:", error)
+    }
+  }
+
+  const checkUserRole = async (userId: string) => {
+    try {
+      console.log("Checking user role for userId:", userId)
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role, email')
+        .eq('id', userId)
+        .single()
+
+      console.log("Role check result:", { data, error })
+
+      if (error) {
+        console.error("Error checking user role:", error)
+        console.log("No profile found, user role remains as:", userRole)
+        return
+      }
+
+      if (data) {
+        const role = data.role || "client"
+        setUserRole(role)
+        console.log("User role set to:", role)
+      } else {
+        console.log("No role found in profile, user role remains as:", userRole)
+      }
+    } catch (error) {
+      console.error("Error checking user role:", error)
+    }
+  }
+
+  // Operator Dashboard Functions
+  const handleAcceptBooking = (bookingId: string) => {
+    setOperatorBookings(prev => 
+      prev.map(booking => 
+        booking.id === bookingId 
+          ? { ...booking, status: "accepted" }
+          : booking
+      )
+    )
+  }
+
+  const handleRejectBooking = (bookingId: string) => {
+    setOperatorBookings(prev => 
+      prev.map(booking => 
+        booking.id === bookingId 
+          ? { ...booking, status: "rejected" }
+          : booking
+      )
+    )
+  }
+
+  const handleDeployBooking = (bookingId: string) => {
+    setOperatorBookings(prev => 
+      prev.map(booking => 
+        booking.id === bookingId 
+          ? { ...booking, status: "deployed" }
+          : booking
+      )
+    )
+  }
+
+  const handleSendInvoice = (bookingId: string) => {
+    setSelectedBooking(operatorBookings.find(b => b.id === bookingId))
+    setShowInvoiceModal(true)
+  }
+
+  const calculateInvoiceTotal = () => {
+    const { basePrice, hourlyRate, vehicleFee, personnelFee, duration, currency } = invoiceForm
+    const total = basePrice + (hourlyRate * duration) + vehicleFee + personnelFee
+    return { total, currency }
+  }
+
+  const handleCreateInvoice = () => {
+    const { total, currency } = calculateInvoiceTotal()
+    const currencySymbol = currency === "NGN" ? "₦" : "$"
+    
+    setOperatorBookings(prev => 
+      prev.map(booking => 
+        booking.id === selectedBooking?.id 
+          ? { ...booking, pricing: `${currencySymbol}${total.toLocaleString()}` }
+          : booking
+      )
+    )
+    
+    setShowInvoiceModal(false)
+    setSelectedBooking(null)
+  }
+
+  const handleOperatorChatSend = () => {
+    if (operatorChatMessage.trim()) {
+      // Handle operator chat message
+      console.log("Operator message:", operatorChatMessage)
+      setOperatorChatMessage("")
     }
   }
 
@@ -2954,6 +3098,143 @@ export default function ProtectorApp() {
           </div>
         )}
 
+        {/* Operator Dashboard Tab */}
+        {activeTab === "operator" && userRole === "agent" && (
+          <div className="flex flex-col h-full bg-gray-900">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-800">
+              <h2 className="text-2xl font-semibold text-white">Operator Dashboard</h2>
+              <p className="text-gray-400 text-sm">Manage protection requests and deployments</p>
+            </div>
+
+            {/* Bookings List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {operatorBookings.map((booking) => (
+                <div key={booking.id} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                  {/* Booking Header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-white">New Protection Request</h3>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      booking.status === "pending" ? "bg-yellow-600 text-yellow-100" :
+                      booking.status === "accepted" ? "bg-green-600 text-green-100" :
+                      booking.status === "deployed" ? "bg-blue-600 text-blue-100" :
+                      "bg-red-600 text-red-100"
+                    }`}>
+                      {booking.status.toUpperCase()}
+                    </span>
+                  </div>
+
+                  {/* Booking Details */}
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Service:</span>
+                      <span className="text-white">{booking.service}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Client:</span>
+                      <span className="text-white">{booking.clientName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Pickup:</span>
+                      <span className="text-white underline">{booking.pickup}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Date & Time:</span>
+                      <span className="text-white">{booking.date} at {booking.time}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Duration:</span>
+                      <span className="text-white">{booking.duration}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Destination:</span>
+                      <span className="text-white underline">{booking.destination}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Contact:</span>
+                      <span className="text-white">{booking.clientPhone}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Pricing:</span>
+                      <span className="text-white">{booking.pricing}</span>
+                    </div>
+                  </div>
+
+                  {/* Submitted Time */}
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <span className="text-xs text-gray-500">Submitted: {booking.submittedAt}</span>
+                  </div>
+
+                  {/* Action Buttons */}
+                  {booking.status === "pending" && (
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        onClick={() => handleAcceptBooking(booking.id)}
+                        className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        onClick={() => handleRejectBooking(booking.id)}
+                        className="flex-1 bg-red-600 text-white hover:bg-red-700"
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  )}
+
+                  {booking.status === "accepted" && (
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        onClick={() => handleSendInvoice(booking.id)}
+                        className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        Send Invoice
+                      </Button>
+                      <Button
+                        onClick={() => handleDeployBooking(booking.id)}
+                        className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                      >
+                        Deploy
+                      </Button>
+                    </div>
+                  )}
+
+                  {booking.status === "deployed" && (
+                    <div className="mt-4">
+                      <div className="bg-green-600 text-green-100 px-3 py-2 rounded text-center">
+                        ✅ Service Deployed
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Chat Input */}
+            <div className="p-4 border-t border-gray-800">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
+                  O
+                </div>
+                <input
+                  type="text"
+                  value={operatorChatMessage}
+                  onChange={(e) => setOperatorChatMessage(e.target.value)}
+                  placeholder="Type your message..."
+                  className="flex-1 bg-gray-800 text-white px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-blue-500"
+                />
+                <Button
+                  onClick={handleOperatorChatSend}
+                  className="bg-blue-600 text-white hover:bg-blue-700 px-4 py-2"
+                >
+                  Send
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Account Tab */}
         {activeTab === "account" && (
           <div className="p-4 space-y-6">
@@ -3166,8 +3447,29 @@ export default function ProtectorApp() {
         )}
       </main>
 
+      {/* Debug Info - Remove this after testing */}
+      {isLoggedIn && user && (
+        <div className="fixed bottom-16 left-0 right-0 w-full max-w-md mx-auto bg-gray-800 text-white p-2 z-40 border-t border-gray-700">
+          <div className="text-xs text-center space-x-2">
+            <span>Debug: {user.email} | Role: {userRole}</span>
+            <button 
+              onClick={() => checkUserRole(user.id)}
+              className="px-2 py-1 bg-blue-600 text-white rounded text-xs"
+            >
+              Check Role
+            </button>
+            <button 
+              onClick={handleLogout}
+              className="px-2 py-1 bg-red-600 text-white rounded text-xs"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 max-w-sm mx-auto bg-black text-white p-4 z-50 border-t border-gray-800">
+      <footer className="fixed bottom-0 left-0 right-0 w-full max-w-md mx-auto bg-black text-white p-4 z-50 border-t border-gray-800">
         <div className="flex items-center justify-between">
           <button
             onClick={() => setActiveTab("protector")}
@@ -3189,6 +3491,19 @@ export default function ProtectorApp() {
             <span className="text-xs">Bookings</span>
           </button>
 
+          {/* Operator Dashboard Tab - Only visible to operators */}
+          {userRole === "agent" && (
+            <button
+              onClick={() => setActiveTab("operator")}
+              className={`flex flex-col items-center justify-center gap-1 ${
+                activeTab === "operator" ? "text-blue-500" : "text-gray-400"
+              }`}
+            >
+              <User className="h-5 w-5" />
+              <span className="text-xs">Operator</span>
+            </button>
+          )}
+
           <button
             onClick={() => setActiveTab("account")}
             className={`flex flex-col items-center justify-center gap-1 ${
@@ -3200,6 +3515,128 @@ export default function ProtectorApp() {
           </button>
         </div>
       </footer>
+
+      {/* Invoice Modal */}
+      {showInvoiceModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-white mb-4">Create Invoice</h3>
+            
+            <div className="space-y-4">
+              {/* Currency Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Currency</label>
+                <select
+                  value={invoiceForm.currency}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, currency: e.target.value }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="NGN">Nigerian Naira (₦)</option>
+                  <option value="USD">US Dollar ($)</option>
+                </select>
+              </div>
+
+              {/* Base Price */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Base Price</label>
+                <input
+                  type="number"
+                  value={invoiceForm.basePrice}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, basePrice: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Hourly Rate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Hourly Rate</label>
+                <input
+                  type="number"
+                  value={invoiceForm.hourlyRate}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, hourlyRate: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Vehicle Fee */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Vehicle Fee</label>
+                <input
+                  type="number"
+                  value={invoiceForm.vehicleFee}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, vehicleFee: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Personnel Fee */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Personnel Fee</label>
+                <input
+                  type="number"
+                  value={invoiceForm.personnelFee}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, personnelFee: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Duration */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Duration (hours)</label>
+                <input
+                  type="number"
+                  value={invoiceForm.duration}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, duration: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Invoice Summary */}
+            <div className="mt-6 p-4 bg-gray-700 rounded-lg">
+              <h4 className="text-lg font-semibold text-white mb-3">Invoice Summary</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Base Price:</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{invoiceForm.basePrice.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Hourly Rate ({invoiceForm.duration}h):</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{(invoiceForm.hourlyRate * invoiceForm.duration).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Vehicle Fee:</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{invoiceForm.vehicleFee.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Personnel Fee:</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{invoiceForm.personnelFee.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-lg font-semibold pt-2 border-t border-gray-600">
+                  <span className="text-white">Total Amount:</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{calculateInvoiceTotal().total.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 mt-6">
+              <Button
+                onClick={() => setShowInvoiceModal(false)}
+                className="flex-1 bg-gray-600 text-white hover:bg-gray-700"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateInvoice}
+                className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Send Invoice
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
