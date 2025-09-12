@@ -1,5 +1,5 @@
 import type React from "react"
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter } from "next/font/google"
 import { Suspense } from "react"
 import "./globals.css"
@@ -14,7 +14,13 @@ export const metadata: Metadata = {
   title: "Protector.ng - Armed Protection Services",
   description: "Professional armed protection and security services in Nigeria",
   generator: "v0.app",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+}
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 }
 
 export default function RootLayout({
@@ -24,9 +30,6 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-      </head>
       <body className={`font-sans leading-7 ${inter.variable} antialiased`}>
         <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
       </body>
