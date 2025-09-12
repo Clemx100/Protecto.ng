@@ -40,16 +40,9 @@ export default function ProtectorApp() {
 
   const [showLoginForm, setShowLoginForm] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
-  const [isLoggedIn, setIsLoggedIn] = useState(true) // Set to true to bypass authentication
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [authStep, setAuthStep] = useState("login") // "login", "register", "email-verification", "profile"
-  const [user, setUser] = useState<any>({
-    id: "mock-user-id",
-    email: "demo@protector.ng",
-    user_metadata: {
-      first_name: "Demo",
-      last_name: "User"
-    }
-  })
+  const [user, setUser] = useState<any>(null)
 
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState("")
