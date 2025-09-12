@@ -3447,26 +3447,6 @@ export default function ProtectorApp() {
         )}
       </main>
 
-      {/* Debug Info - Remove this after testing */}
-      {isLoggedIn && user && (
-        <div className="fixed bottom-16 left-0 right-0 w-full max-w-md mx-auto bg-gray-800 text-white p-2 z-40 border-t border-gray-700">
-          <div className="text-xs text-center space-x-2">
-            <span>Debug: {user.email} | Role: {userRole}</span>
-            <button 
-              onClick={() => checkUserRole(user.id)}
-              className="px-2 py-1 bg-blue-600 text-white rounded text-xs"
-            >
-              Check Role
-            </button>
-            <button 
-              onClick={handleLogout}
-              className="px-2 py-1 bg-red-600 text-white rounded text-xs"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 w-full max-w-md mx-auto bg-black text-white p-4 z-50 border-t border-gray-800">
