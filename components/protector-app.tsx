@@ -2881,6 +2881,48 @@ export default function ProtectorApp() {
                   </Button>
                   <Button
                     onClick={() => {
+                      // Create new booking for operator dashboard
+                      const newBooking = {
+                        id: `OP${Date.now()}`,
+                        clientName: user?.user_metadata?.full_name || "Client",
+                        clientEmail: user?.email || "client@example.com",
+                        clientPhone: phoneNumber || "+234-000-000-0000",
+                        service: selectedService === "armed-protection" 
+                          ? (protectorArmed ? "Armed Protection Service" : "Unarmed Protection Service")
+                          : "Car Only Service",
+                        pickup: pickupLocation || "Location not specified",
+                        destination: multipleDestinations && multipleDestinations.length > 0 
+                          ? multipleDestinations.join(", ")
+                          : "Destination not specified",
+                        date: pickupDate,
+                        time: pickupTime,
+                        duration: duration,
+                        status: "pending",
+                        pricing: "To be provided by operator",
+                        submittedAt: new Date().toLocaleString('en-US', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        }),
+                        // Additional details for armed protection
+                        ...(selectedService === "armed-protection" && {
+                          protecteeCount,
+                          protectorCount,
+                          dressCode: dressCodeOptions.find(option => option.id === selectedDressCode)?.name,
+                          armed: protectorArmed,
+                          needsCar: unarmedNeedsCar
+                        }),
+                        // Vehicle details
+                        vehicles: selectedVehicles,
+                        passengerCount: selectedService === "car-only" ? passengerCount : undefined
+                      }
+
+                      // Add to operator bookings
+                      setOperatorBookings(prev => [newBooking, ...prev])
+                      
                       alert("🎉 Booking confirmed! You will receive a confirmation SMS shortly.")
                       setActiveTab("bookings")
                       setBookingStep(1)
