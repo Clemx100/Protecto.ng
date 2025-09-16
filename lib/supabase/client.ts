@@ -5,36 +5,33 @@ export function createClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   
-  // In development mode, use mock values if environment variables are not set
-  if (process.env.NODE_ENV === 'development' && (!supabaseUrl || !supabaseAnonKey)) {
-    console.log('Development mode: Using mock Supabase client')
-    return createBrowserClient(
-      'https://mock-project.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1vY2stcHJvamVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjQwOTk1MjAwLCJleHAiOjE5NTYzNTUyMDB9.mock_anon_key_for_development',
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-          detectSessionInUrl: false
-        }
-      }
-    )
-  }
+  // Debug logging
+  console.log('Supabase Client Debug:')
+  console.log('NODE_ENV:', process.env.NODE_ENV)
+  console.log('SUPABASE_URL:', supabaseUrl)
+  console.log('SUPABASE_KEY:', supabaseAnonKey ? 'Set' : 'Not set')
   
-  // Validate URL format for production
-  if (!supabaseUrl || !supabaseUrl.startsWith('https://') || !supabaseUrl.includes('.supabase.co')) {
+  // Use environment variables if available, otherwise fallback to hardcoded values for development
+  const finalUrl = supabaseUrl || 'https://mjdbhusnplveeaveeovd.supabase.co'
+  const finalKey = supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDU5NTMsImV4cCI6MjA3MzUyMTk1M30.Jhsz_eRvmotyGgRzszwfKF8czxSnNE92q1SBupR9DB4'
+  
+  console.log('Using Supabase URL:', finalUrl)
+  console.log('Using Supabase Key:', finalKey ? 'Set' : 'Not set')
+  
+  // Validate URL format
+  if (!finalUrl || !finalUrl.startsWith('https://') || !finalUrl.includes('.supabase.co')) {
     console.error('Invalid Supabase URL format. Expected: https://your-project-id.supabase.co')
-    console.error('Current URL:', supabaseUrl)
+    console.error('Current URL:', finalUrl)
     throw new Error('Invalid Supabase URL configuration')
   }
   
-  if (!supabaseAnonKey || !supabaseAnonKey.startsWith('eyJ')) {
+  if (!finalKey || !finalKey.startsWith('eyJ')) {
     console.error('Invalid Supabase anon key format. Expected: eyJ...')
-    console.error('Current key:', supabaseAnonKey ? 'Set but invalid format' : 'Not set')
+    console.error('Current key:', finalKey ? 'Set but invalid format' : 'Not set')
     throw new Error('Invalid Supabase anon key configuration')
   }
   
-  return createBrowserClient(supabaseUrl, supabaseAnonKey, {
+  return createBrowserClient(finalUrl, finalKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,

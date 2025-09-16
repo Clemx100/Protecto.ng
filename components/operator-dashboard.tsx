@@ -7,13 +7,20 @@ import {
   RefreshCw,
   Bell,
   Shield,
-  Send
+  Send,
+  LogOut
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
+import { bookingService } from "@/lib/services/bookingService"
+import { chatService } from "@/lib/services/chatService"
 import { AdminAPI } from "@/lib/api"
 
-export default function OperatorDashboard() {
+interface OperatorDashboardProps {
+  onLogout?: () => void
+}
+
+export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) {
   const supabase = createClient()
   
   // State management
@@ -89,7 +96,17 @@ export default function OperatorDashboard() {
 
   const loadBookings = async () => {
     try {
-      // Mock data with detailed request information
+      console.log('Loading bookings from database and localStorage...')
+      
+      // Try to load from database first
+      const dbBookings = await bookingService.getBookings()
+      console.log('Database bookings:', dbBookings.length)
+      
+      // Load bookings from localStorage (where new bookings are stored)
+      const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+      console.log('LocalStorage bookings:', localBookings.length)
+      
+      // Mock data with detailed request information (fallback)
       const mockBookings = [
         {
           id: "REQ1757448303416",
@@ -112,7 +129,7 @@ export default function OperatorDashboard() {
           total_price: 450000,
           personnel: {
             protectors: 1,
-            protectees: 1
+            protectee: 1
           },
           dress_code: "tactical-casual",
           vehicle_type: "Mercedes S-Class",
@@ -140,18 +157,26 @@ export default function OperatorDashboard() {
           total_price: 25000,
           personnel: {
             protectors: 0,
-            protectees: 2
+            protectee: 2
           },
           dress_code: "business-casual",
           vehicle_type: "BMW X7",
           special_requirements: "Airport pickup"
         }
       ]
-      setBookings(mockBookings)
+      
+      // Combine all sources: database, localStorage, and mock data
+      const allBookings = [...dbBookings, ...localBookings, ...mockBookings.filter(mock => 
+        !localBookings.some(local => local.id === mock.id) &&
+        !dbBookings.some(db => db.id === mock.id)
+      )]
+      
+      console.log('Total bookings loaded:', allBookings.length)
+      setBookings(allBookings)
       
       // Auto-select first pending booking if none selected
-      if (!selectedBooking && mockBookings.length > 0) {
-        const pendingBooking = mockBookings.find(b => b.status === 'pending')
+      if (!selectedBooking && allBookings.length > 0) {
+        const pendingBooking = allBookings.find(b => b.status === 'pending')
         if (pendingBooking) {
           setSelectedBooking(pendingBooking)
           loadMessages(pendingBooking.id)
@@ -164,27 +189,39 @@ export default function OperatorDashboard() {
 
   const loadMessages = async (bookingId: string) => {
     try {
-      // Mock messages for now
-      const mockMessages = [
-        {
-          id: 1,
-          booking_id: bookingId,
-          sender_type: 'system',
-          message: 'New protection request received',
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 2,
-          booking_id: bookingId,
-          sender_type: 'client',
-          message: 'Hello, I need armed protection for my meeting today',
-          created_at: new Date().toISOString()
-        }
-      ]
-      setMessages(mockMessages)
+      // First try to load from database
+      const { data: dbMessages, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('booking_id', bookingId)
+        .order('created_at', { ascending: true })
+
+      if (error) {
+        console.error('Error loading messages from database:', error)
+        // Fallback to localStorage
+        const localMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+        setMessages(localMessages)
+      } else if (dbMessages && dbMessages.length > 0) {
+        // Convert messages table format to expected format
+        const convertedMessages = dbMessages.map(msg => ({
+          id: msg.id,
+          booking_id: msg.booking_id,
+          sender_type: 'client', // Default to client
+          message: msg.content,
+          created_at: msg.created_at
+        }))
+        setMessages(convertedMessages)
+      } else {
+        // If no messages in database, check localStorage
+        const localMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+        setMessages(localMessages)
+      }
+      
       scrollToBottom()
     } catch (error) {
       console.error('Failed to load messages:', error)
+      // Final fallback to empty array
+      setMessages([])
     }
   }
 
@@ -268,6 +305,7 @@ export default function OperatorDashboard() {
           systemMessage = "Booking confirmed by operator"
           break
         case "invoice":
+        case "send_invoice":
           const invoice = calculateInvoice(selectedBooking, currency)
           setInvoiceData(invoice)
           setShowInvoiceModal(true)
@@ -303,28 +341,73 @@ export default function OperatorDashboard() {
           break
       }
 
-      // Add system message
+      // Send messages through chat service for real-time synchronization
       if (systemMessage) {
-        const systemMsg = {
-          id: messages.length + 1,
+        console.log('📤 OPERATOR SENDING SYSTEM MESSAGE:', systemMessage)
+        const systemMsg = await chatService.sendMessage({
           booking_id: selectedBooking.id,
           sender_type: 'system',
+          sender_id: 'operator', // Use 'operator' as sender ID for system messages
           message: systemMessage,
-          created_at: new Date().toISOString()
-        }
+          is_system_message: true
+        })
+        console.log('✅ System message sent successfully:', systemMsg)
         setMessages(prev => [...prev, systemMsg])
+        
+        // Also store in shared localStorage for user chat fallback
+        const sharedKey = `shared_chat_${selectedBooking.id}`
+        const userKey = `chat_${selectedBooking.id}`
+        const existingShared = JSON.parse(localStorage.getItem(sharedKey) || '[]')
+        const existingUser = JSON.parse(localStorage.getItem(userKey) || '[]')
+        
+        const updatedShared = [...existingShared, systemMsg]
+        const updatedUser = [...existingUser, systemMsg]
+        
+        localStorage.setItem(sharedKey, JSON.stringify(updatedShared))
+        localStorage.setItem(userKey, JSON.stringify(updatedUser))
+        console.log('💾 System message stored in BOTH localStorage keys')
       }
 
-      // Add client message
+      // Send operator message
       if (message) {
-        const clientMsg = {
-          id: messages.length + 2,
+        console.log('📤 OPERATOR SENDING MESSAGE:', message)
+        const operatorMsg = await chatService.sendMessage({
           booking_id: selectedBooking.id,
           sender_type: 'operator',
+          sender_id: 'operator',
           message: message,
-          created_at: new Date().toISOString()
-        }
-        setMessages(prev => [...prev, clientMsg])
+          is_system_message: false
+        })
+        console.log('✅ Operator message sent successfully:', operatorMsg)
+        setMessages(prev => [...prev, operatorMsg])
+        
+        // Also store in shared localStorage for user chat fallback
+        const sharedKey = `shared_chat_${selectedBooking.id}`
+        const userKey = `chat_${selectedBooking.id}`
+        const existingShared = JSON.parse(localStorage.getItem(sharedKey) || '[]')
+        const existingUser = JSON.parse(localStorage.getItem(userKey) || '[]')
+        
+        const updatedShared = [...existingShared, operatorMsg]
+        const updatedUser = [...existingUser, operatorMsg]
+        
+        localStorage.setItem(sharedKey, JSON.stringify(updatedShared))
+        localStorage.setItem(userKey, JSON.stringify(updatedUser))
+        console.log('💾 Operator message stored in BOTH localStorage keys')
+      }
+
+      // Update booking status in localStorage for user to see
+      if (action === 'confirm') {
+        const updatedBookings = bookings.map(booking => 
+          booking.id === selectedBooking.id 
+            ? { ...booking, status: 'confirmed' }
+            : booking
+        )
+        setBookings(updatedBookings)
+        setSelectedBooking({ ...selectedBooking, status: 'confirmed' })
+        
+        // Update localStorage
+        localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
+        console.log('Booking status updated to confirmed')
       }
 
       setSuccess(`Action completed: ${action}`)
@@ -334,31 +417,66 @@ export default function OperatorDashboard() {
     }
   }
 
-  const sendInvoice = () => {
+  const sendInvoice = async () => {
     if (!selectedBooking) return
 
-    const invoiceMessage = {
-      id: messages.length + 1,
-      booking_id: selectedBooking.id,
-      sender_type: 'operator',
-      message: `📄 Invoice sent. Please review and approve payment to proceed.`,
-      created_at: new Date().toISOString(),
-      hasInvoice: true,
-      invoiceData: invoiceData
-    }
+    try {
+      console.log('Sending invoice to user...')
+      
+      // Send system message
+      console.log('📤 OPERATOR SENDING INVOICE SYSTEM MESSAGE')
+      const systemMsg = await chatService.sendMessage({
+        booking_id: selectedBooking.id,
+        sender_type: 'system',
+        sender_id: 'operator',
+        message: "Invoice sent to client",
+        is_system_message: true
+      })
+      console.log('✅ Invoice system message sent:', systemMsg)
+      setMessages(prev => [...prev, systemMsg])
+      
+      // Store in shared localStorage
+      const sharedKey = `shared_chat_${selectedBooking.id}`
+      const userKey = `chat_${selectedBooking.id}`
+      const existingShared = JSON.parse(localStorage.getItem(sharedKey) || '[]')
+      const existingUser = JSON.parse(localStorage.getItem(userKey) || '[]')
+      
+      const updatedShared1 = [...existingShared, systemMsg]
+      const updatedUser1 = [...existingUser, systemMsg]
+      
+      localStorage.setItem(sharedKey, JSON.stringify(updatedShared1))
+      localStorage.setItem(userKey, JSON.stringify(updatedUser1))
+      console.log('💾 Invoice system message stored in BOTH localStorage keys')
 
-    const systemMessage = {
-      id: messages.length + 2,
-      booking_id: selectedBooking.id,
-      sender_type: 'system',
-      message: "Invoice sent to client",
-      created_at: new Date().toISOString()
-    }
+      // Send invoice message with invoice data
+      console.log('📤 OPERATOR SENDING INVOICE MESSAGE WITH DATA:', invoiceData)
+      const invoiceMsg = await chatService.sendMessage({
+        booking_id: selectedBooking.id,
+        sender_type: 'operator',
+        sender_id: 'operator',
+        message: `📄 Invoice sent. Please review and approve payment to proceed.`,
+        is_system_message: false,
+        has_invoice: true,
+        invoice_data: invoiceData
+      })
+      console.log('✅ Invoice message sent successfully:', invoiceMsg)
+      setMessages(prev => [...prev, invoiceMsg])
+      
+      // Store in shared localStorage
+      const updatedShared2 = [...updatedShared1, invoiceMsg]
+      const updatedUser2 = [...updatedUser1, invoiceMsg]
+      
+      localStorage.setItem(sharedKey, JSON.stringify(updatedShared2))
+      localStorage.setItem(userKey, JSON.stringify(updatedUser2))
+      console.log('💾 Invoice message stored in BOTH localStorage keys')
 
-    setMessages(prev => [...prev, systemMessage, invoiceMessage])
-    setShowInvoiceModal(false)
-    setSuccess("Invoice sent successfully!")
-    scrollToBottom()
+      setShowInvoiceModal(false)
+      setSuccess("Invoice sent successfully!")
+      scrollToBottom()
+    } catch (error) {
+      console.error('Failed to send invoice:', error)
+      setError('Failed to send invoice')
+    }
   }
 
   const scrollToBottom = () => {
@@ -431,6 +549,17 @@ export default function OperatorDashboard() {
             <div className="flex items-center space-x-4">
               <Bell className="h-6 w-6 text-white" />
               <span className="text-white">Operator Dashboard</span>
+              {onLogout && (
+                <Button
+                  onClick={onLogout}
+                  variant="outline"
+                  size="sm"
+                  className="bg-transparent border-white/20 text-white hover:bg-white/10"
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Logout
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -562,59 +691,83 @@ export default function OperatorDashboard() {
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-300">Service:</span>
-                      <span className="text-white font-medium">{selectedBooking.service?.name || 'Armed Protection Service'}</span>
+                      <span className="text-white font-medium">
+                        {selectedBooking.service?.name || 
+                         (selectedBooking.serviceType === 'armed-protection' ? 'Armed Protection Service' : 
+                          selectedBooking.serviceType === 'car-only' ? 'Vehicle Only Service' : 
+                          'Armed Protection Service')}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Pickup:</span>
-                      <span className="text-white font-medium">{selectedBooking.pickup_address}</span>
+                      <span className="text-white font-medium">
+                        {selectedBooking.pickup_address || selectedBooking.pickupDetails?.location || 'N/A'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Date & Time:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.scheduled_date ? new Date(selectedBooking.scheduled_date).toLocaleDateString() : 'N/A'} at{' '}
-                        {selectedBooking.scheduled_date ? new Date(selectedBooking.scheduled_date).toLocaleTimeString() : 'N/A'}
+                        {selectedBooking.scheduled_date ? 
+                          `${new Date(selectedBooking.scheduled_date).toLocaleDateString()} at ${new Date(selectedBooking.scheduled_date).toLocaleTimeString()}` :
+                          selectedBooking.pickupDetails?.date && selectedBooking.pickupDetails?.time ?
+                          `${selectedBooking.pickupDetails.date} at ${selectedBooking.pickupDetails.time}` :
+                          'N/A at N/A'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Duration:</span>
-                      <span className="text-white font-medium">{selectedBooking.duration || 'N/A'}</span>
+                      <span className="text-white font-medium">
+                        {selectedBooking.duration || selectedBooking.pickupDetails?.duration || 'N/A'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Destination:</span>
-                      <span className="text-white font-medium">{selectedBooking.destination_address || 'N/A'}</span>
+                      <span className="text-white font-medium">
+                        {selectedBooking.destination_address || selectedBooking.destinationDetails?.primary || 'N/A'}
+                      </span>
                     </div>
-                    {selectedBooking.personnel && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-300">Personnel:</span>
-                        <span className="text-white font-medium">
-                          {selectedBooking.personnel.protectors} protectors for {selectedBooking.personnel.protectees} protectees
-                        </span>
-                      </div>
-                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Personnel:</span>
+                      <span className="text-white font-medium">
+                        {selectedBooking.personnel ? 
+                          `${selectedBooking.personnel.protectors} protectors for ${selectedBooking.personnel.protectee} protectee` :
+                          selectedBooking.protector_count !== undefined && selectedBooking.protectee_count !== undefined ?
+                          `${selectedBooking.protector_count} protectors for ${selectedBooking.protectee_count} protectee` :
+                          'N/A'}
+                      </span>
+                    </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Contact:</span>
-                      <span className="text-white font-medium">{selectedBooking.client?.phone || 'N/A'}</span>
+                      <span className="text-white font-medium">
+                        {selectedBooking.client?.phone || selectedBooking.contact?.phone || 'N/A'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Vehicle Type:</span>
-                      <span className="text-white font-medium">{selectedBooking.vehicle_type || 'N/A'}</span>
+                      <span className="text-white font-medium">
+                        {selectedBooking.vehicle_type || 
+                         (selectedBooking.vehicles ? Object.entries(selectedBooking.vehicles).map(([vehicle, count]) => `${vehicle} (${count})`).join(', ') : null) ||
+                         'N/A'}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Dress Code:</span>
-                      <span className="text-white font-medium capitalize">{selectedBooking.dress_code?.replace('-', ' ') || 'N/A'}</span>
+                      <span className="text-white font-medium capitalize">
+                        {selectedBooking.dress_code?.replace('-', ' ') || selectedBooking.personnel?.dressCode || 'N/A'}
+                      </span>
                     </div>
-                    {selectedBooking.special_requirements && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-300">Special Requirements:</span>
-                        <span className="text-white font-medium">{selectedBooking.special_requirements}</span>
-                      </div>
-                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-300">Special Requirements:</span>
+                      <span className="text-white font-medium">
+                        {selectedBooking.special_requirements || selectedBooking.protectionType || 'N/A'}
+                      </span>
+                    </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Pricing:</span>
                       <span className="text-white font-medium">To be provided by operator</span>
                     </div>
                     <div className="text-xs text-gray-400 mt-4">
-                      Submitted: {new Date(selectedBooking.created_at).toLocaleString()}
+                      Submitted: {new Date(selectedBooking.created_at || selectedBooking.timestamp).toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -622,17 +775,19 @@ export default function OperatorDashboard() {
                 {/* Operator Actions */}
                 <div className="p-6 border-b border-white/10">
                   <h4 className="text-sm font-medium text-white mb-3">Operator Actions</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {getStatusActions(selectedBooking.status, paymentApproved[selectedBooking.id]).map(({ action, label, color }) => (
-                      <Button
-                        key={action}
-                        onClick={() => handleOperatorAction(action)}
-                        className={`${color} text-white`}
-                        size="sm"
-                      >
-                        {label}
-                      </Button>
-                    ))}
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={() => handleOperatorAction('confirm')}
+                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2"
+                    >
+                      Confirm
+                    </Button>
+                    <Button
+                      onClick={() => handleOperatorAction('send_invoice')}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2"
+                    >
+                      Send Invoice
+                    </Button>
                   </div>
                   
                   {/* Payment Status Indicator */}
@@ -828,7 +983,7 @@ export default function OperatorDashboard() {
                 <div className="text-sm text-gray-300 mb-2">Service Details</div>
                 <div className="text-white font-medium">{selectedBooking?.service?.name || 'Armed Protection Service'}</div>
                 <div className="text-xs text-gray-400">
-                  {selectedBooking?.personnel?.protectors || 0} protectors for {selectedBooking?.personnel?.protectees || 0} protectees
+                  {selectedBooking?.personnel?.protectors || 0} protectors for {selectedBooking?.personnel?.protectee || 0} protectee
                 </div>
               </div>
 

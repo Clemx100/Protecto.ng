@@ -18,20 +18,6 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Validate URL format
-  try {
-    new URL(process.env.NEXT_PUBLIC_SUPABASE_URL)
-  } catch (error) {
-    // Invalid URL format, skip Supabase in development
-    if (process.env.NODE_ENV === 'development') {
-      return supabaseResponse
-    }
-    // In production, redirect to error page
-    const url = request.nextUrl.clone()
-    url.pathname = "/"
-    return NextResponse.redirect(url)
-  }
-
   // With Fluid compute, don't put this client in a global environment
   // variable. Always create a new one on each request.
   const supabase = createServerClient(
@@ -67,9 +53,7 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname !== "/" &&
     !user &&
     !request.nextUrl.pathname.startsWith("/api") &&
-    !request.nextUrl.pathname.startsWith("/_next") &&
-    !request.nextUrl.pathname.startsWith("/operator") &&
-    !request.nextUrl.pathname.startsWith("/admin")
+    !request.nextUrl.pathname.startsWith("/_next")
   ) {
     // no user, redirect to home page where authentication is handled
     const url = request.nextUrl.clone()

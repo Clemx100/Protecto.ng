@@ -1,0 +1,5 @@
+[33mdc3b96e[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Fix: Remove loading screen that was causing infinite loading
+[33mdbebd1e[m Fix TypeScript errors and update API configurations
+[33m2798357[m  Major Performance Optimization & Code Cleanup
+[33m499ef62[m feat: Add operator dashboard integration and optimize codebase
+[33m768fb89[m Fix: Add error handling and timeout to prevent infinite loading

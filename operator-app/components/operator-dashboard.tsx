@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
+import { chatService, ChatMessage } from "@/lib/services/chatService"
 
 export default function OperatorDashboard() {
   const supabase = createClient()
@@ -23,8 +24,9 @@ export default function OperatorDashboard() {
   const [success, setSuccess] = useState("")
   
   // Chat and messaging
-  const [messages, setMessages] = useState<any[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [newMessage, setNewMessage] = useState("")
+  const [user, setUser] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   
   // Bookings and data
@@ -54,6 +56,32 @@ export default function OperatorDashboard() {
   useEffect(() => {
     initializeDashboard()
   }, [])
+
+  // Get current user
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      setUser(currentUser)
+    }
+    getUser()
+  }, [])
+
+  // Subscribe to real-time messages
+  useEffect(() => {
+    if (!user) return
+
+    const subscription = chatService.subscribeToAllMessages((newMessage) => {
+      // Update messages for the currently selected booking
+      if (selectedBooking && newMessage.booking_id === selectedBooking.id) {
+        setMessages(prev => [...prev, newMessage])
+        scrollToBottom()
+      }
+    })
+
+    return () => {
+      chatService.unsubscribe(subscription)
+    }
+  }, [user, selectedBooking])
 
   // Filter bookings based on search and status
   useEffect(() => {
@@ -112,7 +140,7 @@ export default function OperatorDashboard() {
           total_price: 450000,
           personnel: {
             protectors: 1,
-            protectees: 1
+            protectee: 1
           },
           dress_code: "tactical-casual",
           vehicle_type: "Mercedes S-Class",
@@ -140,7 +168,7 @@ export default function OperatorDashboard() {
           total_price: 25000,
           personnel: {
             protectors: 0,
-            protectees: 2
+            protectee: 2
           },
           dress_code: "business-casual",
           vehicle_type: "BMW X7",
@@ -164,24 +192,8 @@ export default function OperatorDashboard() {
 
   const loadMessages = async (bookingId: string) => {
     try {
-      // Mock messages for now
-      const mockMessages = [
-        {
-          id: 1,
-          booking_id: bookingId,
-          sender_type: 'system',
-          message: 'New protection request received',
-          created_at: new Date().toISOString()
-        },
-        {
-          id: 2,
-          booking_id: bookingId,
-          sender_type: 'client',
-          message: 'Hello, I need armed protection for my meeting today',
-          created_at: new Date().toISOString()
-        }
-      ]
-      setMessages(mockMessages)
+      const messages = await chatService.getMessages(bookingId)
+      setMessages(messages)
       scrollToBottom()
     } catch (error) {
       console.error('Failed to load messages:', error)
@@ -189,21 +201,18 @@ export default function OperatorDashboard() {
   }
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedBooking) return
+    if (!newMessage.trim() || !selectedBooking || !user) return
 
     try {
-      const message = {
-        id: messages.length + 1,
-        booking_id: selectedBooking.id,
-        sender_type: 'operator',
-        message: newMessage,
-        created_at: new Date().toISOString()
-      }
-
-      setMessages([...messages, message])
+      await chatService.createOperatorMessage(
+        selectedBooking.id,
+        newMessage.trim(),
+        user.id
+      )
+      
       setNewMessage("")
-      scrollToBottom()
     } catch (error) {
+      console.error('Failed to send message:', error)
       setError('Failed to send message')
     }
   }
@@ -256,7 +265,7 @@ export default function OperatorDashboard() {
   }
 
   const handleOperatorAction = async (action: string) => {
-    if (!selectedBooking) return
+    if (!selectedBooking || !user) return
 
     try {
       let message = ""
@@ -303,62 +312,57 @@ export default function OperatorDashboard() {
           break
       }
 
-      // Add system message
+      // Send system message
       if (systemMessage) {
-        const systemMsg = {
-          id: messages.length + 1,
-          booking_id: selectedBooking.id,
-          sender_type: 'system',
-          message: systemMessage,
-          created_at: new Date().toISOString()
-        }
-        setMessages(prev => [...prev, systemMsg])
+        await chatService.createSystemMessage(
+          selectedBooking.id,
+          systemMessage,
+          user.id
+        )
       }
 
-      // Add client message
+      // Send operator message
       if (message) {
-        const clientMsg = {
-          id: messages.length + 2,
-          booking_id: selectedBooking.id,
-          sender_type: 'operator',
-          message: message,
-          created_at: new Date().toISOString()
-        }
-        setMessages(prev => [...prev, clientMsg])
+        await chatService.createOperatorMessage(
+          selectedBooking.id,
+          message,
+          user.id
+        )
       }
 
       setSuccess(`Action completed: ${action}`)
-      scrollToBottom()
     } catch (error) {
+      console.error(`Failed to ${action} booking:`, error)
       setError(`Failed to ${action} booking`)
     }
   }
 
-  const sendInvoice = () => {
-    if (!selectedBooking) return
+  const sendInvoice = async () => {
+    if (!selectedBooking || !user) return
 
-    const invoiceMessage = {
-      id: messages.length + 1,
-      booking_id: selectedBooking.id,
-      sender_type: 'operator',
-      message: `📄 Invoice sent. Please review and approve payment to proceed.`,
-      created_at: new Date().toISOString(),
-      hasInvoice: true,
-      invoiceData: invoiceData
+    try {
+      // Send system message
+      await chatService.createSystemMessage(
+        selectedBooking.id,
+        "Invoice sent to client",
+        user.id
+      )
+
+      // Send invoice message
+      await chatService.createOperatorMessage(
+        selectedBooking.id,
+        "📄 Invoice sent. Please review and approve payment to proceed.",
+        user.id,
+        true,
+        invoiceData
+      )
+
+      setShowInvoiceModal(false)
+      setSuccess("Invoice sent successfully!")
+    } catch (error) {
+      console.error("Failed to send invoice:", error)
+      setError("Failed to send invoice")
     }
-
-    const systemMessage = {
-      id: messages.length + 2,
-      booking_id: selectedBooking.id,
-      sender_type: 'system',
-      message: "Invoice sent to client",
-      created_at: new Date().toISOString()
-    }
-
-    setMessages(prev => [...prev, systemMessage, invoiceMessage])
-    setShowInvoiceModal(false)
-    setSuccess("Invoice sent successfully!")
-    scrollToBottom()
   }
 
   const scrollToBottom = () => {
@@ -587,7 +591,7 @@ export default function OperatorDashboard() {
                       <div className="flex justify-between">
                         <span className="text-gray-300">Personnel:</span>
                         <span className="text-white font-medium">
-                          {selectedBooking.personnel.protectors} protectors for {selectedBooking.personnel.protectees} protectees
+                          {selectedBooking.personnel.protectors} protectors for {selectedBooking.personnel.protectee} protectee
                         </span>
                       </div>
                     )}
@@ -665,38 +669,38 @@ export default function OperatorDashboard() {
                         <div className="text-sm">{message.message}</div>
                         
                         {/* Invoice Details */}
-                        {message.hasInvoice && message.invoiceData && (
+                        {message.has_invoice && message.invoice_data && (
                           <div className="mt-3 p-3 bg-white/10 rounded border border-white/20">
                             <div className="flex justify-between items-center mb-2">
                               <div className="text-xs text-gray-300">Invoice Details</div>
                               <div className="text-xs text-blue-300 font-medium">
-                                {message.invoiceData.currency === 'USD' ? 'USD' : 'NGN'} Invoice
+                                {message.invoice_data.currency === 'USD' ? 'USD' : 'NGN'} Invoice
                               </div>
                             </div>
                             <div className="text-sm space-y-1">
                               <div className="flex justify-between">
                                 <span>Base Price:</span>
-                                <span>{formatCurrency(message.invoiceData.basePrice, message.invoiceData.currency)}</span>
+                                <span>{formatCurrency(message.invoice_data.basePrice, message.invoice_data.currency)}</span>
                               </div>
                               <div className="flex justify-between">
-                                <span>Hourly Rate ({message.invoiceData.duration}h):</span>
-                                <span>{formatCurrency(message.invoiceData.hourlyRate * message.invoiceData.duration, message.invoiceData.currency)}</span>
+                                <span>Hourly Rate ({message.invoice_data.duration}h):</span>
+                                <span>{formatCurrency(message.invoice_data.hourlyRate * message.invoice_data.duration, message.invoice_data.currency)}</span>
                               </div>
                               <div className="flex justify-between">
                                 <span>Vehicle Fee:</span>
-                                <span>{formatCurrency(message.invoiceData.vehicleFee, message.invoiceData.currency)}</span>
+                                <span>{formatCurrency(message.invoice_data.vehicleFee, message.invoice_data.currency)}</span>
                               </div>
                               <div className="flex justify-between">
                                 <span>Personnel Fee:</span>
-                                <span>{formatCurrency(message.invoiceData.personnelFee, message.invoiceData.currency)}</span>
+                                <span>{formatCurrency(message.invoice_data.personnelFee, message.invoice_data.currency)}</span>
                               </div>
                               <div className="flex justify-between font-semibold border-t border-white/20 pt-2 mt-2">
                                 <span>Total Amount:</span>
-                                <span className="text-green-400">{formatCurrency(message.invoiceData.totalAmount, message.invoiceData.currency)}</span>
+                                <span className="text-green-400">{formatCurrency(message.invoice_data.totalAmount, message.invoice_data.currency)}</span>
                               </div>
-                              {message.invoiceData.currency === 'USD' && (
+                              {message.invoice_data.currency === 'USD' && (
                                 <div className="text-xs text-gray-400 text-center mt-2">
-                                  Equivalent: ₦{(message.invoiceData.totalAmount * exchangeRate).toLocaleString()} NGN
+                                  Equivalent: ₦{(message.invoice_data.totalAmount * exchangeRate).toLocaleString()} NGN
                                 </div>
                               )}
                             </div>
@@ -828,7 +832,7 @@ export default function OperatorDashboard() {
                 <div className="text-sm text-gray-300 mb-2">Service Details</div>
                 <div className="text-white font-medium">{selectedBooking?.service?.name || 'Armed Protection Service'}</div>
                 <div className="text-xs text-gray-400">
-                  {selectedBooking?.personnel?.protectors || 0} protectors for {selectedBooking?.personnel?.protectees || 0} protectees
+                  {selectedBooking?.personnel?.protectors || 0} protectors for {selectedBooking?.personnel?.protectee || 0} protectee
                 </div>
               </div>
 

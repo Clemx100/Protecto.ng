@@ -1,0 +1,3990 @@
+"use client"
+
+import { useState, useEffect, useRef } from "react"
+import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { createClient } from "@/lib/supabase/client"
+
+export default function ProtectorApp() {
+  const supabase = createClient()
+
+  const [activeTab, setActiveTab] = useState("protector")
+  const [userRole, setUserRole] = useState("client") // "client", "agent", "admin"
+  const [selectedService, setSelectedService] = useState("")
+  const [protectorArmed, setProtectorArmed] = useState(true)
+  const [unarmedNeedsCar, setUnarmedNeedsCar] = useState(true)
+  const [bookingStep, setBookingStep] = useState(1)
+  const [pickupLocation, setPickupLocation] = useState("")
+  const [locationSuggestions, setLocationSuggestions] = useState<string[]>([])
+  const [showLocationSuggestions, setShowLocationSuggestions] = useState(false)
+  const [isLoadingLocation, setIsLoadingLocation] = useState(false)
+  const [pickupDate, setPickupDate] = useState("Feb 22, 2025")
+  const [pickupTime, setPickupTime] = useState("11:45am")
+  const [duration, setDuration] = useState("1 day")
+  const [selectedDressCode, setSelectedDressCode] = useState("tactical-casual")
+  const [vehicleCount, setVehicleCount] = useState(1)
+  const [protecteeCount, setProtecteeCount] = useState(1)
+  const [protectorCount, setProtectorCount] = useState(1)
+  const [passengerCount, setPassengerCount] = useState(1)
+  const [showCalendar, setShowCalendar] = useState(false)
+  const [showTimePicker, setShowTimePicker] = useState(false)
+  const [showDurationPicker, setShowDurationPicker] = useState(false)
+  const [selectedHour, setSelectedHour] = useState(11)
+  const [selectedMinute, setSelectedMinute] = useState(45)
+  const [selectedPeriod, setSelectedPeriod] = useState("AM")
+  const [phoneNumber, setPhoneNumber] = useState("")
+  const [showKeypad, setShowKeypad] = useState(false)
+  const [selectedVehicles, setSelectedVehicles] = useState<{ [key: string]: number }>({})
+  const [customDuration, setCustomDuration] = useState("")
+  const [vehicleSearchQuery, setVehicleSearchQuery] = useState("")
+  const [destinationLocation, setDestinationLocation] = useState("")
+  const [destinationSuggestions, setDestinationSuggestions] = useState<string[]>([])
+  const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false)
+  const [multipleDestinations, setMultipleDestinations] = useState<string[]>([])
+  const [currentDestinationInput, setCurrentDestinationInput] = useState("")
+  const [currentDestinationSuggestions, setCurrentDestinationSuggestions] = useState<string[]>([])
+  const [showCurrentDestinationSuggestions, setShowCurrentDestinationSuggestions] = useState(false)
+  const [customDurationUnit, setCustomDurationUnit] = useState("days")
+
+  const [showLoginForm, setShowLoginForm] = useState(false)
+  const [isLogin, setIsLogin] = useState(true)
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [authStep, setAuthStep] = useState("login") // "login", "register", "email-verification", "profile-completion", "profile"
+  const [user, setUser] = useState<any>(null)
+
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authError, setAuthError] = useState("")
+  const [authSuccess, setAuthSuccess] = useState("")
+  const [formErrors, setFormErrors] = useState<{ [key: string]: string }>({})
+  const [emailVerificationSent, setEmailVerificationSent] = useState(false)
+  const [verificationEmail, setVerificationEmail] = useState("")
+  const verificationCheckIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  const [authForm, setAuthForm] = useState({
+    email: "",
+    password: "",
+    confirmPassword: "",
+    phone: "",
+    firstName: "",
+    lastName: "",
+    address: "",
+    emergencyContact: "",
+    emergencyPhone: "",
+  })
+
+  const [userProfile, setUserProfile] = useState({
+    email: "",
+    firstName: "",
+    lastName: "",
+    phone: "",
+    address: "",
+    emergencyContact: "",
+    emergencyPhone: "",
+  })
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [editProfileForm, setEditProfileForm] = useState({
+    firstName: "",
+    lastName: "",
+    phone: "",
+    address: "",
+    emergencyContact: "",
+    emergencyPhone: "",
+  })
+
+  const [isDataLoaded, setIsDataLoaded] = useState(true)
+
+  const [selectedVehicle, setSelectedVehicle] = useState("")
+  const [showChatThread, setShowChatThread] = useState(false)
+  const [bookingPayload, setBookingPayload] = useState<any>(null)
+  const [requestStatus, setRequestStatus] = useState("Pending Deployment")
+
+  // Operator Dashboard State
+  const [operatorBookings, setOperatorBookings] = useState([
+    {
+      id: "OP001",
+      clientName: "John Smith",
+      clientEmail: "john@example.com",
+      clientPhone: "+234-800-000-0001",
+      service: "Armed Protection Service",
+      pickup: "123 Main St, Downtown",
+      destination: "456 Oak Ave, Uptown",
+      date: "2025-02-22",
+      time: "2:30 PM",
+      duration: "24 hours",
+      status: "pending",
+      pricing: "To be provided by operator",
+      submittedAt: "2025-10-09 00:53:09"
+    },
+    {
+      id: "OP002", 
+      clientName: "Sarah Johnson",
+      clientEmail: "sarah@example.com",
+      clientPhone: "+234-800-000-0002",
+      service: "Unarmed Protection Service",
+      pickup: "789 Business District",
+      destination: "321 Residential Area",
+      date: "2025-02-23",
+      time: "9:00 AM",
+      duration: "8 hours",
+      status: "accepted",
+      pricing: "₦150,000",
+      submittedAt: "2025-10-09 01:15:30"
+    }
+  ])
+
+  const [selectedBooking, setSelectedBooking] = useState<any>(null)
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [invoiceForm, setInvoiceForm] = useState({
+    basePrice: 100000,
+    hourlyRate: 25000,
+    vehicleFee: 100000,
+    personnelFee: 40000,
+    duration: 24,
+    currency: "NGN" // "NGN" or "USD"
+  })
+  const [operatorChatMessage, setOperatorChatMessage] = useState("")
+
+  const [activeBookings, setActiveBookings] = useState([
+    {
+      id: "BK001",
+      type: "armed-protection",
+      protectorName: "Marcus Johnson",
+      vehicleType: "Mercedes S-Class",
+      status: "en-route",
+      estimatedArrival: "8 mins",
+      pickupLocation: "123 Main St, Downtown",
+      destination: "456 Oak Ave, Uptown",
+      startTime: "2:30 PM",
+      protectorImage: "/images/business-formal-agent.png",
+      currentLocation: { lat: 40.7128, lng: -74.006 },
+    },
+  ])
+
+  const [bookingHistory, setBookingHistory] = useState([
+    {
+      id: "BK002",
+      type: "car-only",
+      vehicleType: "BMW X5",
+      status: "completed",
+      date: "Dec 15, 2024",
+      duration: "2h 30m",
+      cost: "$180",
+      rating: 5,
+    },
+    {
+      id: "BK003",
+      type: "armed-protection",
+      protectorName: "Sarah Williams",
+      vehicleType: "Audi A8",
+      status: "completed",
+      date: "Dec 12, 2024",
+      duration: "4h 15m",
+      cost: "$450",
+      rating: 5,
+    },
+  ])
+
+  const [showHistory, setShowHistory] = useState(false)
+  const [showCustomDurationInput, setShowCustomDurationInput] = useState(false)
+
+  const [userLocation, setUserLocation] = useState("Lagos")
+  const [selectedCity, setSelectedCity] = useState("Lagos")
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false)
+  
+  const cities = [
+    { id: "lagos", name: "Lagos", coordinates: { lat: 6.5244, lng: 3.3792 } },
+    { id: "abuja", name: "Abuja", coordinates: { lat: 9.0765, lng: 7.3986 } },
+    { id: "port-harcourt", name: "Port Harcourt", coordinates: { lat: 4.8156, lng: 7.0498 } }
+  ]
+
+  const vehicleTypes = [
+    {
+      id: "escalade",
+      name: "Cadillac Escalade",
+      capacity: 5,
+      image:
+        "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/WhatsApp%20Image%202025-08-13%20at%2011.51.50_36fa6566.jpg-wGr4hpsDDqjcWjVVJ9kFFI8rjAZ7ls.jpeg",
+      description: "Premium luxury SUV",
+    },
+    {
+      id: "sedan",
+      name: "Mercedes S-Class",
+      capacity: 4,
+      image: "/images/mercedes-s-class-sedan.avif",
+      description: "Executive luxury sedan",
+    },
+    {
+      id: "suv",
+      name: "BMW X7",
+      capacity: 6,
+      image: "/black-bmw-x7-suv.png",
+      description: "Spacious luxury SUV",
+    },
+    {
+      id: "van",
+      name: "Mercedes Sprinter",
+      capacity: 12,
+      image: "/black-mercedes-sprinter-van.png",
+      description: "High-capacity transport van",
+    },
+    {
+      id: "armoredSedan",
+      name: "Armored Mercedes S-Class",
+      capacity: 4,
+      image: "/armored-black-sedan.png",
+      description: "Bulletproof executive sedan (B6/B7 protection)",
+    },
+    {
+      id: "armoredSuv",
+      name: "Armored BMW X7",
+      capacity: 5,
+      image: "/armored-black-suv.png",
+      description: "Bulletproof luxury SUV (B6/B7 protection)",
+    },
+  ]
+
+  const dressCodeOptions = [
+    {
+      id: "tactical-casual",
+      name: "Tactical Casual",
+      image: "/images/tactical-casual-agent.png",
+      available: true,
+    },
+    {
+      id: "business-casual",
+      name: "Business Casual",
+      image: "/images/business-casual-agent.png",
+      available: true,
+    },
+    {
+      id: "business-formal",
+      name: "Business Formal",
+      image: "/images/business-formal-agent.png",
+      available: true,
+    },
+    {
+      id: "operator",
+      name: "Operator",
+      image: "/images/tactical-operator.png",
+      available: true,
+    },
+  ]
+
+  const durationOptions = ["1 day", "2 days", "3 days", "1 week", "2 weeks", "1 month"]
+
+  useEffect(() => {
+    // Check for email verification success in URL
+    const checkEmailVerification = () => {
+      const urlParams = new URLSearchParams(window.location.search)
+      const verified = urlParams.get('verified')
+      const type = urlParams.get('type')
+      
+      if (verified === 'true' || type === 'signup') {
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname)
+        setAuthSuccess("✅ Email verified successfully! Please complete your profile.")
+        // The auth state change listener will handle the rest
+      }
+    }
+
+    // Get initial session
+    const getInitialSession = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        if (session?.user) {
+          // Check if email is verified
+        if (session.user.email_confirmed_at) {
+          setUser(session.user)
+          setIsLoggedIn(true)
+          // Load user profile from database
+          await loadUserProfile(session.user.id)
+          // Check user role
+          await checkUserRole(session.user.id)
+          } else {
+            // User exists but email not verified
+            setVerificationEmail(session.user.email || "")
+            setAuthStep("email-verification")
+            setEmailVerificationSent(true)
+            setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
+          }
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error)
+        // Continue with app even if auth fails
+      } finally {
+        setIsDataLoaded(true)
+      }
+    }
+
+    // Check for verification first, then get session
+    checkEmailVerification()
+    getInitialSession()
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state change:', event, 'User:', session?.user?.email, 'Verified:', session?.user?.email_confirmed_at)
+      
+      if (session?.user) {
+        // Check if email is verified
+        if (session.user.email_confirmed_at) {
+          console.log('Email is verified, setting user as logged in')
+          setUser(session.user)
+          setIsLoggedIn(true)
+          await loadUserProfile(session.user.id)
+          
+          // If we were on email verification step, move to profile completion
+          if (authStep === "email-verification") {
+            console.log('Moving from email verification to profile completion step')
+            setAuthStep("profile-completion")
+            setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
+            
+            // Clear any verification check interval
+            if (verificationCheckIntervalRef.current) {
+              clearInterval(verificationCheckIntervalRef.current)
+              verificationCheckIntervalRef.current = null
+            }
+          }
+        } else {
+          console.log('Email not verified, showing verification step')
+          // User exists but email not verified
+          setVerificationEmail(session.user.email || "")
+          setAuthStep("email-verification")
+          setEmailVerificationSent(true)
+          setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
+        }
+      } else {
+        setUser(null)
+        setIsLoggedIn(false)
+        setUserProfile({
+          email: "",
+          firstName: "",
+          lastName: "",
+          phone: "",
+          address: "",
+          emergencyContact: "",
+          emergencyPhone: "",
+        })
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+      // Clean up verification check interval
+      if (verificationCheckIntervalRef.current) {
+        clearInterval(verificationCheckIntervalRef.current)
+      }
+    }
+  }, [])
+
+  const loadUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
+
+      if (error) {
+        console.error("Error loading profile:", error)
+        return
+      }
+
+      if (data) {
+        setUserProfile({
+          email: data.email || "",
+          firstName: data.first_name || "",
+          lastName: data.last_name || "",
+          phone: data.phone || "",
+          address: data.address || "",
+          emergencyContact: data.emergency_contact || "",
+          emergencyPhone: data.emergency_phone || "",
+        })
+      }
+    } catch (error) {
+      console.error("Error loading user profile:", error)
+    }
+  }
+
+  const checkUserRole = async (userId: string) => {
+    try {
+      console.log("Checking user role for userId:", userId)
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('role, email')
+        .eq('id', userId)
+        .single()
+
+      console.log("Role check result:", { data, error })
+
+      if (error) {
+        console.error("Error checking user role:", error)
+        console.log("No profile found, user role remains as:", userRole)
+        return
+      }
+
+      if (data) {
+        const role = data.role || "client"
+        setUserRole(role)
+        console.log("User role set to:", role)
+      } else {
+        console.log("No role found in profile, user role remains as:", userRole)
+      }
+    } catch (error) {
+      console.error("Error checking user role:", error)
+    }
+  }
+
+  // Operator Dashboard Functions
+  const handleAcceptBooking = (bookingId: string) => {
+    setOperatorBookings(prev => 
+      prev.map(booking => 
+        booking.id === bookingId 
+          ? { ...booking, status: "accepted" }
+          : booking
+      )
+    )
+  }
+
+  const handleRejectBooking = (bookingId: string) => {
+    setOperatorBookings(prev => 
+      prev.map(booking => 
+        booking.id === bookingId 
+          ? { ...booking, status: "rejected" }
+          : booking
+      )
+    )
+  }
+
+  const handleDeployBooking = (bookingId: string) => {
+    setOperatorBookings(prev => 
+      prev.map(booking => 
+        booking.id === bookingId 
+          ? { ...booking, status: "deployed" }
+          : booking
+      )
+    )
+  }
+
+  const handleSendInvoice = (bookingId: string) => {
+    setSelectedBooking(operatorBookings.find(b => b.id === bookingId))
+    setShowInvoiceModal(true)
+  }
+
+  const calculateInvoiceTotal = () => {
+    const { basePrice, hourlyRate, vehicleFee, personnelFee, duration, currency } = invoiceForm
+    const total = basePrice + (hourlyRate * duration) + vehicleFee + personnelFee
+    return { total, currency }
+  }
+
+  const handleCreateInvoice = () => {
+    const { total, currency } = calculateInvoiceTotal()
+    const currencySymbol = currency === "NGN" ? "₦" : "$"
+    
+    setOperatorBookings(prev => 
+      prev.map(booking => 
+        booking.id === selectedBooking?.id 
+          ? { ...booking, pricing: `${currencySymbol}${total.toLocaleString()}` }
+          : booking
+      )
+    )
+    
+    setShowInvoiceModal(false)
+    setSelectedBooking(null)
+  }
+
+  const handleOperatorChatSend = () => {
+    if (operatorChatMessage.trim()) {
+      // Handle operator chat message
+      console.log("Operator message:", operatorChatMessage)
+      setOperatorChatMessage("")
+    }
+  }
+
+  const detectUserLocation = async () => {
+    if (!navigator.geolocation) {
+      console.log("Geolocation is not supported by this browser.")
+      return
+    }
+
+    setIsDetectingLocation(true)
+    
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000 // 5 minutes
+        })
+      })
+
+      const { latitude, longitude } = position.coords
+      console.log("Detected coordinates:", latitude, longitude)
+
+      // Find the closest city based on coordinates
+      let closestCity = cities[0]
+      let minDistance = Infinity
+
+      cities.forEach(city => {
+        const distance = Math.sqrt(
+          Math.pow(latitude - city.coordinates.lat, 2) + 
+          Math.pow(longitude - city.coordinates.lng, 2)
+        )
+        if (distance < minDistance) {
+          minDistance = distance
+          closestCity = city
+        }
+      })
+
+      console.log("Closest city detected:", closestCity.name)
+      setSelectedCity(closestCity.name)
+      setUserLocation(closestCity.name)
+      
+      // Set a default pickup location based on the detected city
+      const defaultLocations = {
+        "Lagos": "15 Admiralty Way, Lekki Phase 1, Lagos",
+        "Abuja": "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+        "Port Harcourt": "12 Trans Amadi Industrial Layout, Port Harcourt"
+      }
+      
+      if (defaultLocations[closestCity.name as keyof typeof defaultLocations]) {
+        setPickupLocation(defaultLocations[closestCity.name as keyof typeof defaultLocations])
+      }
+
+    } catch (error) {
+      console.log("Error detecting location:", error)
+      // Fallback to Lagos if location detection fails
+      setSelectedCity("Lagos")
+      setUserLocation("Lagos")
+    } finally {
+      setIsDetectingLocation(false)
+    }
+  }
+
+  useEffect(() => {
+    detectUserLocation()
+  }, [])
+
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return emailRegex.test(email)
+  }
+
+  const validatePassword = (password: string): boolean => {
+    return password.length >= 8 && /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(password)
+  }
+
+  const validatePhone = (phone: string): boolean => {
+    // Enhanced Nigerian phone number validation
+    const cleanPhone = phone.replace(/\s/g, "").replace(/-/g, "")
+    const phoneRegex = /^(\+234|234|0)?[789][01]\d{8}$/
+    return phoneRegex.test(cleanPhone)
+  }
+
+  const formatPhoneNumber = (phone: string) => {
+    // Format phone number for better UX
+    const cleanPhone = phone.replace(/\D/g, "")
+    if (cleanPhone.startsWith("234")) {
+      return `+${cleanPhone}`
+    } else if (cleanPhone.startsWith("0")) {
+      return `+234${cleanPhone.substring(1)}`
+    } else if (cleanPhone.length === 10) {
+      return `+234${cleanPhone}`
+    }
+    return phone
+  }
+
+  const validateForm = (step: string): boolean => {
+    const errors: { [key: string]: string } = {}
+
+    if (step === "login") {
+      if (!authForm.email) {
+        errors.email = "Email is required"
+      } else if (!validateEmail(authForm.email)) {
+        errors.email = "Please enter a valid email address"
+      }
+
+      if (!authForm.password) {
+        errors.password = "Password is required"
+      }
+    } else if (step === "register") {
+      if (!authForm.email) {
+        errors.email = "Email is required"
+      } else if (!validateEmail(authForm.email)) {
+        errors.email = "Please enter a valid email address"
+      }
+
+      if (!authForm.password) {
+        errors.password = "Password is required"
+      } else if (!validatePassword(authForm.password)) {
+        errors.password = "Password must be at least 8 characters with uppercase, lowercase, and number"
+      }
+
+      if (!authForm.confirmPassword) {
+        errors.confirmPassword = "Please confirm your password"
+      } else if (authForm.password !== authForm.confirmPassword) {
+        errors.confirmPassword = "Passwords do not match"
+      }
+    } else if (step === "profile" || step === "profile-completion") {
+      if (!authForm.firstName.trim()) {
+        errors.firstName = "First name is required"
+      }
+
+      if (!authForm.lastName.trim()) {
+        errors.lastName = "Last name is required"
+      }
+
+      if (!authForm.phone) {
+        errors.phone = "Phone number is required"
+      } else if (!validatePhone(authForm.phone)) {
+        errors.phone = "Please enter a valid Nigerian phone number (e.g., +234 801 234 5678 or 0801 234 5678)"
+      }
+
+      if (!authForm.address.trim()) {
+        errors.address = "Address is required"
+      }
+
+      if (!authForm.emergencyContact.trim()) {
+        errors.emergencyContact = "Emergency contact name is required"
+      }
+
+      if (!authForm.emergencyPhone) {
+        errors.emergencyPhone = "Emergency contact phone is required"
+      } else if (!validatePhone(authForm.emergencyPhone)) {
+        errors.emergencyPhone = "Please enter a valid Nigerian phone number for emergency contact"
+      }
+    }
+
+    setFormErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const clearAuthMessages = () => {
+    setAuthError("")
+    setAuthSuccess("")
+    setFormErrors({})
+  }
+
+  const resendVerificationEmail = async () => {
+    if (!verificationEmail) return
+    
+    setAuthLoading(true)
+    setAuthError("")
+    
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: verificationEmail,
+        options: {
+          emailRedirectTo: `${window.location.origin}?verified=true`
+        }
+      })
+      
+      if (error) {
+        throw new Error(error.message)
+      }
+      
+      setAuthSuccess("Verification email sent! Please check your inbox.")
+    } catch (error: any) {
+      setAuthError(error.message)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const checkVerificationStatus = async () => {
+    try {
+      console.log('Checking verification status...')
+      const { data: { session }, error } = await supabase.auth.getSession()
+      
+      if (error) {
+        console.error('Session error:', error)
+        return
+      }
+      
+      console.log('Session:', session?.user?.email, 'Verified:', session?.user?.email_confirmed_at)
+      
+      if (session?.user?.email_confirmed_at) {
+        console.log('Email verified! Progressing to profile step...')
+        
+        // Email verified! Clear interval and progress
+        if (verificationCheckIntervalRef.current) {
+          clearInterval(verificationCheckIntervalRef.current)
+          verificationCheckIntervalRef.current = null
+        }
+        
+        setUser(session.user)
+        setIsLoggedIn(true)
+        setAuthStep("profile")
+        setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
+        await loadUserProfile(session.user.id)
+        
+        // Show success animation
+        setTimeout(() => {
+          setAuthSuccess("")
+        }, 5000)
+      }
+    } catch (error) {
+      console.error('Error checking verification status:', error)
+    }
+  }
+
+  const simulateAuthDelay = () => {
+    return new Promise((resolve) => setTimeout(resolve, 1500))
+  }
+
+  const handleEmergency = () => {
+    alert("🚨 Emergency services contacted! Help is on the way.")
+  }
+
+  const handleBookService = () => {
+    setSelectedService("armed-protection")
+    setActiveTab("booking")
+    setBookingStep(1)
+  }
+
+  const handleBookCarOnly = () => {
+    setSelectedService("car-only")
+    setActiveTab("booking")
+    setBookingStep(1)
+  }
+
+  const handleNextStep = () => {
+    if (selectedService === "armed-protection") {
+      if (bookingStep === 1) setBookingStep(2)
+      else if (bookingStep === 2) setBookingStep(3)
+      else if (bookingStep === 3) setBookingStep(4)
+      else if (bookingStep === 4) setBookingStep(5)
+      else if (bookingStep === 5) setBookingStep(6)
+      else if (bookingStep === 6) setBookingStep(8)
+      else if (bookingStep === 8) {
+        // Compile booking summary payload
+        const payload = {
+          id: `REQ${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          serviceType: selectedService,
+          protectionType: protectorArmed ? "Armed" : "Unarmed",
+          pickupDetails: {
+            location: pickupLocation,
+            date: pickupDate,
+            time: pickupTime,
+            duration: duration,
+          },
+          destinationDetails: {
+            primary: destinationLocation,
+            additional: multipleDestinations,
+          },
+          personnel: {
+            protectee: protecteeCount,
+            protectors: protectorCount,
+            dressCode: dressCodeOptions.find((option) => option.id === selectedDressCode)?.name,
+          },
+          vehicles: selectedVehicles,
+          contact: {
+            phone: `+234 ${phoneNumber}`,
+            user: user,
+          },
+          status: "Pending Deployment",
+        }
+
+        setBookingPayload(payload)
+        setActiveBookings(prev => [payload, ...prev])
+
+        // Navigate to chat page
+        handleChatNavigation(payload)
+        return
+      }
+    } else if (selectedService === "car-only") {
+      if (bookingStep === 1) setBookingStep(4)
+      else if (bookingStep === 4) setBookingStep(5)
+      else if (bookingStep === 5) setBookingStep(7)
+      else if (bookingStep === 7) {
+        // Compile booking summary payload for car-only service
+        const payload = {
+          id: `REQ${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          serviceType: selectedService,
+          pickupDetails: {
+            location: pickupLocation,
+            date: pickupDate,
+            time: pickupTime,
+            duration: duration,
+          },
+          destinationDetails: {
+            primary: destinationLocation,
+            additional: multipleDestinations,
+          },
+          vehicles: selectedVehicles,
+          contact: {
+            phone: `+234 ${phoneNumber}`,
+            user: user,
+          },
+          status: "Pending Deployment",
+        }
+
+        setBookingPayload(payload)
+        setActiveBookings(prev => [payload, ...prev])
+
+        // Navigate to chat page
+        handleChatNavigation(payload)
+        return
+      }
+    }
+  }
+
+  const handlePrevStep = () => {
+    if (selectedService === "armed-protection") {
+      if (bookingStep === 9) setBookingStep(8)
+      else if (bookingStep === 8) setBookingStep(6)
+      else if (bookingStep === 6) setBookingStep(5)
+      else if (bookingStep === 5) setBookingStep(4)
+      else if (bookingStep === 4) setBookingStep(3)
+      else if (bookingStep === 3) setBookingStep(2)
+      else if (bookingStep === 2) setBookingStep(1)
+      else if (bookingStep === 1) {
+        setActiveTab("protector")
+        setSelectedService("")
+      }
+    } else if (selectedService === "car-only") {
+      if (bookingStep === 9) setBookingStep(8)
+      else if (bookingStep === 8) setBookingStep(7)
+      else if (bookingStep === 7) setBookingStep(5)
+      else if (bookingStep === 5) setBookingStep(4)
+      else if (bookingStep === 4) setBookingStep(1)
+      else if (bookingStep === 1) {
+        setActiveTab("protector")
+        setSelectedService("")
+      }
+    } else {
+      // Fallback for when no service is selected
+      setActiveTab("protector")
+    }
+  }
+
+  const handleAuthInputChange = (field: string, value: string) => {
+    setAuthForm((prev) => ({ ...prev, [field]: value }))
+    // Clear field-specific error when user starts typing
+    if (formErrors[field]) {
+      setFormErrors((prev) => ({ ...prev, [field]: "" }))
+    }
+  }
+
+  const handleEditProfileChange = (field: string, value: string) => {
+    setEditProfileForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const startEditingProfile = () => {
+    setEditProfileForm({
+      firstName: userProfile.firstName,
+      lastName: userProfile.lastName,
+      phone: userProfile.phone,
+      address: userProfile.address,
+      emergencyContact: userProfile.emergencyContact,
+      emergencyPhone: userProfile.emergencyPhone,
+    })
+    setIsEditingProfile(true)
+  }
+
+  const saveProfileChanges = async () => {
+    if (!user) return
+
+    setAuthLoading(true)
+    clearAuthMessages()
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          first_name: editProfileForm.firstName.trim(),
+          last_name: editProfileForm.lastName.trim(),
+          phone: editProfileForm.phone.trim(),
+          address: editProfileForm.address.trim(),
+          emergency_contact: editProfileForm.emergencyContact.trim(),
+          emergency_phone: editProfileForm.emergencyPhone.trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id)
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      setUserProfile((prev) => ({
+        ...prev,
+        firstName: editProfileForm.firstName.trim(),
+        lastName: editProfileForm.lastName.trim(),
+        phone: editProfileForm.phone.trim(),
+        address: editProfileForm.address.trim(),
+        emergencyContact: editProfileForm.emergencyContact.trim(),
+        emergencyPhone: editProfileForm.emergencyPhone.trim(),
+      }))
+
+      setIsEditingProfile(false)
+      setAuthSuccess("Profile updated successfully!")
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setAuthSuccess(""), 3000)
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Failed to update profile. Please try again.")
+      // Clear error message after 5 seconds
+      setTimeout(() => setAuthError(""), 5000)
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const cancelEditingProfile = () => {
+    setIsEditingProfile(false)
+    setEditProfileForm({
+      firstName: "",
+      lastName: "",
+      phone: "",
+      address: "",
+      emergencyContact: "",
+      emergencyPhone: "",
+    })
+  }
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut()
+      setIsLoggedIn(false)
+      setUser(null)
+      setUserProfile({
+        email: "",
+        firstName: "",
+        lastName: "",
+        phone: "",
+        address: "",
+        emergencyContact: "",
+        emergencyPhone: "",
+      })
+      setAuthForm({
+        email: "",
+        password: "",
+        confirmPassword: "",
+        phone: "",
+        firstName: "",
+        lastName: "",
+        address: "",
+        emergencyContact: "",
+        emergencyPhone: "",
+      })
+      setActiveTab("protector")
+      clearAuthMessages()
+    } catch (error) {
+      console.error("Error signing out:", error)
+      setAuthError("Error signing out. Please try again.")
+    }
+  }
+
+  const handleLoginSubmit = async () => {
+    clearAuthMessages()
+
+    if (!validateForm(authStep)) {
+      return
+    }
+
+    setAuthLoading(true)
+
+    try {
+      if (authStep === "login") {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: authForm.email.trim().toLowerCase(), // Normalize email for consistency
+          password: authForm.password,
+        })
+
+
+        if (error) {
+          if (error.message.includes("Invalid login credentials")) {
+            throw new Error("Invalid email or password")
+          } else if (error.message.includes("Email not confirmed")) {
+            throw new Error("Please check your email and click the confirmation link")
+          } else {
+            throw new Error(error.message)
+          }
+        }
+
+        setAuthSuccess("Login successful! Welcome back.")
+        setShowLoginForm(false)
+
+        // Clear form
+        setAuthForm({
+          email: "",
+          password: "",
+          confirmPassword: "",
+          phone: "",
+          firstName: "",
+          lastName: "",
+          address: "",
+          emergencyContact: "",
+          emergencyPhone: "",
+        })
+      } else if (authStep === "register") {
+        console.log('Attempting to register user with email:', authForm.email)
+        console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
+        
+        const { data, error } = await supabase.auth.signUp({
+          email: authForm.email.trim().toLowerCase(), // Normalize email for consistency
+          password: authForm.password,
+          options: {
+            emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || window.location.origin,
+            data: {
+              first_name: authForm.firstName,
+              last_name: authForm.lastName,
+            },
+          },
+        })
+
+
+        if (error) {
+          console.error('Supabase auth error:', error)
+          if (error.message.includes("User already registered")) {
+            throw new Error("An account with this email already exists")
+          } else if (error.message.includes("Password should be")) {
+            throw new Error("Password must be at least 8 characters with uppercase, lowercase, and number")
+          } else if (error.message.includes("Failed to fetch")) {
+            throw new Error("Network error. Please check your internet connection and try again.")
+          } else {
+            throw new Error(error.message)
+          }
+        }
+
+        // Store the email for verification step
+        setVerificationEmail(authForm.email.trim().toLowerCase())
+        setAuthStep("email-verification")
+        setEmailVerificationSent(true)
+        setAuthSuccess("Account created! Please check your email and click the verification link to continue.")
+        
+        // Start checking for verification status every 3 seconds
+        const interval = setInterval(checkVerificationStatus, 3000)
+        verificationCheckIntervalRef.current = interval
+      } else if (authStep === "profile") {
+        // Save profile to database
+        if (user) {
+          const { error } = await supabase.from("profiles").upsert({
+            id: user.id,
+            email: authForm.email.trim().toLowerCase(), // Normalize email for consistency
+            first_name: authForm.firstName.trim(),
+            last_name: authForm.lastName.trim(),
+            phone: authForm.phone.trim(),
+            address: authForm.address.trim(),
+            emergency_contact: authForm.emergencyContact.trim(),
+            emergency_phone: authForm.emergencyPhone.trim(),
+            updated_at: new Date().toISOString(),
+          })
+
+          if (error) {
+            throw new Error(error.message)
+          }
+
+          setUserProfile({
+            email: authForm.email.trim().toLowerCase(),
+            firstName: authForm.firstName.trim(),
+            lastName: authForm.lastName.trim(),
+            phone: authForm.phone.trim(),
+            address: authForm.address.trim(),
+            emergencyContact: authForm.emergencyContact.trim(),
+            emergencyPhone: authForm.emergencyPhone.trim(),
+          })
+        }
+
+        setIsLoggedIn(true)
+        setShowLoginForm(false)
+        setAuthStep("login") // Reset for next time
+        setAuthSuccess("🎉 Welcome to Protector.ng! Your account has been created successfully.")
+        
+        // Auto-hide success message after 5 seconds
+        setTimeout(() => {
+          setAuthSuccess("")
+        }, 5000)
+
+        // Clear form
+        setAuthForm({
+          email: "",
+          password: "",
+          confirmPassword: "",
+          phone: "",
+          firstName: "",
+          lastName: "",
+          address: "",
+          emergencyContact: "",
+          emergencyPhone: "",
+        })
+      }
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "An error occurred. Please try again.")
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const handleProfileCompletion = async () => {
+    clearAuthMessages()
+
+    if (!validateForm(authStep)) {
+      return
+    }
+
+    // Check if user exists and has a valid ID
+    console.log('Profile completion - User object:', user)
+    console.log('Profile completion - User ID:', user?.id)
+    
+    let currentUser = user
+    
+    // If user is not available, try to get it from the current session
+    if (!currentUser || !currentUser.id) {
+      console.log('User not available, fetching from session...')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        currentUser = session.user
+        setUser(session.user)
+        console.log('User fetched from session:', currentUser)
+      }
+    }
+    
+    if (!currentUser || !currentUser.id) {
+      setAuthError("User not found. Please log in again.")
+      return
+    }
+
+    setAuthLoading(true)
+
+    try {
+      // First, check if profile exists, if not create it
+      const { data: existingProfile, error: fetchError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', currentUser.id)
+        .single()
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        throw new Error(fetchError.message)
+      }
+
+      let error
+      if (existingProfile) {
+        // Update existing profile
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            first_name: authForm.firstName.trim(),
+            last_name: authForm.lastName.trim(),
+            phone: authForm.phone.trim(),
+            address: authForm.address.trim(),
+            emergency_contact: authForm.emergencyContact.trim(),
+            emergency_phone: authForm.emergencyPhone.trim(),
+            profile_completed: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', currentUser.id)
+        error = updateError
+      } else {
+        // Create new profile
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert({
+            id: currentUser.id,
+            email: currentUser.email || '',
+            first_name: authForm.firstName.trim(),
+            last_name: authForm.lastName.trim(),
+            phone: authForm.phone.trim(),
+            address: authForm.address.trim(),
+            emergency_contact: authForm.emergencyContact.trim(),
+            emergency_phone: authForm.emergencyPhone.trim(),
+            role: 'client',
+            profile_completed: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+        error = insertError
+      }
+
+      if (error) {
+        console.error('Profile save error:', error)
+        throw new Error(`Failed to save profile: ${error.message}`)
+      }
+
+      // Update local state
+      setUserProfile({
+        email: currentUser?.email || "",
+        firstName: authForm.firstName.trim(),
+        lastName: authForm.lastName.trim(),
+        phone: authForm.phone.trim(),
+        address: authForm.address.trim(),
+        emergencyContact: authForm.emergencyContact.trim(),
+        emergencyPhone: authForm.emergencyPhone.trim(),
+      })
+
+      // Check if email is verified
+      const isEmailVerified = currentUser?.email_confirmed_at
+      
+      if (isEmailVerified) {
+        setAuthSuccess("Profile completed successfully! Welcome to Protector.Ng")
+      } else {
+        setAuthSuccess("Profile completed! Please verify your email to access all features.")
+      }
+      
+      setAuthStep("profile")
+      setShowLoginForm(false)
+
+      // Clear form
+      setAuthForm({
+        email: "",
+        password: "",
+        confirmPassword: "",
+        phone: "",
+        firstName: "",
+        lastName: "",
+        address: "",
+        emergencyContact: "",
+        emergencyPhone: "",
+      })
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : "Failed to complete profile. Please try again.")
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
+  const renderLoginForm = () => (
+    <div className="w-full max-w-md mx-auto bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen flex flex-col text-white">
+      <div className="flex flex-col h-full p-4 pt-8">
+        <div className="flex-1 flex flex-col justify-center w-full space-y-6">
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => {
+                setShowLoginForm(false)
+                setAuthStep("login")
+                clearAuthMessages()
+              }}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              <ArrowLeft className="h-6 w-6" />
+            </button>
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Shield className="h-8 w-8 text-blue-400" />
+                <h1 className="text-2xl font-bold text-white">Protector.Ng</h1>
+              </div>
+              <h2 className="text-lg font-medium text-gray-300">
+                {authStep === "login"
+                  ? "Welcome Back"
+                  : authStep === "register"
+                    ? "Create Your Account"
+                    : authStep === "email-verification"
+                      ? "Verify Your Email"
+                      : authStep === "profile-completion"
+                        ? "Complete Your Profile"
+                        : "Edit Profile"}
+              </h2>
+              {(authStep === "register" || authStep === "email-verification" || authStep === "profile-completion") && (
+                <div className="flex items-center justify-center gap-2 mt-3">
+                  <div className={`w-3 h-3 rounded-full transition-colors ${authStep === "register" ? "bg-blue-500" : "bg-gray-600"}`}></div>
+                  <div className={`w-3 h-3 rounded-full transition-colors ${authStep === "email-verification" ? "bg-blue-500" : "bg-gray-600"}`}></div>
+                  <div className={`w-3 h-3 rounded-full transition-colors ${authStep === "profile-completion" ? "bg-blue-500" : "bg-gray-600"}`}></div>
+                </div>
+              )}
+            </div>
+            <div className="w-6" />
+          </div>
+
+          {authError && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+                <p className="text-red-400 text-sm font-medium">{authError}</p>
+              </div>
+            </div>
+          )}
+
+          {authSuccess && (
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 backdrop-blur-sm">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                <p className="text-green-400 text-sm font-medium">{authSuccess}</p>
+              </div>
+            </div>
+          )}
+
+          {authStep === "login" && (
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Email Address</label>
+                <input
+                  type="email"
+                  placeholder="Enter your email"
+                  value={authForm.email}
+                  onChange={(e) => handleAuthInputChange("email", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                    formErrors.email ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20" : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  }`}
+                />
+                {formErrors.email && <p className="text-red-400 text-xs flex items-center gap-1">
+                  <span>⚠</span>
+                  {formErrors.email}
+                </p>}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Password</label>
+                <input
+                  type="password"
+                  placeholder="Enter your password"
+                  value={authForm.password}
+                  onChange={(e) => handleAuthInputChange("password", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                    formErrors.password
+                      ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                      : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  }`}
+                />
+                {formErrors.password && <p className="text-red-400 text-xs flex items-center gap-1">
+                  <span>⚠</span>
+                  {formErrors.password}
+                </p>}
+              </div>
+            </div>
+          )}
+
+          {authStep === "register" && (
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Email Address</label>
+                <input
+                  type="email"
+                  placeholder="Enter your email"
+                  value={authForm.email}
+                  onChange={(e) => handleAuthInputChange("email", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                    formErrors.email ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20" : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  }`}
+                />
+                {formErrors.email && <p className="text-red-400 text-xs flex items-center gap-1">
+                  <span>⚠</span>
+                  {formErrors.email}
+                </p>}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Password</label>
+                <input
+                  type="password"
+                  placeholder="Create a strong password"
+                  value={authForm.password}
+                  onChange={(e) => handleAuthInputChange("password", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                    formErrors.password
+                      ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                      : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  }`}
+                />
+                {formErrors.password && <p className="text-red-400 text-xs flex items-center gap-1">
+                  <span>⚠</span>
+                  {formErrors.password}
+                </p>}
+                {authStep === "register" && authForm.password && (
+                  <div className="text-xs space-y-1">
+                    <div className="text-gray-400">Password requirements:</div>
+                    <div className={`flex items-center gap-1 ${authForm.password.length >= 8 ? 'text-green-400' : 'text-gray-500'}`}>
+                      <span>{authForm.password.length >= 8 ? '✓' : '○'}</span>
+                      <span>At least 8 characters</span>
+                    </div>
+                    <div className={`flex items-center gap-1 ${/[A-Z]/.test(authForm.password) ? 'text-green-400' : 'text-gray-500'}`}>
+                      <span>{/[A-Z]/.test(authForm.password) ? '✓' : '○'}</span>
+                      <span>One uppercase letter</span>
+                    </div>
+                    <div className={`flex items-center gap-1 ${/[a-z]/.test(authForm.password) ? 'text-green-400' : 'text-gray-500'}`}>
+                      <span>{/[a-z]/.test(authForm.password) ? '✓' : '○'}</span>
+                      <span>One lowercase letter</span>
+                    </div>
+                    <div className={`flex items-center gap-1 ${/\d/.test(authForm.password) ? 'text-green-400' : 'text-gray-500'}`}>
+                      <span>{/\d/.test(authForm.password) ? '✓' : '○'}</span>
+                      <span>One number</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Confirm Password</label>
+                <input
+                  type="password"
+                  placeholder="Confirm your password"
+                  value={authForm.confirmPassword}
+                  onChange={(e) => handleAuthInputChange("confirmPassword", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                    formErrors.confirmPassword
+                      ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                      : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  }`}
+                />
+                {formErrors.confirmPassword && <p className="text-red-400 text-xs flex items-center gap-1">
+                  <span>⚠</span>
+                  {formErrors.confirmPassword}
+                </p>}
+              </div>
+            </div>
+          )}
+
+          {authStep === "email-verification" && (
+            <div className="space-y-6 text-center">
+              <div className="space-y-4">
+                <div className="w-16 h-16 mx-auto bg-blue-500/20 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white mb-2">Check Your Email</h3>
+                  <p className="text-gray-400 text-sm">
+                    We've sent a verification link to:
+                  </p>
+                  <p className="text-blue-400 font-medium mt-1">{verificationEmail}</p>
+                </div>
+                <div className="bg-gray-800/50 rounded-lg p-4 text-left">
+                  <h4 className="text-white font-medium mb-2">Next Steps:</h4>
+                  <ol className="text-gray-300 text-sm space-y-1">
+                    <li>1. Check your email inbox (and spam folder)</li>
+                    <li>2. Click the verification link in the email</li>
+                    <li>3. This page will automatically update when verified ✨</li>
+                  </ol>
+                </div>
+                <div className="flex items-center justify-center gap-2 text-xs text-gray-500">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  <span>Automatically checking for verification...</span>
+                </div>
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={checkVerificationStatus}
+                    className="text-xs text-blue-400 hover:text-blue-300 underline"
+                    disabled={authLoading}
+                  >
+                    Check verification status manually
+                  </button>
+                  
+                  {/* Proceed to Continue Signing Up Option */}
+                  <div className="border-t border-gray-700 pt-3">
+                    <p className="text-xs text-gray-400 mb-2">
+                      Can't access your email right now?
+                    </p>
+                    <button
+                      onClick={async () => {
+                        // Ensure user is set before proceeding
+                        const { data: { session } } = await supabase.auth.getSession()
+                        if (session?.user) {
+                          setUser(session.user)
+                          setAuthStep("profile-completion")
+                          setAuthSuccess("You can complete your profile now. Email verification can be done later.")
+                        } else {
+                          setAuthError("Please log in first to complete your profile.")
+                        }
+                      }}
+                      className="w-full bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-200"
+                      disabled={authLoading}
+                    >
+                      Proceed to Continue Signing Up
+                    </button>
+                  </div>
+                  
+                  <div className="text-xs text-gray-500">
+                    Didn't receive the email? Check your spam folder or resend it.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(authStep === "profile" || authStep === "profile-completion") && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-400">First Name</label>
+                  <input
+                    type="text"
+                    placeholder="First name"
+                    value={authForm.firstName}
+                    onChange={(e) => handleAuthInputChange("firstName", e.target.value)}
+                    className={`w-full p-4 bg-gray-800/90 text-white rounded-lg border focus:outline-none backdrop-blur-sm ${
+                      formErrors.firstName
+                        ? "border-red-500 focus:border-red-500"
+                        : "border-gray-700 focus:border-blue-500"
+                    }`}
+                  />
+                  {formErrors.firstName && <p className="text-red-400 text-xs">{formErrors.firstName}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-400">Last Name</label>
+                  <input
+                    type="text"
+                    placeholder="Last name"
+                    value={authForm.lastName}
+                    onChange={(e) => handleAuthInputChange("lastName", e.target.value)}
+                    className={`w-full p-4 bg-gray-800/90 text-white rounded-lg border focus:outline-none backdrop-blur-sm ${
+                      formErrors.lastName
+                        ? "border-red-500 focus:border-red-500"
+                        : "border-gray-700 focus:border-blue-500"
+                    }`}
+                  />
+                  {formErrors.lastName && <p className="text-red-400 text-xs">{formErrors.lastName}</p>}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-400">Phone Number</label>
+                <input
+                  type="tel"
+                  placeholder="+234 801 234 5678 or 0801 234 5678"
+                  value={authForm.phone}
+                  onChange={(e) => {
+                    const formatted = formatPhoneNumber(e.target.value)
+                    handleAuthInputChange("phone", formatted)
+                  }}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-lg border focus:outline-none backdrop-blur-sm ${
+                    formErrors.phone ? "border-red-500 focus:border-red-500" : "border-gray-700 focus:border-blue-500"
+                  }`}
+                />
+                {formErrors.phone && <p className="text-red-400 text-xs">{formErrors.phone}</p>}
+                <p className="text-xs text-gray-500">Enter your Nigerian phone number (e.g., +234 801 234 5678)</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-400">Address</label>
+                <input
+                  type="text"
+                  placeholder="Your address"
+                  value={authForm.address}
+                  onChange={(e) => handleAuthInputChange("address", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-lg border focus:outline-none backdrop-blur-sm ${
+                    formErrors.address
+                      ? "border-red-500 focus:border-red-500"
+                      : "border-gray-700 focus:border-blue-500"
+                  }`}
+                />
+                {formErrors.address && <p className="text-red-400 text-xs">{formErrors.address}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-400">Emergency Contact Name</label>
+                <input
+                  type="text"
+                  placeholder="Emergency contact name"
+                  value={authForm.emergencyContact}
+                  onChange={(e) => handleAuthInputChange("emergencyContact", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-lg border focus:outline-none backdrop-blur-sm ${
+                    formErrors.emergencyContact
+                      ? "border-red-500 focus:border-red-500"
+                      : "border-gray-700 focus:border-blue-500"
+                  }`}
+                />
+                {formErrors.emergencyContact && <p className="text-red-400 text-xs">{formErrors.emergencyContact}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-400">Emergency Contact Phone</label>
+                <input
+                  type="tel"
+                  placeholder="+234 801 234 5678 or 0801 234 5678"
+                  value={authForm.emergencyPhone}
+                  onChange={(e) => {
+                    const formatted = formatPhoneNumber(e.target.value)
+                    handleAuthInputChange("emergencyPhone", formatted)
+                  }}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-lg border focus:outline-none backdrop-blur-sm ${
+                    formErrors.emergencyPhone
+                      ? "border-red-500 focus:border-red-500"
+                      : "border-gray-700 focus:border-blue-500"
+                  }`}
+                />
+                {formErrors.emergencyPhone && <p className="text-red-400 text-xs">{formErrors.emergencyPhone}</p>}
+                <p className="text-xs text-gray-500">Emergency contact's Nigerian phone number</p>
+              </div>
+            </div>
+          )}
+
+          <Button
+            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 font-semibold py-4 rounded-xl disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed transition-all duration-200 shadow-lg hover:shadow-xl"
+            onClick={authStep === "email-verification" ? resendVerificationEmail : authStep === "profile-completion" ? handleProfileCompletion : handleLoginSubmit}
+            disabled={authLoading}
+          >
+            {authLoading ? (
+              <div className="flex items-center justify-center gap-2">
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                {authStep === "login"
+                  ? "Signing in..."
+                  : authStep === "register"
+                    ? "Creating account..."
+                    : authStep === "email-verification"
+                      ? "Resending email..."
+                      : authStep === "profile-completion"
+                        ? "Completing profile..."
+                        : "Completing registration..."}
+              </div>
+            ) : authStep === "login" ? (
+              "Login"
+            ) : authStep === "register" ? (
+              "Continue"
+            ) : authStep === "email-verification" ? (
+              "Resend Verification Email"
+            ) : authStep === "profile-completion" ? (
+              "Complete Profile"
+            ) : (
+              "Complete Registration"
+            )}
+          </Button>
+
+          {authStep !== "profile" && authStep !== "email-verification" && authStep !== "profile-completion" && (
+            <div className="text-center">
+              <button
+                onClick={() => {
+                  if (authStep === "login") {
+                    setAuthStep("register")
+                  } else {
+                    setAuthStep("login")
+                  }
+                  clearAuthMessages()
+                }}
+                className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors duration-200 hover:underline"
+                disabled={authLoading}
+              >
+                {authStep === "login" ? "Don't have an account? Sign up" : "Already have an account? Login"}
+              </button>
+            </div>
+          )}
+
+          {authStep === "email-verification" && (
+            <div className="text-center">
+              <button
+                onClick={() => {
+                  setAuthStep("login")
+                  clearAuthMessages()
+                }}
+                className="text-blue-400 hover:text-blue-300 text-sm"
+                disabled={authLoading}
+              >
+                Back to Login
+              </button>
+            </div>
+          )}
+
+          {authStep === "login" && (
+            <div className="text-center">
+              <button className="text-gray-400 hover:text-white text-sm" disabled={authLoading}>
+                Forgot Password?
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
+  const returnTotalPrice = () => {
+    return selectedService === "car-only" ? "₦180,000.00" : "₦450,000.00"
+  }
+
+  const getCurrentLocation = () => {
+    setIsLoadingLocation(true)
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords
+          setPickupLocation(`${latitude}, ${longitude}`)
+          setIsLoadingLocation(false)
+        },
+        (error) => {
+          console.error("Error getting location:", error)
+          setIsLoadingLocation(false)
+        },
+      )
+    } else {
+      alert("Geolocation is not supported by this browser.")
+      setIsLoadingLocation(false)
+    }
+  }
+
+  const renderCalendar = () => {
+    //  Implemented functional calendar component instead of placeholder
+    const today = new Date()
+    const currentMonth = today.getMonth()
+    const currentYear = today.getFullYear()
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
+    const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay()
+
+    const days = []
+
+    // Add empty cells for days before the first day of the month
+    for (let i = 0; i < firstDayOfMonth; i++) {
+      days.push(<div key={`empty-${i}`} className="p-2"></div>)
+    }
+
+    // Add days of the month
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(currentYear, currentMonth, day)
+      const isToday = date.toDateString() === today.toDateString()
+      const isPast = date < today
+
+      days.push(
+        <button
+          key={day}
+          onClick={() => {
+            if (!isPast) {
+              const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+              setPickupDate(`${months[currentMonth]} ${day}, ${currentYear}`)
+              setShowCalendar(false)
+            }
+          }}
+          disabled={isPast}
+          className={`p-2 text-sm rounded ${
+            isToday
+              ? "bg-blue-600 text-white"
+              : isPast
+                ? "text-gray-600 cursor-not-allowed"
+                : "text-white hover:bg-gray-700"
+          }`}
+        >
+          {day}
+        </button>,
+      )
+    }
+
+    return (
+      <div className="bg-gray-800 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-white font-medium">
+            {today.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+          </h3>
+          <button onClick={() => setShowCalendar(false)} className="text-gray-400 hover:text-white">
+            ✕
+          </button>
+        </div>
+        <div className="grid grid-cols-7 gap-1 mb-2">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+            <div key={day} className="p-2 text-xs text-gray-400 text-center font-medium">
+              {day}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">{days}</div>
+      </div>
+    )
+  }
+
+  const renderTimePicker = () => {
+    //  Implemented functional time picker component instead of placeholder
+    const hours = Array.from({ length: 12 }, (_, i) => i + 1)
+    const minutes = [0, 15, 30, 45]
+
+    return (
+      <div className="bg-gray-800 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-white font-medium">Select Time</h3>
+          <button onClick={() => setShowTimePicker(false)} className="text-gray-400 hover:text-white">
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-4">
+          {/* Hours */}
+          <div>
+            <h4 className="text-gray-400 text-sm mb-2">Hour</h4>
+            <div className="space-y-1 max-h-32 overflow-y-auto">
+              {hours.map((hour) => (
+                <button
+                  key={hour}
+                  onClick={() => setSelectedHour(hour)}
+                  className={`w-full p-2 text-sm rounded ${
+                    selectedHour === hour ? "bg-blue-600 text-white" : "text-white hover:bg-gray-700"
+                  }`}
+                >
+                  {hour}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Minutes */}
+          <div>
+            <h4 className="text-gray-400 text-sm mb-2">Minute</h4>
+            <div className="space-y-1">
+              {minutes.map((minute) => (
+                <button
+                  key={minute}
+                  onClick={() => setSelectedMinute(minute)}
+                  className={`w-full p-2 text-sm rounded ${
+                    selectedMinute === minute ? "bg-blue-600 text-white" : "text-white hover:bg-gray-700"
+                  }`}
+                >
+                  {minute.toString().padStart(2, "0")}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* AM/PM */}
+          <div>
+            <h4 className="text-gray-400 text-sm mb-2">Period</h4>
+            <div className="space-y-1">
+              {["AM", "PM"].map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setSelectedPeriod(period)}
+                  className={`w-full p-2 text-sm rounded ${
+                    selectedPeriod === period ? "bg-blue-600 text-white" : "text-white hover:bg-gray-700"
+                  }`}
+                >
+                  {period}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            setPickupTime(
+              `${selectedHour}:${selectedMinute.toString().padStart(2, "0")}${selectedPeriod.toLowerCase()}`,
+            )
+            setShowTimePicker(false)
+          }}
+          className="w-full mt-4 p-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
+          Set Time
+        </button>
+      </div>
+    )
+  }
+
+  const getFilteredVehicles = () => {
+    return vehicleTypes.filter((vehicle) => vehicle.name.toLowerCase().includes(vehicleSearchQuery.toLowerCase()))
+  }
+
+  const updateVehicleCount = (vehicleId: string, change: number) => {
+    setSelectedVehicles((prev) => {
+      const currentCount = prev[vehicleId] || 0
+      const newCount = Math.max(0, currentCount + change)
+      return { ...prev, [vehicleId]: newCount }
+    })
+  }
+
+  const getTotalVehicleCount = () => {
+    return Object.values(selectedVehicles).reduce((sum, count) => sum + count, 0)
+  }
+
+  const getTotalCapacity = () => {
+    return vehicleTypes.reduce((sum, vehicle) => {
+      return sum + (selectedVehicles[vehicle.id] || 0) * vehicle.capacity
+    }, 0)
+  }
+
+  const isCapacityValid = () => {
+    const requiredCapacity = selectedService === "car-only" ? passengerCount : protectorCount + protecteeCount
+    return getTotalCapacity() >= requiredCapacity
+  }
+
+  const renderKeypad = () => {
+    return (
+      <div className="grid grid-cols-3 gap-3">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, "*", 0, "#"].map((digit) => (
+          <button
+            key={digit}
+            onClick={() => setPhoneNumber(phoneNumber + digit.toString())}
+            className="p-4 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+          >
+            {digit}
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  const handleChatNavigation = (booking: any) => {
+    console.log('Navigating to chat with booking:', booking)
+    console.log('Booking ID:', booking.id)
+    // Store booking data in localStorage for the chat page
+    localStorage.setItem('currentBooking', JSON.stringify(booking))
+    console.log('Stored in localStorage:', localStorage.getItem('currentBooking'))
+    // Navigate to chat page
+    console.log('Navigating to:', `/chat?id=${booking.id}`)
+    window.location.href = `/chat?id=${booking.id}`
+  }
+
+
+  // Remove loading screen - show app immediately
+  // if (!isDataLoaded) {
+  //   return (
+  //     <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+  //       <div className="flex-1 flex items-center justify-center">
+  //         <div className="text-center space-y-4">
+  //           <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+  //           <p className="text-gray-400">Loading...</p>
+  //         </div>
+  //       </div>
+  //     </div>
+  //   )
+  // }
+
+  if (!isLoggedIn) {
+    return (
+      <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+        <div className="flex flex-col h-full">
+          {/* Welcome Screen */}
+          <div className="flex-1 flex flex-col justify-center items-center p-6 space-y-8">
+            <div className="text-center space-y-4">
+              <div className="flex items-center justify-center gap-2 mb-6">
+                <Shield className="h-8 w-8 text-white" />
+                <h1 className="text-2xl font-bold">Protector.ng</h1>
+              </div>
+
+              <h2 className="text-xl font-semibold text-white">Professional Armed Protection Services</h2>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Book armed protectors and secure transportation in Nigeria. Book your bulletproof vehicle for safe,
+                smooth, worry-free journeys
+              </p>
+            </div>
+
+            <div className="w-full space-y-4">
+              <Button
+                onClick={() => {
+                  setAuthStep("login")
+                  setShowLoginForm(true)
+                  clearAuthMessages()
+                }}
+                className="w-full bg-blue-600 text-white hover:bg-blue-700 font-semibold py-3"
+              >
+                Login to Your Account
+              </Button>
+
+              <Button
+                onClick={() => {
+                  setAuthStep("register")
+                  setShowLoginForm(true)
+                  clearAuthMessages()
+                }}
+                className="w-full bg-transparent border-2 border-white text-white hover:bg-white hover:text-black font-semibold py-3"
+              >
+                Create New Account
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Login Form Overlay */}
+        {showLoginForm && <div className="absolute inset-0 z-50">{renderLoginForm()}</div>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+      {/* Header */}
+      <header className="fixed top-0 left-0 right-0 w-full max-w-md mx-auto bg-black text-white p-4 z-50 border-b border-gray-800">
+        <div className="flex items-center justify-between">
+          {activeTab === "booking" ? (
+            <div className="flex items-center gap-3">
+              <Button variant="ghost" size="icon" onClick={handlePrevStep} className="text-white hover:bg-gray-800">
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <span className="text-sm text-gray-400">
+                {selectedService === "car-only" ? "Book Car Only" : "Book Protection"}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Shield className="h-6 w-6 text-white" />
+              <h1 className="text-xl font-bold">Protector.ng</h1>
+            </div>
+          )}
+        </div>
+      </header>
+
+      <main className="flex-1 pt-20 pb-24">
+        {/* Login Form Overlay */}
+        {showLoginForm && <div className="absolute inset-0 z-50">{renderLoginForm()}</div>}
+
+
+        {/* Home/Protector Tab */}
+        {activeTab === "protector" && (
+          <div className="relative min-h-screen">
+            {/* Background Image */}
+            <div
+              className="absolute inset-0 bg-cover bg-center leading-4"
+              style={{
+                backgroundImage: `linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), url('/images/executive-protection-background.png')`,
+              }}
+            />
+
+            {/* Content Overlay */}
+            <div className="relative z-10 p-4 pt-8 overflow-y-auto scroll-smooth max-h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)] leading-[3.75rem]">
+              {/* Hero Section */}
+              <div className="text-center mb-8">
+                <h1 className="text-2xl font-bold text-white mb-4">
+                  Book Armed Protectors
+                  <br />
+                  in {userLocation}
+                </h1>
+
+                {/* Pickup Location Display */}
+
+                <div className="space-y-3 mb-6">
+                  <Button
+                    onClick={handleBookService}
+                    className="w-full !bg-white !text-black hover:!bg-gray-100 hover:!text-black font-semibold px-6 py-3 rounded-full border border-gray-200"
+                    style={{ backgroundColor: "white", color: "black" }}
+                  >
+                    <Shield className="h-4 w-4 mr-2" />
+                    Book a Protector
+                  </Button>
+                  <Button
+                    onClick={handleBookCarOnly}
+                    className="w-full bg-transparent border-2 border-white !text-white hover:!bg-white hover:!text-black font-semibold px-6 py-3 rounded-full transition-colors"
+                  >
+                    <Car className="h-4 w-4 mr-2" />
+                    Book Car Only
+                  </Button>
+                </div>
+              </div>
+
+              {/* Features */}
+              <div className="space-y-4 mb-8">
+                <div className="flex items-center gap-3 text-white">
+                  <Shield className="h-5 w-5" />
+                  <span className="text-sm">Don't negotiate with danger, travel in peace with our bulletproof vehicles.</span>
+                </div>
+
+                <div className="flex items-center gap-3 text-white">
+                  <CheckCircle className="h-5 w-5" />
+                  <span className="text-sm">
+                    Visiting Nigeria shouldn't come with fear.
+                    <br />
+                    <span className="text-xs text-gray-300">Book a bulletproof car and move around with peace of mind.</span>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3 text-white">
+                  <Car className="h-5 w-5" />
+                  <span className="text-sm">From airport pickup to meetings, stay secure with our armoured vehicles and trained drivers.</span>
+                </div>
+
+                <div className="flex items-center gap-3 text-white">
+                  <Car className="h-5 w-5" />
+                  <span className="text-sm">
+                    Black car transportation is included for safe and effortless city travel.
+                  </span>
+                </div>
+              </div>
+
+              {/* Meet the Protectors */}
+              <div className="text-center"></div>
+            </div>
+          </div>
+        )}
+
+        {/* Booking Flow */}
+        {activeTab === "booking" && (
+          <div className="p-4 space-y-6">
+            {/* Step 1: Location and Time */}
+            {bookingStep === 1 && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Where should we have your motorcade meet you?</h2>
+                </div>
+
+                {/* City Selection Dropdown */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-400">Select City</label>
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-5 w-5 text-gray-400" />
+                    <select
+                      value={selectedCity}
+                      onChange={(e) => {
+                        setSelectedCity(e.target.value)
+                        setUserLocation(e.target.value)
+                        // Update pickup location based on selected city
+                        const defaultLocations = {
+                          "Lagos": "15 Admiralty Way, Lekki Phase 1, Lagos",
+                          "Abuja": "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+                          "Port Harcourt": "12 Trans Amadi Industrial Layout, Port Harcourt"
+                        }
+                        if (defaultLocations[e.target.value as keyof typeof defaultLocations]) {
+                          setPickupLocation(defaultLocations[e.target.value as keyof typeof defaultLocations])
+                        }
+                      }}
+                      className="flex-1 p-4 bg-gray-800 rounded-lg text-white border border-gray-700 focus:border-blue-500 focus:outline-none"
+                    >
+                      {cities.map((city) => (
+                        <option key={city.id} value={city.name}>
+                          {city.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={detectUserLocation}
+                      disabled={isDetectingLocation}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isDetectingLocation ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Detecting...
+                        </>
+                      ) : (
+                        <>
+                          <MapPin className="h-4 w-4" />
+                          Auto
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2 relative">
+                    <label className="text-sm font-medium text-gray-400">Where should we pick you up?</label>
+                    <div className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg">
+                      <MapPin className="h-5 w-5 text-gray-400" />
+                      <input
+                        type="text"
+                        value={pickupLocation}
+                        onChange={(e) => {
+                          setPickupLocation(e.target.value)
+                          if (e.target.value.length > 2) {
+                            const citySuggestions = {
+                              "Lagos": [
+                                "15 Admiralty Way, Lekki Phase 1, Lagos",
+                                "23 Adeola Odeku Street, Victoria Island, Lagos",
+                                "78 Allen Avenue, Ikeja, Lagos",
+                                "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
+                                "45 Awolowo Road, Ikoyi, Lagos",
+                                "12 Tiamiyu Savage Street, Victoria Island, Lagos",
+                                "67 Admiralty Way, Lekki Phase 1, Lagos"
+                              ],
+                              "Abuja": [
+                                "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+                                "45 Aminu Kano Crescent, Wuse 2, Abuja",
+                                "Plot 567 Maitama District, Abuja",
+                                "Plot 890 Asokoro District, Abuja",
+                                "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
+                                "Plot 1001 Diplomatic Drive, Central Area, Abuja"
+                              ],
+                              "Port Harcourt": [
+                                "12 Trans Amadi Industrial Layout, Port Harcourt",
+                                "34 GRA Phase 2, Port Harcourt",
+                                "56 Aba Road, Port Harcourt",
+                                "78 Olu Obasanjo Road, Port Harcourt",
+                                "23 Stadium Road, Port Harcourt"
+                              ]
+                            }
+                            
+                            const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
+                            const filteredSuggestions = suggestions.filter((addr) => 
+                              addr.toLowerCase().includes(e.target.value.toLowerCase())
+                            )
+                            setLocationSuggestions(filteredSuggestions.slice(0, 5))
+                            setShowLocationSuggestions(suggestions.length > 0)
+                          } else {
+                            setShowLocationSuggestions(false)
+                          }
+                        }}
+                        placeholder="Enter your pickup address"
+                        className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+                      />
+                      <button
+                        onClick={getCurrentLocation}
+                        disabled={isLoadingLocation}
+                        className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                      >
+                        {isLoadingLocation ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <MapPin className="h-4 w-4 text-white" />
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Location Suggestions */}
+                    {showLocationSuggestions && locationSuggestions.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 z-10 bg-gray-800 border border-gray-700 rounded-lg mt-1 max-h-48 overflow-y-auto">
+                        {locationSuggestions.map((suggestion, index) => (
+                          <button
+                            key={index}
+                            onClick={() => {
+                              setPickupLocation(suggestion)
+                              setShowLocationSuggestions(false)
+                            }}
+                            className="w-full text-left p-3 hover:bg-gray-700 text-white text-sm border-b border-gray-700 last:border-b-0"
+                          >
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                              <span>{suggestion}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 relative">
+                    <label className="text-sm font-medium text-gray-400">Where are you going?</label>
+                    <div className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg">
+                      <MapPin className="h-5 w-5 text-red-400" />
+                      <input
+                        type="text"
+                        value={destinationLocation}
+                        onChange={(e) => {
+                          setDestinationLocation(e.target.value)
+                          if (e.target.value.length > 2) {
+                            const citySuggestions = {
+                              "Lagos": [
+                                "15 Admiralty Way, Lekki Phase 1, Lagos",
+                                "23 Adeola Odeku Street, Victoria Island, Lagos",
+                                "78 Allen Avenue, Ikeja, Lagos",
+                                "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
+                                "45 Awolowo Road, Ikoyi, Lagos",
+                                "12 Tiamiyu Savage Street, Victoria Island, Lagos",
+                                "67 Admiralty Way, Lekki Phase 1, Lagos"
+                              ],
+                              "Abuja": [
+                                "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+                                "45 Aminu Kano Crescent, Wuse 2, Abuja",
+                                "Plot 567 Maitama District, Abuja",
+                                "Plot 890 Asokoro District, Abuja",
+                                "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
+                                "Plot 1001 Diplomatic Drive, Central Area, Abuja"
+                              ],
+                              "Port Harcourt": [
+                                "12 Trans Amadi Industrial Layout, Port Harcourt",
+                                "34 GRA Phase 2, Port Harcourt",
+                                "56 Aba Road, Port Harcourt",
+                                "78 Olu Obasanjo Road, Port Harcourt",
+                                "23 Stadium Road, Port Harcourt"
+                              ]
+                            }
+                            
+                            const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
+                            const filteredSuggestions = suggestions.filter((addr) => 
+                              addr.toLowerCase().includes(e.target.value.toLowerCase())
+                            )
+                            setDestinationSuggestions(filteredSuggestions.slice(0, 5))
+                            setShowDestinationSuggestions(suggestions.length > 0)
+                          } else {
+                            setShowDestinationSuggestions(false)
+                          }
+                        }}
+                        placeholder="Enter your destination address"
+                        className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Destination Suggestions */}
+                    {showDestinationSuggestions && destinationSuggestions.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 z-10 bg-gray-800 border border-gray-700 rounded-lg mt-1 max-h-48 overflow-y-auto">
+                        {destinationSuggestions.map((suggestion, index) => (
+                          <button
+                            key={index}
+                            onClick={() => {
+                              setDestinationLocation(suggestion)
+                              setShowDestinationSuggestions(false)
+                            }}
+                            className="w-full text-left p-3 hover:bg-gray-700 text-white text-sm border-b border-gray-700 last:border-b-0"
+                          >
+                            <div className="flex items-center gap-2">
+                              <MapPin className="h-4 w-4 text-red-400 flex-shrink-0" />
+                              <span>{suggestion}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Multiple destinations for all services */}
+                  <div className="space-y-4">
+                    <div className="space-y-4">
+                      {/* Display added destinations */}
+                      {multipleDestinations.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-gray-400">Additional Stops</label>
+                            <button
+                              onClick={() => setMultipleDestinations([])}
+                              className="text-xs text-red-400 hover:text-red-300 underline"
+                            >
+                              Clear All
+                            </button>
+                          </div>
+                          {multipleDestinations.map((destination, index) => (
+                            <div key={index} className="flex items-center gap-3 p-3 bg-gray-700 rounded-lg">
+                              <MapPin className="h-4 w-4 text-blue-400 flex-shrink-0" />
+                              <span className="flex-1 text-white text-sm">{destination}</span>
+                              <button
+                                onClick={() => {
+                                  setMultipleDestinations((prev) => prev.filter((_, i) => i !== index))
+                                }}
+                                className="text-red-400 hover:text-red-300 text-sm"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                    {/* Add new destination input */}
+                    <div className="space-y-2 relative">
+                      <div className="flex items-center justify-between">
+                        <label className="text-sm font-medium text-gray-400">Add Another Stop (Optional)</label>
+                        <span className="text-xs text-gray-500">
+                          {multipleDestinations.length}/10 stops
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg">
+                        <MapPin className="h-5 w-5 text-blue-400" />
+                        <input
+                          type="text"
+                          value={currentDestinationInput}
+                          onChange={(e) => {
+                            setCurrentDestinationInput(e.target.value)
+                            if (e.target.value.length > 2) {
+                              const citySuggestions = {
+                                "Lagos": [
+                                  "15 Admiralty Way, Lekki Phase 1, Lagos",
+                                  "23 Adeola Odeku Street, Victoria Island, Lagos",
+                                  "78 Allen Avenue, Ikeja, Lagos",
+                                  "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
+                                  "45 Awolowo Road, Ikoyi, Lagos",
+                                  "12 Tiamiyu Savage Street, Victoria Island, Lagos",
+                                  "67 Admiralty Way, Lekki Phase 1, Lagos"
+                                ],
+                                "Abuja": [
+                                  "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+                                  "45 Aminu Kano Crescent, Wuse 2, Abuja",
+                                  "Plot 567 Maitama District, Abuja",
+                                  "Plot 890 Asokoro District, Abuja",
+                                  "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
+                                  "Plot 1001 Diplomatic Drive, Central Area, Abuja"
+                                ],
+                                "Port Harcourt": [
+                                  "12 Trans Amadi Industrial Layout, Port Harcourt",
+                                  "34 GRA Phase 2, Port Harcourt",
+                                  "56 Aba Road, Port Harcourt",
+                                  "78 Olu Obasanjo Road, Port Harcourt",
+                                  "23 Stadium Road, Port Harcourt"
+                                ]
+                              }
+                              
+                              const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
+                              const filteredSuggestions = suggestions.filter(
+                                (addr) =>
+                                  addr.toLowerCase().includes(e.target.value.toLowerCase()) &&
+                                  !multipleDestinations.includes(addr) &&
+                                  addr !== destinationLocation,
+                              )
+                              setCurrentDestinationSuggestions(filteredSuggestions.slice(0, 5))
+                              setShowCurrentDestinationSuggestions(suggestions.length > 0)
+                            } else {
+                              setShowCurrentDestinationSuggestions(false)
+                            }
+                          }}
+                          placeholder="Enter additional stop address"
+                          className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+                          disabled={multipleDestinations.length >= 10}
+                        />
+                        {currentDestinationInput.trim() && multipleDestinations.length < 10 && (
+                          <button
+                            onClick={() => {
+                              if (
+                                currentDestinationInput.trim() &&
+                                !multipleDestinations.includes(currentDestinationInput.trim()) &&
+                                currentDestinationInput.trim() !== destinationLocation
+                              ) {
+                                setMultipleDestinations((prev) => [...prev, currentDestinationInput.trim()])
+                                setCurrentDestinationInput("")
+                                setShowCurrentDestinationSuggestions(false)
+                              }
+                            }}
+                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
+                          >
+                            Add
+                          </button>
+                        )}
+                        {multipleDestinations.length >= 10 && (
+                          <span className="text-xs text-gray-500 px-2">
+                            Max reached
+                          </span>
+                        )}
+                      </div>
+
+                        {/* Current destination suggestions */}
+                        {showCurrentDestinationSuggestions && currentDestinationSuggestions.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 z-10 bg-gray-800 border border-gray-700 rounded-lg mt-1 max-h-48 overflow-y-auto">
+                            {currentDestinationSuggestions.map((suggestion, index) => (
+                              <button
+                                key={index}
+                                onClick={() => {
+                                  if (
+                                    !multipleDestinations.includes(suggestion) &&
+                                    suggestion !== destinationLocation
+                                  ) {
+                                    setMultipleDestinations((prev) => [...prev, suggestion])
+                                    setCurrentDestinationInput("")
+                                    setShowCurrentDestinationSuggestions(false)
+                                  }
+                                }}
+                                className="w-full text-left p-3 hover:bg-gray-700 text-white text-sm border-b border-gray-700 last:border-b-0"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <MapPin className="h-4 w-4 text-blue-400 flex-shrink-0" />
+                                  <span>{suggestion}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {multipleDestinations.length > 0 && (
+                        <div className="text-center text-sm text-gray-400">
+                          Total stops: {multipleDestinations.length + 1} (including main destination)
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div
+                    className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg cursor-pointer"
+                    onClick={() => setShowCalendar(!showCalendar)}
+                  >
+                    <Calendar className="h-5 w-5 text-gray-400" />
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-400">Pickup Date</p>
+                      <p className="text-white font-medium">{pickupDate}</p>
+                    </div>
+                  </div>
+
+                  {showCalendar && renderCalendar()}
+
+                  <div
+                    className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg cursor-pointer"
+                    onClick={() => setShowTimePicker(!showTimePicker)}
+                  >
+                    <Calendar className="h-5 w-5 text-gray-400" />
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-400">Pickup Time</p>
+                      <p className="text-white font-medium">{`${selectedHour}:${selectedMinute.toString().padStart(2, "0")} ${selectedPeriod}`}</p>
+                    </div>
+                  </div>
+
+                  {showTimePicker && renderTimePicker()}
+
+                  <div
+                    className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg cursor-pointer"
+                    onClick={() => setShowDurationPicker(!showDurationPicker)}
+                  >
+                    <Calendar className="h-5 w-5 text-gray-400" />
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-400">How many days do you need protection?</p>
+                      <p className="text-white font-medium">{duration}</p>
+                    </div>
+                  </div>
+
+                  {showDurationPicker && (
+                    <div className="bg-gray-800 rounded-lg p-4 space-y-2">
+                      {durationOptions.map((option) => (
+                        <button
+                          key={option}
+                          onClick={() => {
+                            setDuration(option)
+                            setShowDurationPicker(false)
+                          }}
+                          className={`w-full text-left p-3 rounded ${
+                            duration === option ? "bg-white text-black" : "text-white hover:bg-gray-700"
+                          }`}
+                        >
+                          {option}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => setShowCustomDurationInput(true)}
+                        className="w-full text-left p-3 rounded text-blue-400 hover:bg-gray-700"
+                      >
+                        Custom Duration
+                      </button>
+
+                      {showCustomDurationInput && (
+                        <div className="space-y-3 p-3 bg-gray-700 rounded">
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              value={customDuration}
+                              onChange={(e) => setCustomDuration(e.target.value)}
+                              placeholder="Enter number"
+                              min="1"
+                              max="365"
+                              className="flex-1 p-2 bg-gray-600 text-white rounded border border-gray-500 focus:border-blue-500 focus:outline-none"
+                            />
+                            <select
+                              value={customDurationUnit}
+                              onChange={(e) => setCustomDurationUnit(e.target.value)}
+                              className="p-2 bg-gray-600 text-white rounded border border-gray-500 focus:border-blue-500 focus:outline-none"
+                            >
+                              <option value="days">Days</option>
+                              <option value="weeks">Weeks</option>
+                              <option value="months">Months</option>
+                            </select>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                const parsedDuration = Number.parseInt(customDuration)
+                                if (customDuration && !isNaN(parsedDuration) && parsedDuration >= 1) {
+                                  setDuration(`${customDuration} ${customDurationUnit}`)
+                                  setShowCustomDurationInput(false)
+                                  setShowDurationPicker(false)
+                                  setCustomDuration("")
+                                }
+                              }}
+                              className="flex-1 p-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                            >
+                              Apply
+                            </button>
+                            <button
+                              onClick={() => {
+                                setShowCustomDurationInput(false)
+                                setCustomDuration("")
+                              }}
+                              className="flex-1 p-2 bg-gray-600 text-white rounded hover:bg-gray-500"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <Button
+                  onClick={handleNextStep}
+                  disabled={!pickupLocation.trim() || !destinationLocation.trim()}
+                  className={`w-full font-semibold py-3 ${
+                    !pickupLocation.trim() || !destinationLocation.trim()
+                      ? "bg-gray-600 text-gray-400 cursor-not-allowed"
+                      : "bg-white text-black hover:bg-gray-200"
+                  }`}
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+
+            {bookingStep === 2 && selectedService === "armed-protection" && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Protector Type</h2>
+                  <p className="text-gray-400">Choose whether you need armed or unarmed protection.</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div
+                    className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                      protectorArmed
+                        ? "border-blue-500 bg-blue-500/10"
+                        : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                    }`}
+                    onClick={() => setProtectorArmed(true)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Shield className="h-6 w-6 text-blue-400" />
+                      <div>
+                        <h3 className="text-white font-semibold">Armed Protector</h3>
+                        <p className="text-gray-400 text-sm">
+                          Professional armed security personnel for maximum protection
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                      !protectorArmed
+                        ? "border-blue-500 bg-blue-500/10"
+                        : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                    }`}
+                    onClick={() => setProtectorArmed(false)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <User className="h-6 w-6 text-green-400" />
+                      <div>
+                        <h3 className="text-white font-semibold">Unarmed Protector</h3>
+                        <p className="text-gray-400 text-sm">
+                          Professional security personnel without weapons for basic protection
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleNextStep}
+                  className="w-full bg-white text-black hover:bg-gray-200 font-semibold py-3"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+
+            {bookingStep === 2.5 && selectedService === "armed-protection" && !protectorArmed && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Transportation Needed?</h2>
+                  <p className="text-gray-400">Do you need a car along with your unarmed protectors?</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div
+                    className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                      unarmedNeedsCar
+                        ? "border-blue-500 bg-blue-500/10"
+                        : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                    }`}
+                    onClick={() => setUnarmedNeedsCar(true)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Car className="h-6 w-6 text-blue-400" />
+                      <div>
+                        <h3 className="text-white font-semibold">Protectors + Car</h3>
+                        <p className="text-gray-400 text-sm">Unarmed protectors with transportation included</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                      !unarmedNeedsCar
+                        ? "border-blue-500 bg-blue-500/10"
+                        : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                    }`}
+                    onClick={() => setUnarmedNeedsCar(false)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <User className="h-6 w-6 text-green-400" />
+                      <div>
+                        <h3 className="text-white font-semibold">Protectors Only</h3>
+                        <p className="text-gray-400 text-sm">Just the unarmed protectors, no transportation needed</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleNextStep}
+                  className="w-full bg-white text-black hover:bg-gray-200 font-semibold py-3"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+
+            {bookingStep === 3 && selectedService === "armed-protection" && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">How many Protectee?</h2>
+                  <p className="text-gray-400">
+                    Let us know how many people need protection, whether you're solo or in a group.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-center">
+                  <div className="flex items-center gap-4 bg-gray-800 rounded-full px-6 py-3">
+                    <button
+                      onClick={() => setProtecteeCount(Math.max(1, protecteeCount - 1))}
+                      className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
+                    >
+                      -
+                    </button>
+                    <span className="text-white font-medium min-w-[100px] text-center">
+                      {protecteeCount === 1 ? "Just Me" : `${protecteeCount} Protectee`}
+                    </span>
+                    <button
+                      onClick={() => setProtecteeCount(protecteeCount + 1)}
+                      className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">How many Protectors?</h2>
+                  <p className="text-gray-400">
+                    Based on the number of Protectee, we recommend assigning 1 Protector to oversee your detail.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-center">
+                  <div className="flex items-center gap-4 bg-gray-800 rounded-full px-6 py-3">
+                    <button
+                      onClick={() => setProtectorCount(Math.max(1, protectorCount - 1))}
+                      className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
+                    >
+                      -
+                    </button>
+                    <span className="text-white font-medium min-w-[100px] text-center">
+                      {protectorCount} Protector{protectorCount > 1 ? "s" : ""}
+                    </span>
+                    <button
+                      onClick={() => setProtectorCount(protectorCount + 1)}
+                      className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleNextStep}
+                  className="w-full bg-white text-black hover:bg-gray-200 font-semibold py-3"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+
+            {bookingStep === 4 && selectedService === "armed-protection" && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Pick Dress Code</h2>
+                  <p className="text-gray-400">Protectors tailor their uniform for any occasion.</p>
+                </div>
+
+                <div className="relative h-96 bg-gray-800 rounded-lg overflow-hidden">
+                  {dressCodeOptions.map((option, index) => (
+                    <div
+                      key={option.id}
+                      className={`absolute inset-0 transition-opacity duration-300 ${
+                        selectedDressCode === option.id ? "opacity-100" : "opacity-0"
+                      }`}
+                    >
+                      <img
+                        src={option.image || "/placeholder.svg"}
+                        alt={option.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ))}
+
+                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+                    <div className="flex items-center gap-4 bg-gray-800/90 rounded-full px-6 py-3">
+                      <button
+                        onClick={() => {
+                          const currentIndex = dressCodeOptions.findIndex((option) => option.id === selectedDressCode)
+                          const prevIndex = currentIndex > 0 ? currentIndex - 1 : dressCodeOptions.length - 1
+                          setSelectedDressCode(dressCodeOptions[prevIndex].id)
+                        }}
+                        className="text-white hover:text-gray-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
+                      >
+                        ←
+                      </button>
+                      <button
+                        onClick={() => {
+                          const currentIndex = dressCodeOptions.findIndex((option) => option.id === selectedDressCode)
+                          const nextIndex = currentIndex < dressCodeOptions.length - 1 ? currentIndex + 1 : 0
+                          setSelectedDressCode(dressCodeOptions[nextIndex].id)
+                        }}
+                        className="text-white font-medium min-w-[120px] text-center hover:text-gray-300 transition-colors duration-200 p-2 rounded-lg hover:bg-gray-700"
+                      >
+                        {dressCodeOptions.find((option) => option.id === selectedDressCode)?.name}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const currentIndex = dressCodeOptions.findIndex((option) => option.id === selectedDressCode)
+                          const nextIndex = currentIndex < dressCodeOptions.length - 1 ? currentIndex + 1 : 0
+                          setSelectedDressCode(dressCodeOptions[nextIndex].id)
+                        }}
+                        className="text-white hover:text-gray-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
+                      >
+                        →
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={handleNextStep}
+                  disabled={!dressCodeOptions.find((option) => option.id === selectedDressCode)?.available}
+                  className="w-full bg-white text-black hover:bg-gray-200 font-semibold py-3 disabled:bg-gray-600 disabled:text-gray-400"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+
+            {((bookingStep === 5 && selectedService === "armed-protection") ||
+              (bookingStep === 4 && selectedService === "car-only")) && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">
+                    {selectedService === "car-only" ? "Customize Your Fleet" : "Customize Your Motorcade"}
+                  </h2>
+                  <p className="text-gray-400">
+                    {selectedService === "car-only"
+                      ? "Select your preferred vehicles and transportation options."
+                      : "Each car comes with a dedicated driver for the duration of your protection. Based on your booking detail, you will require 1 car."}
+                  </p>
+                </div>
+
+                {selectedService === "car-only" && (
+                  <div className="space-y-4">
+                    <div className="space-y-4">
+                      <div className="text-center space-y-2">
+                        <h3 className="text-lg font-semibold text-white">How many passengers?</h3>
+                        <p className="text-gray-400">
+                          Let us know how many people will be traveling to ensure proper vehicle capacity.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-center">
+                        <div className="flex items-center gap-4 bg-gray-800 rounded-full px-6 py-3">
+                          <button
+                            onClick={() => setPassengerCount(Math.max(1, passengerCount - 1))}
+                            className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
+                          >
+                            -
+                          </button>
+                          <span className="text-white font-medium min-w-[100px] text-center">
+                            {passengerCount === 1 ? "Just Me" : `${passengerCount} Passengers`}
+                          </span>
+                          <button
+                            onClick={() => setPassengerCount(passengerCount + 1)}
+                            className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                      <div className="text-white font-medium">Professional Driver Included</div>
+                      <div className="text-gray-400 text-sm">
+                        All vehicles come with experienced, trained professional drivers
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-white">Select Vehicles</h3>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                    <input
+                      type="text"
+                      placeholder="Search vehicles..."
+                      value={vehicleSearchQuery}
+                      onChange={(e) => setVehicleSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  {getFilteredVehicles().map((vehicle) => (
+                    <div key={vehicle.id} className="bg-gray-800 rounded-lg p-4">
+                      <div className="flex items-center gap-4">
+                        <div className="w-20 h-16 bg-gray-700 rounded overflow-hidden flex-shrink-0">
+                          <img
+                            src={vehicle.image || "/placeholder.svg"}
+                            alt={vehicle.name}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-white font-medium">{vehicle.name}</h4>
+                          <p className="text-gray-400 text-sm">{vehicle.description}</p>
+                          <p className="text-gray-400 text-sm">Capacity: {vehicle.capacity} people</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => updateVehicleCount(vehicle.id, -1)}
+                            className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
+                          >
+                            -
+                          </button>
+                          <span className="text-white font-medium min-w-[20px] text-center">
+                            {selectedVehicles[vehicle.id] || 0}
+                          </span>
+                          <button
+                            onClick={() => updateVehicleCount(vehicle.id, 1)}
+                            className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Fleet Summary */}
+                <div className="bg-gray-900 rounded-lg p-4 space-y-2">
+                  <h4 className="text-white font-medium">Fleet Summary</h4>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Total Vehicles:</span>
+                    <span className="text-white">{getTotalVehicleCount()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Total Capacity:</span>
+                    <span className={`${isCapacityValid() ? "text-green-400" : "text-red-400"}`}>
+                      {getTotalCapacity()} people
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Required Capacity:</span>
+                    <span className="text-white">
+                      {selectedService === "car-only"
+                        ? `${passengerCount} people`
+                        : `${(protectorCount || 0) + (protecteeCount || 0)} people`}
+                    </span>
+                  </div>
+                  {!isCapacityValid() && (
+                    <p className="text-red-400 text-sm">
+                      ⚠️ Vehicle capacity insufficient for {selectedService === "car-only" ? "passenger" : "personnel"}{" "}
+                      count
+                    </p>
+                  )}
+                </div>
+
+                <Button
+                  onClick={handleNextStep}
+                  disabled={getTotalVehicleCount() === 0 || !isCapacityValid()}
+                  className="w-full bg-white text-black hover:bg-gray-200 font-semibold py-3 disabled:bg-gray-600 disabled:text-gray-400"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+
+            {((bookingStep === 6 && selectedService === "armed-protection") ||
+              (bookingStep === 5 && selectedService === "car-only")) && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">What's your phone number?</h2>
+                  <p className="text-gray-400">A verification code will be sent to this number.</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg">
+                    <span className="text-white font-medium">NG +234</span>
+                    <input
+                      type="tel"
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                      placeholder="Phone number"
+                      className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="text-center">
+                    <button
+                      onClick={() => setShowKeypad(!showKeypad)}
+                      className="text-blue-400 hover:text-blue-300 text-sm"
+                    >
+                      {showKeypad ? "Hide Keypad" : "Show Keypad"}
+                    </button>
+                  </div>
+
+                  {showKeypad && renderKeypad()}
+                </div>
+
+                <Button
+                  onClick={handleNextStep}
+                  disabled={phoneNumber.length < 10}
+                  className="w-full bg-white text-black hover:bg-gray-200 font-semibold py-3 disabled:bg-gray-600 disabled:text-gray-400"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+
+            {/* Membership step removed - users can now proceed directly to summary */}
+
+            {((bookingStep === 8 && selectedService === "armed-protection") ||
+              (bookingStep === 7 && selectedService === "car-only")) && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Booking Summary</h2>
+                  <p className="text-gray-400">Review your booking details before proceeding to checkout.</p>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Service Type */}
+                  <div className="bg-gray-800 rounded-lg p-4">
+                    <h3 className="text-white font-semibold mb-2">Service Type</h3>
+                    <p className="text-gray-300">
+                      {selectedService === "car-only"
+                        ? "Car Transportation Only"
+                        : `${protectorArmed ? "Armed" : "Unarmed"} Protection Service`}
+                    </p>
+                  </div>
+
+                  {/* Pickup Details */}
+                  <div className="bg-gray-800 rounded-lg p-4">
+                    <h3 className="text-white font-semibold mb-2">Pickup Details</h3>
+                    <div className="space-y-1">
+                      <p className="text-gray-300">Location: {pickupLocation || "Not specified"}</p>
+                      <p className="text-gray-300">Date: {pickupDate}</p>
+                      <p className="text-gray-300">Time: {pickupTime}</p>
+                      <p className="text-gray-300">Duration: {duration}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-800 rounded-lg p-4">
+                    <h3 className="text-white font-semibold mb-2">Destination Details</h3>
+                    <div className="space-y-1">
+                      <p className="text-gray-300">Primary Destination: {destinationLocation || "Not specified"}</p>
+                      {multipleDestinations && multipleDestinations.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-gray-400 text-sm">Additional Destinations:</p>
+                          {multipleDestinations.map((dest, index) => (
+                            <p key={index} className="text-gray-300 ml-2">
+                              • {dest}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Personnel Details - Only for armed protection */}
+                  {selectedService === "armed-protection" && (
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-2">Personnel Details</h3>
+                      <div className="space-y-1">
+                        <p className="text-gray-300">Protection Type: {protectorArmed ? "Armed" : "Unarmed"}</p>
+                        {!protectorArmed && (
+                          <p className="text-gray-300">Transportation: {unarmedNeedsCar ? "Included" : "Not needed"}</p>
+                        )}
+                        <p className="text-gray-300">Protectee: {protecteeCount}</p>
+                        <p className="text-gray-300">Protectors: {protectorCount}</p>
+                        <p className="text-gray-300">
+                          Dress Code: {dressCodeOptions.find((option) => option.id === selectedDressCode)?.name}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Vehicle Details */}
+                  {(selectedService === "car-only" ||
+                    (selectedService === "armed-protection" && (protectorArmed || unarmedNeedsCar))) && (
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-2">Vehicle Details</h3>
+                      <div className="space-y-2">
+                        <p className="text-gray-300">Driver: Professional Driver Included</p>
+                        {vehicleTypes.map((vehicle) => {
+                          const count = selectedVehicles[vehicle.id] || 0
+                          if (count > 0) {
+                            return (
+                              <div key={vehicle.id} className="flex justify-between">
+                                <span className="text-gray-300">{vehicle.name}</span>
+                                <span className="text-white">{count}x</span>
+                              </div>
+                            )
+                          }
+                          return null
+                        })}
+                        <div className="border-t border-gray-700 pt-2 mt-2">
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Total Vehicles:</span>
+                            <span className="text-white">{getTotalVehicleCount()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-400">Total Capacity:</span>
+                            <span className="text-white">{getTotalCapacity()} people</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Contact Details */}
+                  <div className="bg-gray-800 rounded-lg p-4">
+                    <h3 className="text-white font-semibold mb-2">Contact Details</h3>
+                    <p className="text-gray-300">Phone: +234 {phoneNumber}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    onClick={handlePrevStep}
+                    variant="outline"
+                    className="flex-1 border-gray-600 text-white hover:bg-gray-800 bg-transparent"
+                  >
+                    Edit Booking
+                  </Button>
+                    <Button
+                      onClick={handleNextStep}
+                      className="flex-1 bg-white text-black hover:bg-gray-200 font-semibold py-3"
+                    >
+                    Send Request
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {((bookingStep === 9 && selectedService === "armed-protection") ||
+              (bookingStep === 8 && selectedService === "car-only")) && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Checkout</h2>
+                  <p className="text-gray-400">Choose your preferred payment method to complete your booking.</p>
+                </div>
+
+                {/* Payment Methods */}
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-white">Payment Methods</h3>
+
+                  <div className="space-y-3">
+                    {/* Bank Transfer */}
+                    <div className="bg-gray-800 rounded-lg p-4 border-2 border-gray-600 hover:border-blue-500 cursor-pointer transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-8 bg-blue-600 rounded flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">BANK</span>
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-white font-medium">Bank Transfer</h4>
+                          <p className="text-gray-400 text-sm">Direct bank transfer - Most secure</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Payment */}
+                    <div className="bg-gray-800 rounded-lg p-4 border-2 border-gray-600 hover:border-blue-500 cursor-pointer transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-8 bg-green-600 rounded flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">CARD</span>
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-white font-medium">Debit/Credit Card</h4>
+                          <p className="text-gray-400 text-sm">Visa, Mastercard, Verve accepted</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mobile Money */}
+                    <div className="bg-gray-800 rounded-lg p-4 border-2 border-gray-600 hover:border-blue-500 cursor-pointer transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-8 bg-orange-600 rounded flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">USSD</span>
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-white font-medium">USSD Payment</h4>
+                          <p className="text-gray-400 text-sm">Pay with your mobile banking USSD</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Paystack */}
+                    <div className="bg-gray-800 rounded-lg p-4 border-2 border-gray-600 hover:border-blue-500 cursor-pointer transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-8 bg-purple-600 rounded flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">PAY</span>
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-white font-medium">Paystack</h4>
+                          <p className="text-gray-400 text-sm">Secure online payment gateway</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Flutterwave */}
+                    <div className="bg-gray-800 rounded-lg p-4 border-2 border-gray-600 hover:border-blue-500 cursor-pointer transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-8 bg-yellow-600 rounded flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">FLW</span>
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-white font-medium">Flutterwave</h4>
+                          <p className="text-gray-400 text-sm">Fast and secure payments</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Order Total */}
+                <div className="bg-gray-900 rounded-lg p-4">
+                  <div className="text-center">
+                    <span className="text-white font-semibold text-lg">Pricing</span>
+                    <p className="text-gray-300 text-sm mt-2">
+                      Final pricing will be provided by our team after reviewing your request.
+                    </p>
+                    <p className="text-blue-400 text-sm mt-1">
+                      An invoice will be sent to you for approval before deployment.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3">
+                  <Button
+                    onClick={handlePrevStep}
+                    variant="outline"
+                    className="flex-1 border-gray-600 text-white hover:bg-gray-800 bg-transparent"
+                  >
+                    Back to Summary
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      alert("🎉 Booking confirmed! You will receive a confirmation SMS shortly.")
+                      setActiveTab("bookings")
+                      setBookingStep(1)
+                    }}
+                    className="flex-1 bg-green-600 text-white hover:bg-green-700 font-semibold py-3"
+                  >
+                    Complete Payment
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+
+        {/* Bookings Tab */}
+        {activeTab === "bookings" && !showChatThread && (
+          <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-800">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-semibold text-white">
+                  {showHistory ? "Booking History" : "Active Bookings"}
+                </h2>
+                <Button
+                  onClick={() => setShowHistory(!showHistory)}
+                  className="bg-gray-700 text-white hover:bg-gray-600 px-4 py-2 text-sm"
+                >
+                  {showHistory ? "Active" : "History"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto">
+              {!showHistory ? (
+                // Active Bookings with Map
+                activeBookings.length > 0 ? (
+                  <div className="space-y-4">
+                    {/* Map Section */}
+                    <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+                      <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20">
+                        {/* Mock Map Interface */}
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="text-center space-y-2">
+                            <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
+                            <p className="text-white text-sm">Live Tracking</p>
+                          </div>
+                        </div>
+
+                        {/* Mock Route Line */}
+                        <svg className="absolute inset-0 w-full h-full">
+                          <path
+                            d="M 50 200 Q 150 100 250 150"
+                            stroke="#3B82F6"
+                            strokeWidth="3"
+                            fill="none"
+                            strokeDasharray="5,5"
+                            className="animate-pulse"
+                          />
+                        </svg>
+
+                        {/* Pickup Point */}
+                        <div className="absolute top-12 left-12 bg-green-500 w-3 h-3 rounded-full"></div>
+                        <div className="absolute top-8 left-16 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                          Pickup
+                        </div>
+
+                        {/* Destination Point */}
+                        <div className="absolute bottom-16 right-16 bg-red-500 w-3 h-3 rounded-full"></div>
+                        <div className="absolute bottom-12 right-20 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                          Destination
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Active Booking Cards */}
+                    {activeBookings.map((booking) => (
+                      <div key={booking.id} className="mx-4 bg-gray-900 rounded-lg p-4 space-y-4">
+                        {/* Status Header */}
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                            <span className="text-green-400 font-semibold capitalize">
+                              {booking.status.replace("-", " ")}
+                            </span>
+                          </div>
+                          <span className="text-white font-semibold">ETA: {booking.estimatedArrival}</span>
+                        </div>
+
+                        {/* Service Info */}
+                        <div className="flex items-center space-x-4">
+                          {booking.type === "armed-protection" && (
+                            <div className="w-12 h-12 bg-gray-700 rounded-full overflow-hidden">
+                              <img
+                                src={booking.protectorImage || "/placeholder.svg"}
+                                alt={booking.protectorName}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          )}
+                          <div className="flex-1">
+                            <h3 className="text-white font-semibold">
+                              {booking.type === "armed-protection" ? booking.protectorName : "Self Drive"}
+                            </h3>
+                            <p className="text-gray-400 text-sm">{booking.vehicleType}</p>
+                          </div>
+                        </div>
+
+                        {/* Route Info */}
+                        <div className="space-y-2">
+                          <div className="flex items-start space-x-3">
+                            <div className="w-3 h-3 bg-green-500 rounded-full mt-1"></div>
+                            <div>
+                              <p className="text-white text-sm">{booking.pickupLocation}</p>
+                              <p className="text-gray-400 text-xs">Pickup • {booking.startTime}</p>
+                            </div>
+                          </div>
+                          <div className="ml-1.5 w-0.5 h-4 bg-gray-600"></div>
+                          <div className="flex items-start space-x-3">
+                            <div className="w-3 h-3 bg-red-500 rounded-full mt-1"></div>
+                            <div>
+                              <p className="text-white text-sm">{booking.destination}</p>
+                              <p className="text-gray-400 text-xs">Destination</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex space-x-3 pt-2">
+                          <Button 
+                            onClick={() => handleChatNavigation(booking)}
+                            className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
+                          >
+                            View Chat
+                          </Button>
+                          <Button className="flex-1 bg-gray-700 text-white hover:bg-gray-600">Contact</Button>
+                          <Button className="flex-1 bg-red-600 text-white hover:bg-red-700">Cancel</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  // No Active Bookings
+                  <div className="p-4">
+                    <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
+                      <h3 className="text-xl font-semibold text-white">No active bookings</h3>
+                      <p className="text-gray-400">Easily book a Protector within minutes.</p>
+                      <p className="text-gray-400">Gain peace of mind and ensure your safety.</p>
+
+                      <Button
+                        onClick={handleBookService}
+                        className="!bg-gray-700 !text-white hover:!bg-gray-600 hover:!text-white font-semibold py-3 px-6"
+                        style={{ backgroundColor: "#374151", color: "white" }}
+                      >
+                        Book a Protector
+                      </Button>
+                    </div>
+                  </div>
+                )
+              ) : (
+                // Booking History
+                <div className="p-4 space-y-4">
+                  {bookingHistory.map((booking) => (
+                    <div key={booking.id} className="bg-gray-900 rounded-lg p-4 space-y-3">
+                      {/* Header */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                          <span className="text-gray-400 text-sm capitalize">{booking.type.replace("-", " ")}</span>
+                        </div>
+                        <span className="text-white font-semibold">{booking.cost}</span>
+                      </div>
+
+                      {/* Service Info */}
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-white font-semibold">{booking.protectorName || booking.vehicleType}</h3>
+                          <p className="text-gray-400 text-sm">
+                            {booking.date} • {booking.duration}
+                          </p>
+                        </div>
+
+                        {/* Rating */}
+                        <div className="flex items-center space-x-1">
+                          {[...Array(5)].map((_, i) => (
+                            <span
+                              key={i}
+                              className={`text-sm ${i < booking.rating ? "text-yellow-400" : "text-gray-600"}`}
+                            >
+                              ★
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex space-x-3 pt-2">
+                        <Button 
+                          onClick={() => handleChatNavigation(booking)}
+                          className="flex-1 bg-blue-600 text-white hover:bg-blue-700 text-sm"
+                        >
+                          View Chat
+                        </Button>
+                        <Button className="flex-1 bg-gray-700 text-white hover:bg-gray-600 text-sm">Book Again</Button>
+                        <Button className="flex-1 bg-transparent border border-gray-600 text-gray-300 hover:bg-gray-800 text-sm">
+                          Receipt
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Operator Dashboard Tab */}
+        {activeTab === "operator" && userRole === "agent" && (
+          <div className="flex flex-col h-full bg-gray-900">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-800">
+              <h2 className="text-2xl font-semibold text-white">Operator Dashboard</h2>
+              <p className="text-gray-400 text-sm">Manage protection requests and deployments</p>
+            </div>
+
+            {/* Bookings List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {operatorBookings.map((booking) => (
+                <div key={booking.id} className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                  {/* Booking Header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-lg font-semibold text-white">New Protection Request</h3>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      booking.status === "pending" ? "bg-yellow-600 text-yellow-100" :
+                      booking.status === "accepted" ? "bg-green-600 text-green-100" :
+                      booking.status === "deployed" ? "bg-blue-600 text-blue-100" :
+                      "bg-red-600 text-red-100"
+                    }`}>
+                      {booking.status.toUpperCase()}
+                    </span>
+                  </div>
+
+                  {/* Booking Details */}
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Service:</span>
+                      <span className="text-white">{booking.service}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Client:</span>
+                      <span className="text-white">{booking.clientName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Pickup:</span>
+                      <span className="text-white underline">{booking.pickup}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Date & Time:</span>
+                      <span className="text-white">{booking.date} at {booking.time}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Duration:</span>
+                      <span className="text-white">{booking.duration}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Destination:</span>
+                      <span className="text-white underline">{booking.destination}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Contact:</span>
+                      <span className="text-white">{booking.clientPhone}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Pricing:</span>
+                      <span className="text-white">{booking.pricing}</span>
+                    </div>
+                  </div>
+
+                  {/* Submitted Time */}
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <span className="text-xs text-gray-500">Submitted: {booking.submittedAt}</span>
+                  </div>
+
+                  {/* Action Buttons */}
+                  {booking.status === "pending" && (
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        onClick={() => handleAcceptBooking(booking.id)}
+                        className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        onClick={() => handleRejectBooking(booking.id)}
+                        className="flex-1 bg-red-600 text-white hover:bg-red-700"
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  )}
+
+                  {booking.status === "accepted" && (
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        onClick={() => handleSendInvoice(booking.id)}
+                        className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        Send Invoice
+                      </Button>
+                      <Button
+                        onClick={() => handleDeployBooking(booking.id)}
+                        className="flex-1 bg-green-600 text-white hover:bg-green-700"
+                      >
+                        Deploy
+                      </Button>
+                    </div>
+                  )}
+
+                  {booking.status === "deployed" && (
+                    <div className="mt-4">
+                      <div className="bg-green-600 text-green-100 px-3 py-2 rounded text-center">
+                        ✅ Service Deployed
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Chat Input */}
+            <div className="p-4 border-t border-gray-800">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
+                  O
+                </div>
+                <input
+                  type="text"
+                  value={operatorChatMessage}
+                  onChange={(e) => setOperatorChatMessage(e.target.value)}
+                  placeholder="Type your message..."
+                  className="flex-1 bg-gray-800 text-white px-3 py-2 rounded-lg border border-gray-700 focus:outline-none focus:border-blue-500"
+                />
+                <Button
+                  onClick={handleOperatorChatSend}
+                  className="bg-blue-600 text-white hover:bg-blue-700 px-4 py-2"
+                >
+                  Send
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Account Tab */}
+        {activeTab === "account" && (
+          <div className="p-4 space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-semibold text-white">My Profile</h2>
+              <Button onClick={handleLogout} className="bg-red-600 text-white hover:bg-red-700 px-4 py-2 text-sm">
+                Logout
+              </Button>
+            </div>
+
+            {/* Profile Information */}
+            <div className="bg-gray-900 rounded-lg p-6 space-y-4">
+              {/* Profile Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center">
+                    <span className="text-white text-xl font-bold">
+                      {userProfile.firstName.charAt(0)}
+                      {userProfile.lastName.charAt(0)}
+                    </span>
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-white">
+                      {userProfile.firstName} {userProfile.lastName}
+                    </h3>
+                    <p className="text-gray-400">{userProfile.email}</p>
+                    {/* Email Verification Status */}
+                    {user && (
+                      <div className="mt-2">
+                        {user.email_confirmed_at ? (
+                          <div className="flex items-center gap-1 text-green-400 text-xs">
+                            <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                            <span>Email verified</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 text-yellow-400 text-xs">
+                            <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
+                            <span>Email verification pending</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {!isEditingProfile && (
+                  <Button
+                    onClick={startEditingProfile}
+                    className="bg-gray-700 text-white hover:bg-gray-600 px-4 py-2 text-sm"
+                  >
+                    Edit
+                  </Button>
+                )}
+              </div>
+
+              {/* Profile Details */}
+              {!isEditingProfile ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-gray-400 mb-1">Phone Number</h4>
+                      <p className="text-white">{userProfile.phone || "Not provided"}</p>
+                    </div>
+
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-gray-400 mb-1">Address</h4>
+                      <p className="text-white">{userProfile.address || "Not provided"}</p>
+                    </div>
+
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <h4 className="text-sm font-medium text-gray-400 mb-1">Emergency Contact</h4>
+                      <p className="text-white">{userProfile.emergencyContact || "Not provided"}</p>
+                      {userProfile.emergencyPhone && (
+                        <p className="text-gray-400 text-sm">{userProfile.emergencyPhone}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Edit Profile Form */
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-400">First Name</label>
+                      <input
+                        type="text"
+                        value={editProfileForm.firstName}
+                        onChange={(e) => handleEditProfileChange("firstName", e.target.value)}
+                        className="w-full p-3 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-400">Last Name</label>
+                      <input
+                        type="text"
+                        value={editProfileForm.lastName}
+                        onChange={(e) => handleEditProfileChange("lastName", e.target.value)}
+                        className="w-full p-3 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-400">Phone Number</label>
+                    <input
+                      type="tel"
+                      value={editProfileForm.phone}
+                      onChange={(e) => handleEditProfileChange("phone", e.target.value)}
+                      className="w-full p-3 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-400">Address</label>
+                    <input
+                      type="text"
+                      value={editProfileForm.address}
+                      onChange={(e) => handleEditProfileChange("address", e.target.value)}
+                      className="w-full p-3 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-400">Emergency Contact Name</label>
+                    <input
+                      type="text"
+                      value={editProfileForm.emergencyContact}
+                      onChange={(e) => handleEditProfileChange("emergencyContact", e.target.value)}
+                      className="w-full p-3 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-400">Emergency Contact Phone</label>
+                    <input
+                      type="tel"
+                      value={editProfileForm.emergencyPhone}
+                      onChange={(e) => handleEditProfileChange("emergencyPhone", e.target.value)}
+                      className="w-full p-3 bg-gray-800 text-white rounded-lg border border-gray-700 focus:border-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button
+                      onClick={cancelEditingProfile}
+                      className="flex-1 bg-gray-700 text-white hover:bg-gray-600"
+                      disabled={authLoading}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={saveProfileChanges}
+                      className="flex-1 bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed"
+                      disabled={authLoading}
+                    >
+                      {authLoading ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Saving...
+                        </div>
+                      ) : (
+                        "Save Changes"
+                      )}
+                    </Button>
+                  </div>
+
+                  {authError && (
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mt-4">
+                      <p className="text-red-400 text-sm">{authError}</p>
+                    </div>
+                  )}
+
+                  {authSuccess && (
+                    <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 mt-4">
+                      <p className="text-green-400 text-sm">{authSuccess}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Account Actions */}
+            <div className="space-y-3">
+              <div className="bg-gray-900 rounded-lg p-4">
+                <h4 className="text-white font-medium mb-2">Account Settings</h4>
+                <div className="space-y-2">
+                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                    Change Password
+                  </button>
+                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                    Notification Preferences
+                  </button>
+                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                    Privacy Settings
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-gray-900 rounded-lg p-4">
+                <h4 className="text-white font-medium mb-2">Support</h4>
+                <div className="space-y-2">
+                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                    Help Center
+                  </button>
+                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                    Contact Support
+                  </button>
+                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                    Terms of Service
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Account Tab */}
+        {activeTab === "cars" && (
+          <div className="p-4 space-y-6">
+            <div className="p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+              <h3 className="text-lg font-semibold text-white mb-2">Professional Driver Included</h3>
+              <p className="text-gray-300">
+                All our vehicles come with experienced, trained professional drivers for your safety and convenience.
+              </p>
+            </div>
+          </div>
+        )}
+      </main>
+
+
+      {/* Footer */}
+      <footer className="fixed bottom-0 left-0 right-0 w-full max-w-md mx-auto bg-black text-white p-4 z-50 border-t border-gray-800">
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => setActiveTab("protector")}
+            className={`flex flex-col items-center justify-center gap-1 ${
+              activeTab === "protector" ? "text-blue-500" : "text-gray-400"
+            }`}
+          >
+            <Shield className="h-5 w-5" />
+            <span className="text-xs">Protector</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("bookings")}
+            className={`flex flex-col items-center justify-center gap-1 ${
+              activeTab === "bookings" ? "text-blue-500" : "text-gray-400"
+            }`}
+          >
+            <Calendar className="h-5 w-5" />
+            <span className="text-xs">Bookings</span>
+          </button>
+
+          {/* Operator Dashboard Tab - Only visible to operators */}
+          {userRole === "agent" && (
+            <button
+              onClick={() => setActiveTab("operator")}
+              className={`flex flex-col items-center justify-center gap-1 ${
+                activeTab === "operator" ? "text-blue-500" : "text-gray-400"
+              }`}
+            >
+              <User className="h-5 w-5" />
+              <span className="text-xs">Operator</span>
+            </button>
+          )}
+
+          <button
+            onClick={() => setActiveTab("account")}
+            className={`flex flex-col items-center justify-center gap-1 ${
+              activeTab === "account" ? "text-blue-500" : "text-gray-400"
+            }`}
+          >
+            <User className="h-5 w-5" />
+            <span className="text-xs">Account</span>
+          </button>
+        </div>
+      </footer>
+
+      {/* Invoice Modal */}
+      {showInvoiceModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-white mb-4">Create Invoice</h3>
+            
+            <div className="space-y-4">
+              {/* Currency Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Currency</label>
+                <select
+                  value={invoiceForm.currency}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, currency: e.target.value }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="NGN">Nigerian Naira (₦)</option>
+                  <option value="USD">US Dollar ($)</option>
+                </select>
+              </div>
+
+              {/* Base Price */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Base Price</label>
+                <input
+                  type="number"
+                  value={invoiceForm.basePrice}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, basePrice: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Hourly Rate */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Hourly Rate</label>
+                <input
+                  type="number"
+                  value={invoiceForm.hourlyRate}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, hourlyRate: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Vehicle Fee */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Vehicle Fee</label>
+                <input
+                  type="number"
+                  value={invoiceForm.vehicleFee}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, vehicleFee: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Personnel Fee */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Personnel Fee</label>
+                <input
+                  type="number"
+                  value={invoiceForm.personnelFee}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, personnelFee: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Duration */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Duration (hours)</label>
+                <input
+                  type="number"
+                  value={invoiceForm.duration}
+                  onChange={(e) => setInvoiceForm(prev => ({ ...prev, duration: parseInt(e.target.value) || 0 }))}
+                  className="w-full bg-gray-700 text-white px-3 py-2 rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            {/* Invoice Summary */}
+            <div className="mt-6 p-4 bg-gray-700 rounded-lg">
+              <h4 className="text-lg font-semibold text-white mb-3">Invoice Summary</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Base Price:</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{invoiceForm.basePrice.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Hourly Rate ({invoiceForm.duration}h):</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{(invoiceForm.hourlyRate * invoiceForm.duration).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Vehicle Fee:</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{invoiceForm.vehicleFee.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-300">Personnel Fee:</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{invoiceForm.personnelFee.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-lg font-semibold pt-2 border-t border-gray-600">
+                  <span className="text-white">Total Amount:</span>
+                  <span className="text-white">{invoiceForm.currency === "NGN" ? "₦" : "$"}{calculateInvoiceTotal().total.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 mt-6">
+              <Button
+                onClick={() => setShowInvoiceModal(false)}
+                className="flex-1 bg-gray-600 text-white hover:bg-gray-700"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateInvoice}
+                className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Send Invoice
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

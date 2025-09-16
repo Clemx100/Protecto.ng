@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
+import { chatService } from "@/lib/services/chatService"
 
 export default function ProtectorApp() {
   const supabase = createClient()
@@ -37,6 +38,14 @@ export default function ProtectorApp() {
   const [selectedVehicles, setSelectedVehicles] = useState<{ [key: string]: number }>({})
   const [customDuration, setCustomDuration] = useState("")
   const [vehicleSearchQuery, setVehicleSearchQuery] = useState("")
+  const [destinationLocation, setDestinationLocation] = useState("")
+  const [destinationSuggestions, setDestinationSuggestions] = useState<string[]>([])
+  const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false)
+  const [multipleDestinations, setMultipleDestinations] = useState<string[]>([])
+  const [currentDestinationInput, setCurrentDestinationInput] = useState("")
+  const [currentDestinationSuggestions, setCurrentDestinationSuggestions] = useState<string[]>([])
+  const [showCurrentDestinationSuggestions, setShowCurrentDestinationSuggestions] = useState(false)
+  const [customDurationUnit, setCustomDurationUnit] = useState("days")
 
   const [showLoginForm, setShowLoginForm] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
@@ -181,6 +190,14 @@ export default function ProtectorApp() {
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false)
 
   const [userLocation, setUserLocation] = useState("Lagos")
+  const [selectedCity, setSelectedCity] = useState("Lagos")
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false)
+  
+  const cities = [
+    { id: "lagos", name: "Lagos", coordinates: { lat: 6.5244, lng: 3.3792 } },
+    { id: "abuja", name: "Abuja", coordinates: { lat: 9.0765, lng: 7.3986 } },
+    { id: "port-harcourt", name: "Port Harcourt", coordinates: { lat: 4.8156, lng: 7.0498 } }
+  ]
 
   const vehicleTypes = [
     {
@@ -251,7 +268,7 @@ export default function ProtectorApp() {
       id: "operator",
       name: "Operator",
       image: "/images/tactical-operator.png",
-      available: false,
+      available: true,
     },
   ]
 
@@ -377,8 +394,8 @@ export default function ProtectorApp() {
       if (data) {
         setUserProfile({
           email: data.email || "",
-          firstName: data.full_name?.split(" ")[0] || "",
-          lastName: data.full_name?.split(" ").slice(1).join(" ") || "",
+          firstName: data.first_name || "",
+          lastName: data.last_name || "",
           phone: data.phone || "",
           address: data.address || "",
           emergencyContact: data.emergency_contact || "",
@@ -485,9 +502,64 @@ export default function ProtectorApp() {
     }
   }
 
-  const detectUserLocation = () => {
-    // Placeholder for location detection logic
-    console.log("Detecting user location...")
+  const detectUserLocation = async () => {
+    if (!navigator.geolocation) {
+      console.log("Geolocation is not supported by this browser.")
+      return
+    }
+
+    setIsDetectingLocation(true)
+    
+    try {
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000 // 5 minutes
+        })
+      })
+
+      const { latitude, longitude } = position.coords
+      console.log("Detected coordinates:", latitude, longitude)
+
+      // Find the closest city based on coordinates
+      let closestCity = cities[0]
+      let minDistance = Infinity
+
+      cities.forEach(city => {
+        const distance = Math.sqrt(
+          Math.pow(latitude - city.coordinates.lat, 2) + 
+          Math.pow(longitude - city.coordinates.lng, 2)
+        )
+        if (distance < minDistance) {
+          minDistance = distance
+          closestCity = city
+        }
+      })
+
+      console.log("Closest city detected:", closestCity.name)
+      setSelectedCity(closestCity.name)
+      setUserLocation(closestCity.name)
+      
+      // Set a default pickup location based on the detected city
+      const defaultLocations = {
+        "Lagos": "15 Admiralty Way, Lekki Phase 1, Lagos",
+        "Abuja": "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+        "Port Harcourt": "12 Trans Amadi Industrial Layout, Port Harcourt"
+      }
+      
+      if (defaultLocations[closestCity.name as keyof typeof defaultLocations]) {
+        setPickupLocation(defaultLocations[closestCity.name as keyof typeof defaultLocations])
+      }
+
+    } catch (error) {
+      console.log("Error detecting location:", error)
+      // Fallback to Lagos if location detection fails
+      setSelectedCity("Lagos")
+      setUserLocation("Lagos")
+    } finally {
+      setIsDetectingLocation(false)
+    }
   }
 
   useEffect(() => {
@@ -664,6 +736,38 @@ export default function ProtectorApp() {
     setBookingStep(1)
   }
 
+  const createInitialBookingMessage = async (payload: any) => {
+    if (!user) return
+
+    try {
+      // Create a detailed booking summary message
+      const bookingSummary = `New Protection Request - #${payload.id}
+
+Service: ${payload.serviceType === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service'}
+Protection Type: ${payload.protectionType || 'N/A'}
+Pickup: ${payload.pickupDetails?.location || 'N/A'}
+Date & Time: ${payload.pickupDetails?.date || 'N/A'} at ${payload.pickupDetails?.time || 'N/A'}
+Duration: ${payload.pickupDetails?.duration || 'N/A'}
+Destination: ${payload.destinationDetails?.primary || 'N/A'}
+${payload.destinationDetails?.additional?.length > 0 ? `Additional Stops: ${payload.destinationDetails.additional.join(', ')}` : ''}
+Personnel: ${payload.personnel?.protectors || 0} protectors for ${payload.personnel?.protectee || 0} protectee
+Dress Code: ${payload.personnel?.dressCode || 'N/A'}
+Contact: ${payload.contact?.phone || 'N/A'}
+Status: ${payload.status}
+
+Submitted: ${new Date(payload.timestamp).toLocaleString()}`
+
+      // Create system message
+      await chatService.createSystemMessage(
+        payload.id,
+        bookingSummary,
+        user.id
+      )
+    } catch (error) {
+      console.error('Failed to create initial booking message:', error)
+    }
+  }
+
   const handleNextStep = () => {
     if (selectedService === "armed-protection") {
       if (bookingStep === 1) setBookingStep(2)
@@ -690,7 +794,7 @@ export default function ProtectorApp() {
             additional: multipleDestinations,
           },
           personnel: {
-            protectees: protecteeCount,
+            protectee: protecteeCount,
             protectors: protectorCount,
             dressCode: dressCodeOptions.find((option) => option.id === selectedDressCode)?.name,
           },
@@ -704,6 +808,9 @@ export default function ProtectorApp() {
 
         setBookingPayload(payload)
         setActiveBookings(prev => [payload, ...prev])
+
+        // Create initial system message with booking summary
+        createInitialBookingMessage(payload)
 
         // Navigate to chat page
         handleChatNavigation(payload)
@@ -739,6 +846,9 @@ export default function ProtectorApp() {
 
         setBookingPayload(payload)
         setActiveBookings(prev => [payload, ...prev])
+
+        // Create initial system message with booking summary
+        createInitialBookingMessage(payload)
 
         // Navigate to chat page
         handleChatNavigation(payload)
@@ -810,7 +920,8 @@ export default function ProtectorApp() {
       const { error } = await supabase
         .from("profiles")
         .update({
-          full_name: `${editProfileForm.firstName.trim()} ${editProfileForm.lastName.trim()}`, // Trim whitespace
+          first_name: editProfileForm.firstName.trim(),
+          last_name: editProfileForm.lastName.trim(),
           phone: editProfileForm.phone.trim(),
           address: editProfileForm.address.trim(),
           emergency_contact: editProfileForm.emergencyContact.trim(),
@@ -979,7 +1090,8 @@ export default function ProtectorApp() {
           const { error } = await supabase.from("profiles").upsert({
             id: user.id,
             email: authForm.email.trim().toLowerCase(), // Normalize email for consistency
-            full_name: `${authForm.firstName.trim()} ${authForm.lastName.trim()}`, // Trim whitespace
+            first_name: authForm.firstName.trim(),
+            last_name: authForm.lastName.trim(),
             phone: authForm.phone.trim(),
             address: authForm.address.trim(),
             emergency_contact: authForm.emergencyContact.trim(),
@@ -1393,15 +1505,6 @@ export default function ProtectorApp() {
     </div>
   )
 
-  const [destinationLocation, setDestinationLocation] = useState("")
-  const [destinationSuggestions, setDestinationSuggestions] = useState<string[]>([])
-  const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false)
-  const [multipleDestinations, setMultipleDestinations] = useState<string[]>([])
-  const [currentDestinationInput, setCurrentDestinationInput] = useState("")
-  const [currentDestinationSuggestions, setCurrentDestinationSuggestions] = useState<string[]>([])
-  const [showCurrentDestinationSuggestions, setShowCurrentDestinationSuggestions] = useState(false)
-  const [customDurationUnit, setCustomDurationUnit] = useState("days")
-
   const returnTotalPrice = () => {
     return selectedService === "car-only" ? "₦180,000.00" : "₦450,000.00"
   }
@@ -1659,7 +1762,7 @@ export default function ProtectorApp() {
       },
       personnel: {
         protectors: 2,
-        protectees: 1
+        protectee: 1
       },
       contact: {
         phone: "+234 000 000 0000"
@@ -1827,19 +1930,21 @@ export default function ProtectorApp() {
               <div className="space-y-4 mb-8">
                 <div className="flex items-center gap-3 text-white">
                   <Shield className="h-5 w-5" />
-                  <span className="text-sm">Armed Protectors will be right by your side, ensuring your safety.</span>
+                  <span className="text-sm">Don't negotiate with danger, travel in peace with our bulletproof vehicles.</span>
                 </div>
 
                 <div className="flex items-center gap-3 text-white">
                   <CheckCircle className="h-5 w-5" />
                   <span className="text-sm">
-                    Our Protectors are only Active duty or Retired Law Enforcement and Military.
+                    Visiting Nigeria shouldn't come with fear.
+                    <br />
+                    <span className="text-xs text-gray-300">Book a bulletproof car and move around with peace of mind.</span>
                   </span>
                 </div>
 
                 <div className="flex items-center gap-3 text-white">
                   <Car className="h-5 w-5" />
-                  <span className="text-sm">Book your bulletproof vehicle for safe, smooth, worry-free journeys</span>
+                  <span className="text-sm">From airport pickup to meetings, stay secure with our armoured vehicles and trained drivers.</span>
                 </div>
 
                 <div className="flex items-center gap-3 text-white">
@@ -1866,6 +1971,54 @@ export default function ProtectorApp() {
                   <h2 className="text-xl font-semibold text-white">Where should we have your motorcade meet you?</h2>
                 </div>
 
+                {/* City Selection Dropdown */}
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-400">Select City</label>
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-5 w-5 text-gray-400" />
+                    <select
+                      value={selectedCity}
+                      onChange={(e) => {
+                        setSelectedCity(e.target.value)
+                        setUserLocation(e.target.value)
+                        // Update pickup location based on selected city
+                        const defaultLocations = {
+                          "Lagos": "15 Admiralty Way, Lekki Phase 1, Lagos",
+                          "Abuja": "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+                          "Port Harcourt": "12 Trans Amadi Industrial Layout, Port Harcourt"
+                        }
+                        if (defaultLocations[e.target.value as keyof typeof defaultLocations]) {
+                          setPickupLocation(defaultLocations[e.target.value as keyof typeof defaultLocations])
+                        }
+                      }}
+                      className="flex-1 p-4 bg-gray-800 rounded-lg text-white border border-gray-700 focus:border-blue-500 focus:outline-none"
+                    >
+                      {cities.map((city) => (
+                        <option key={city.id} value={city.name}>
+                          {city.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={detectUserLocation}
+                      disabled={isDetectingLocation}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isDetectingLocation ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          Detecting...
+                        </>
+                      ) : (
+                        <>
+                          <MapPin className="h-4 w-4" />
+                          Auto
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
                 <div className="space-y-4">
                   <div className="space-y-2 relative">
                     <label className="text-sm font-medium text-gray-400">Where should we pick you up?</label>
@@ -1877,19 +2030,38 @@ export default function ProtectorApp() {
                         onChange={(e) => {
                           setPickupLocation(e.target.value)
                           if (e.target.value.length > 2) {
-                            const suggestions = [
-                              "15 Admiralty Way, Lekki Phase 1, Lagos",
-                              "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
-                              "23 Adeola Odeku Street, Victoria Island, Lagos",
-                              "45 Aminu Kano Crescent, Wuse 2, Abuja",
-                              "12 Trans Amadi Industrial Layout, Port Harcourt",
-                              "78 Allen Avenue, Ikeja, Lagos",
-                              "Plot 567 Maitama District, Abuja",
-                              "34 GRA Phase 2, Port Harcourt",
-                              "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
-                              "Plot 890 Asokoro District, Abuja",
-                            ].filter((addr) => addr.toLowerCase().includes(e.target.value.toLowerCase()))
-                            setLocationSuggestions(suggestions.slice(0, 5))
+                            const citySuggestions = {
+                              "Lagos": [
+                                "15 Admiralty Way, Lekki Phase 1, Lagos",
+                                "23 Adeola Odeku Street, Victoria Island, Lagos",
+                                "78 Allen Avenue, Ikeja, Lagos",
+                                "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
+                                "45 Awolowo Road, Ikoyi, Lagos",
+                                "12 Tiamiyu Savage Street, Victoria Island, Lagos",
+                                "67 Admiralty Way, Lekki Phase 1, Lagos"
+                              ],
+                              "Abuja": [
+                                "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+                                "45 Aminu Kano Crescent, Wuse 2, Abuja",
+                                "Plot 567 Maitama District, Abuja",
+                                "Plot 890 Asokoro District, Abuja",
+                                "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
+                                "Plot 1001 Diplomatic Drive, Central Area, Abuja"
+                              ],
+                              "Port Harcourt": [
+                                "12 Trans Amadi Industrial Layout, Port Harcourt",
+                                "34 GRA Phase 2, Port Harcourt",
+                                "56 Aba Road, Port Harcourt",
+                                "78 Olu Obasanjo Road, Port Harcourt",
+                                "23 Stadium Road, Port Harcourt"
+                              ]
+                            }
+                            
+                            const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
+                            const filteredSuggestions = suggestions.filter((addr) => 
+                              addr.toLowerCase().includes(e.target.value.toLowerCase())
+                            )
+                            setLocationSuggestions(filteredSuggestions.slice(0, 5))
                             setShowLocationSuggestions(suggestions.length > 0)
                           } else {
                             setShowLocationSuggestions(false)
@@ -1943,19 +2115,38 @@ export default function ProtectorApp() {
                         onChange={(e) => {
                           setDestinationLocation(e.target.value)
                           if (e.target.value.length > 2) {
-                            const suggestions = [
-                              "15 Admiralty Way, Lekki Phase 1, Lagos",
-                              "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
-                              "23 Adeola Odeku Street, Victoria Island, Lagos",
-                              "45 Aminu Kano Crescent, Wuse 2, Abuja",
-                              "12 Trans Amadi Industrial Layout, Port Harcourt",
-                              "78 Allen Avenue, Ikeja, Lagos",
-                              "Plot 567 Maitama District, Abuja",
-                              "34 GRA Phase 2, Port Harcourt",
-                              "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
-                              "Plot 890 Asokoro District, Abuja",
-                            ].filter((addr) => addr.toLowerCase().includes(e.target.value.toLowerCase()))
-                            setDestinationSuggestions(suggestions.slice(0, 5))
+                            const citySuggestions = {
+                              "Lagos": [
+                                "15 Admiralty Way, Lekki Phase 1, Lagos",
+                                "23 Adeola Odeku Street, Victoria Island, Lagos",
+                                "78 Allen Avenue, Ikeja, Lagos",
+                                "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
+                                "45 Awolowo Road, Ikoyi, Lagos",
+                                "12 Tiamiyu Savage Street, Victoria Island, Lagos",
+                                "67 Admiralty Way, Lekki Phase 1, Lagos"
+                              ],
+                              "Abuja": [
+                                "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+                                "45 Aminu Kano Crescent, Wuse 2, Abuja",
+                                "Plot 567 Maitama District, Abuja",
+                                "Plot 890 Asokoro District, Abuja",
+                                "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
+                                "Plot 1001 Diplomatic Drive, Central Area, Abuja"
+                              ],
+                              "Port Harcourt": [
+                                "12 Trans Amadi Industrial Layout, Port Harcourt",
+                                "34 GRA Phase 2, Port Harcourt",
+                                "56 Aba Road, Port Harcourt",
+                                "78 Olu Obasanjo Road, Port Harcourt",
+                                "23 Stadium Road, Port Harcourt"
+                              ]
+                            }
+                            
+                            const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
+                            const filteredSuggestions = suggestions.filter((addr) => 
+                              addr.toLowerCase().includes(e.target.value.toLowerCase())
+                            )
+                            setDestinationSuggestions(filteredSuggestions.slice(0, 5))
                             setShowDestinationSuggestions(suggestions.length > 0)
                           } else {
                             setShowDestinationSuggestions(false)
@@ -1988,12 +2179,21 @@ export default function ProtectorApp() {
                     )}
                   </div>
 
-                  {selectedService === "car-only" && (
+                  {/* Multiple destinations for all services */}
+                  <div className="space-y-4">
                     <div className="space-y-4">
                       {/* Display added destinations */}
                       {multipleDestinations.length > 0 && (
                         <div className="space-y-2">
-                          <label className="text-sm font-medium text-gray-400">Additional Stops</label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-gray-400">Additional Stops</label>
+                            <button
+                              onClick={() => setMultipleDestinations([])}
+                              className="text-xs text-red-400 hover:text-red-300 underline"
+                            >
+                              Clear All
+                            </button>
+                          </div>
                           {multipleDestinations.map((destination, index) => (
                             <div key={index} className="flex items-center gap-3 p-3 bg-gray-700 rounded-lg">
                               <MapPin className="h-4 w-4 text-blue-400 flex-shrink-0" />
@@ -2011,62 +2211,90 @@ export default function ProtectorApp() {
                         </div>
                       )}
 
-                      {/* Add new destination input */}
-                      <div className="space-y-2 relative">
+                    {/* Add new destination input */}
+                    <div className="space-y-2 relative">
+                      <div className="flex items-center justify-between">
                         <label className="text-sm font-medium text-gray-400">Add Another Stop (Optional)</label>
-                        <div className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg">
-                          <MapPin className="h-5 w-5 text-blue-400" />
-                          <input
-                            type="text"
-                            value={currentDestinationInput}
-                            onChange={(e) => {
-                              setCurrentDestinationInput(e.target.value)
-                              if (e.target.value.length > 2) {
-                                const suggestions = [
+                        <span className="text-xs text-gray-500">
+                          {multipleDestinations.length}/10 stops
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg">
+                        <MapPin className="h-5 w-5 text-blue-400" />
+                        <input
+                          type="text"
+                          value={currentDestinationInput}
+                          onChange={(e) => {
+                            setCurrentDestinationInput(e.target.value)
+                            if (e.target.value.length > 2) {
+                              const citySuggestions = {
+                                "Lagos": [
                                   "15 Admiralty Way, Lekki Phase 1, Lagos",
-                                  "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
                                   "23 Adeola Odeku Street, Victoria Island, Lagos",
-                                  "45 Aminu Kano Crescent, Wuse 2, Abuja",
-                                  "12 Trans Amadi Industrial Layout, Port Harcourt",
                                   "78 Allen Avenue, Ikeja, Lagos",
-                                  "Plot 567 Maitama District, Abuja",
-                                  "34 GRA Phase 2, Port Harcourt",
                                   "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
+                                  "45 Awolowo Road, Ikoyi, Lagos",
+                                  "12 Tiamiyu Savage Street, Victoria Island, Lagos",
+                                  "67 Admiralty Way, Lekki Phase 1, Lagos"
+                                ],
+                                "Abuja": [
+                                  "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
+                                  "45 Aminu Kano Crescent, Wuse 2, Abuja",
+                                  "Plot 567 Maitama District, Abuja",
                                   "Plot 890 Asokoro District, Abuja",
-                                ].filter(
-                                  (addr) =>
-                                    addr.toLowerCase().includes(e.target.value.toLowerCase()) &&
-                                    !multipleDestinations.includes(addr) &&
-                                    addr !== destinationLocation,
-                                )
-                                setCurrentDestinationSuggestions(suggestions.slice(0, 5))
-                                setShowCurrentDestinationSuggestions(suggestions.length > 0)
-                              } else {
+                                  "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
+                                  "Plot 1001 Diplomatic Drive, Central Area, Abuja"
+                                ],
+                                "Port Harcourt": [
+                                  "12 Trans Amadi Industrial Layout, Port Harcourt",
+                                  "34 GRA Phase 2, Port Harcourt",
+                                  "56 Aba Road, Port Harcourt",
+                                  "78 Olu Obasanjo Road, Port Harcourt",
+                                  "23 Stadium Road, Port Harcourt"
+                                ]
+                              }
+                              
+                              const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
+                              const filteredSuggestions = suggestions.filter(
+                                (addr) =>
+                                  addr.toLowerCase().includes(e.target.value.toLowerCase()) &&
+                                  !multipleDestinations.includes(addr) &&
+                                  addr !== destinationLocation,
+                              )
+                              setCurrentDestinationSuggestions(filteredSuggestions.slice(0, 5))
+                              setShowCurrentDestinationSuggestions(suggestions.length > 0)
+                            } else {
+                              setShowCurrentDestinationSuggestions(false)
+                            }
+                          }}
+                          placeholder="Enter additional stop address"
+                          className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
+                          disabled={multipleDestinations.length >= 10}
+                        />
+                        {currentDestinationInput.trim() && multipleDestinations.length < 10 && (
+                          <button
+                            onClick={() => {
+                              if (
+                                currentDestinationInput.trim() &&
+                                !multipleDestinations.includes(currentDestinationInput.trim()) &&
+                                currentDestinationInput.trim() !== destinationLocation
+                              ) {
+                                setMultipleDestinations((prev) => [...prev, currentDestinationInput.trim()])
+                                setCurrentDestinationInput("")
                                 setShowCurrentDestinationSuggestions(false)
                               }
                             }}
-                            placeholder="Enter additional stop address"
-                            className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
-                          />
-                          {currentDestinationInput.trim() && (
-                            <button
-                              onClick={() => {
-                                if (
-                                  currentDestinationInput.trim() &&
-                                  !multipleDestinations.includes(currentDestinationInput.trim()) &&
-                                  currentDestinationInput.trim() !== destinationLocation
-                                ) {
-                                  setMultipleDestinations((prev) => [...prev, currentDestinationInput.trim()])
-                                  setCurrentDestinationInput("")
-                                  setShowCurrentDestinationSuggestions(false)
-                                }
-                              }}
-                              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
-                            >
-                              Add
-                            </button>
-                          )}
-                        </div>
+                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
+                          >
+                            Add
+                          </button>
+                        )}
+                        {multipleDestinations.length >= 10 && (
+                          <span className="text-xs text-gray-500 px-2">
+                            Max reached
+                          </span>
+                        )}
+                      </div>
 
                         {/* Current destination suggestions */}
                         {showCurrentDestinationSuggestions && currentDestinationSuggestions.length > 0 && (
@@ -2102,7 +2330,7 @@ export default function ProtectorApp() {
                         </div>
                       )}
                     </div>
-                  )}
+                  </div>
 
                   <div
                     className="flex items-center gap-3 p-4 bg-gray-800 rounded-lg cursor-pointer"
@@ -2342,7 +2570,7 @@ export default function ProtectorApp() {
             {bookingStep === 3 && selectedService === "armed-protection" && (
               <div className="space-y-6">
                 <div className="text-center space-y-2">
-                  <h2 className="text-xl font-semibold text-white">How many Protectees?</h2>
+                  <h2 className="text-xl font-semibold text-white">How many Protectee?</h2>
                   <p className="text-gray-400">
                     Let us know how many people need protection, whether you're solo or in a group.
                   </p>
@@ -2357,7 +2585,7 @@ export default function ProtectorApp() {
                       -
                     </button>
                     <span className="text-white font-medium min-w-[100px] text-center">
-                      {protecteeCount === 1 ? "Just Me" : `${protecteeCount} Protectees`}
+                      {protecteeCount === 1 ? "Just Me" : `${protecteeCount} Protectee`}
                     </span>
                     <button
                       onClick={() => setProtecteeCount(protecteeCount + 1)}
@@ -2371,7 +2599,7 @@ export default function ProtectorApp() {
                 <div className="text-center space-y-2">
                   <h2 className="text-xl font-semibold text-white">How many Protectors?</h2>
                   <p className="text-gray-400">
-                    Based on the number of Protectees, we recommend assigning 1 Protector to oversee your detail.
+                    Based on the number of Protectee, we recommend assigning 1 Protector to oversee your detail.
                   </p>
                 </div>
 
@@ -2435,20 +2663,27 @@ export default function ProtectorApp() {
                           const prevIndex = currentIndex > 0 ? currentIndex - 1 : dressCodeOptions.length - 1
                           setSelectedDressCode(dressCodeOptions[prevIndex].id)
                         }}
-                        className="text-white hover:text-gray-300"
+                        className="text-white hover:text-gray-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
                       >
                         ←
                       </button>
-                      <span className="text-white font-medium min-w-[120px] text-center">
-                        {dressCodeOptions.find((option) => option.id === selectedDressCode)?.name}
-                      </span>
                       <button
                         onClick={() => {
                           const currentIndex = dressCodeOptions.findIndex((option) => option.id === selectedDressCode)
                           const nextIndex = currentIndex < dressCodeOptions.length - 1 ? currentIndex + 1 : 0
                           setSelectedDressCode(dressCodeOptions[nextIndex].id)
                         }}
-                        className="text-white hover:text-gray-300"
+                        className="text-white font-medium min-w-[120px] text-center hover:text-gray-300 transition-colors duration-200 p-2 rounded-lg hover:bg-gray-700"
+                      >
+                        {dressCodeOptions.find((option) => option.id === selectedDressCode)?.name}
+                      </button>
+                      <button
+                        onClick={() => {
+                          const currentIndex = dressCodeOptions.findIndex((option) => option.id === selectedDressCode)
+                          const nextIndex = currentIndex < dressCodeOptions.length - 1 ? currentIndex + 1 : 0
+                          setSelectedDressCode(dressCodeOptions[nextIndex].id)
+                        }}
+                        className="text-white hover:text-gray-300 transition-colors duration-200 p-2 rounded-full hover:bg-gray-700"
                       >
                         →
                       </button>
@@ -2461,9 +2696,7 @@ export default function ProtectorApp() {
                   disabled={!dressCodeOptions.find((option) => option.id === selectedDressCode)?.available}
                   className="w-full bg-white text-black hover:bg-gray-200 font-semibold py-3 disabled:bg-gray-600 disabled:text-gray-400"
                 >
-                  {dressCodeOptions.find((option) => option.id === selectedDressCode)?.available
-                    ? "Next"
-                    : "Currently unavailable"}
+                  Next
                 </Button>
               </div>
             )}
@@ -2710,7 +2943,7 @@ export default function ProtectorApp() {
                         {!protectorArmed && (
                           <p className="text-gray-300">Transportation: {unarmedNeedsCar ? "Included" : "Not needed"}</p>
                         )}
-                        <p className="text-gray-300">Protectees: {protecteeCount}</p>
+                        <p className="text-gray-300">Protectee: {protecteeCount}</p>
                         <p className="text-gray-300">Protectors: {protectorCount}</p>
                         <p className="text-gray-300">
                           Dress Code: {dressCodeOptions.find((option) => option.id === selectedDressCode)?.name}
