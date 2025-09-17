@@ -109,3 +109,5 @@ Once the table is created, the real-time chat functionality will work between:
 2. Create a booking in one window (client)
 3. Open operator dashboard in another window
 4. Send messages from client and verify they appear in operator dashboard in real-time
+
+

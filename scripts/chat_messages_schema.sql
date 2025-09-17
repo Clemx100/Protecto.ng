@@ -81,3 +81,5 @@ CREATE TRIGGER update_chat_messages_updated_at
   BEFORE UPDATE ON chat_messages 
   FOR EACH ROW 
   EXECUTE FUNCTION update_updated_at_column();
+
+

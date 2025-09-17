@@ -53,7 +53,11 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname !== "/" &&
     !user &&
     !request.nextUrl.pathname.startsWith("/api") &&
-    !request.nextUrl.pathname.startsWith("/_next")
+    !request.nextUrl.pathname.startsWith("/_next") &&
+    !request.nextUrl.pathname.startsWith("/app") &&
+    !request.nextUrl.pathname.startsWith("/client") &&
+    !request.nextUrl.pathname.startsWith("/operator") &&
+    !request.nextUrl.pathname.startsWith("/chat")
   ) {
     // no user, redirect to home page where authentication is handled
     const url = request.nextUrl.clone()

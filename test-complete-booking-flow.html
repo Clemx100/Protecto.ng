@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Booking Flow</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #000; color: #fff; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #333; border-radius: 8px; }
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+        .info { color: #60a5fa; }
+        button { background: #3b82f6; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #2563eb; }
+        pre { background: #1f2937; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Protector.Ng Booking Flow Test</h1>
+    
+    <div class="test-section">
+        <h2>1. Test Booking Creation</h2>
+        <button onclick="createTestBooking()">Create Test Booking</button>
+        <div id="booking-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. Test Message Creation</h2>
+        <button onclick="createTestMessage()">Create Test Message</button>
+        <div id="message-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. Test localStorage Data</h2>
+        <button onclick="checkLocalStorage()">Check localStorage</button>
+        <div id="storage-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>4. Test Chat Page Data</h2>
+        <button onclick="testChatPageData()">Test Chat Page Data</button>
+        <div id="chat-result"></div>
+    </div>
+
+    <script>
+        let testBooking = null;
+        
+        function createTestBooking() {
+            console.log('Creating test booking...');
+            
+            testBooking = {
+                id: `REQ${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                serviceType: 'armed-protection',
+                protectionType: 'Armed',
+                pickupDetails: {
+                    location: '123 Victoria Island, Lagos',
+                    date: 'Feb 22, 2025',
+                    time: '11:45am',
+                    duration: '1 day',
+                },
+                destinationDetails: {
+                    primary: '456 Ikoyi, Lagos',
+                    additional: [],
+                },
+                personnel: {
+                    protectors: 1,
+                    protectee: 1,
+                    dressCode: 'Tactical Casual',
+                },
+                vehicles: {
+                    'Mercedes S-Class': 1
+                },
+                contact: {
+                    phone: '+234 8012345678',
+                    user: {
+                        firstName: 'John',
+                        lastName: 'Doe'
+                    },
+                },
+                status: 'Pending Deployment',
+            };
+            
+            // Store in localStorage
+            localStorage.setItem('currentBooking', JSON.stringify(testBooking));
+            
+            document.getElementById('booking-result').innerHTML = `
+                <div class="success">✅ Booking created successfully!</div>
+                <pre>${JSON.stringify(testBooking, null, 2)}</pre>
+            `;
+            
+            console.log('Test booking created:', testBooking);
+        }
+        
+        function createTestMessage() {
+            if (!testBooking) {
+                document.getElementById('message-result').innerHTML = '<div class="error">❌ Please create a booking first</div>';
+                return;
+            }
+            
+            console.log('Creating test message...');
+            
+            const bookingSummary = `🛡️ **New Protection Request Received** - #${testBooking.id}
+
+**Service Details:**
+• Service Type: ${testBooking.serviceType === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service'}
+• Protection Level: ${testBooking.protectionType || 'N/A'}
+
+**Location & Timing:**
+• Pickup Location: ${testBooking.pickupDetails?.location || 'N/A'}
+• Date & Time: ${testBooking.pickupDetails?.date || 'N/A'} at ${testBooking.pickupDetails?.time || 'N/A'}
+• Duration: ${testBooking.pickupDetails?.duration || 'N/A'}
+
+**Destination:**
+• Primary Destination: ${testBooking.destinationDetails?.primary || 'N/A'}
+
+**Personnel Requirements:**
+• Protectors: ${testBooking.personnel?.protectors || 0}
+• Protectees: ${testBooking.personnel?.protectee || 0}
+• Dress Code: ${testBooking.personnel?.dressCode || 'N/A'}
+
+**Vehicle Requirements:**
+${Object.entries(testBooking.vehicles || {}).map(([vehicle, count]) => `• ${vehicle}: ${count} unit(s)`).join('\n') || '• No specific vehicles requested'}
+
+**Contact Information:**
+• Phone: ${testBooking.contact?.phone || 'N/A'}
+• Client: ${testBooking.contact?.user?.firstName || 'N/A'} ${testBooking.contact?.user?.lastName || 'N/A'}
+
+**Status:** ${testBooking.status}
+**Submitted:** ${new Date(testBooking.timestamp).toLocaleString()}
+
+---
+*This is an automated message. Please review the request details and respond accordingly.*`;
+
+            const systemMessage = {
+                id: `test_${Date.now()}`,
+                booking_id: testBooking.id,
+                sender_type: 'system',
+                sender_id: 'test-user',
+                message: bookingSummary,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                has_invoice: false,
+                is_system_message: true
+            };
+            
+            // Store in localStorage
+            const existingMessages = JSON.parse(localStorage.getItem(`chat_${testBooking.id}`) || '[]');
+            const updatedMessages = [...existingMessages, systemMessage];
+            localStorage.setItem(`chat_${testBooking.id}`, JSON.stringify(updatedMessages));
+            
+            // Store for operator dashboard
+            const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]');
+            const updatedBookings = [testBooking, ...existingBookings];
+            localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings));
+            
+            document.getElementById('message-result').innerHTML = `
+                <div class="success">✅ Message created and stored successfully!</div>
+                <div class="info">Message ID: ${systemMessage.id}</div>
+                <div class="info">Message length: ${systemMessage.message.length} characters</div>
+                <pre>${systemMessage.message.substring(0, 200)}...</pre>
+            `;
+            
+            console.log('Test message created:', systemMessage);
+        }
+        
+        function checkLocalStorage() {
+            console.log('Checking localStorage...');
+            
+            const currentBooking = localStorage.getItem('currentBooking');
+            const operatorBookings = localStorage.getItem('operator_bookings');
+            const chatMessages = testBooking ? localStorage.getItem(`chat_${testBooking.id}`) : null;
+            
+            let result = '<div class="info">📦 localStorage Contents:</div>';
+            
+            if (currentBooking) {
+                result += '<div class="success">✅ currentBooking found</div>';
+                result += `<pre>${JSON.stringify(JSON.parse(currentBooking), null, 2)}</pre>`;
+            } else {
+                result += '<div class="error">❌ currentBooking not found</div>';
+            }
+            
+            if (operatorBookings) {
+                const bookings = JSON.parse(operatorBookings);
+                result += `<div class="success">✅ operator_bookings found (${bookings.length} bookings)</div>`;
+            } else {
+                result += '<div class="error">❌ operator_bookings not found</div>';
+            }
+            
+            if (chatMessages) {
+                const messages = JSON.parse(chatMessages);
+                result += `<div class="success">✅ chat messages found (${messages.length} messages)</div>`;
+                result += `<pre>${JSON.stringify(messages, null, 2)}</pre>`;
+            } else {
+                result += '<div class="error">❌ chat messages not found</div>';
+            }
+            
+            document.getElementById('storage-result').innerHTML = result;
+        }
+        
+        function testChatPageData() {
+            console.log('Testing chat page data...');
+            
+            const currentBooking = localStorage.getItem('currentBooking');
+            const bookingId = testBooking ? testBooking.id : null;
+            const chatMessages = bookingId ? localStorage.getItem(`chat_${bookingId}`) : null;
+            
+            let result = '<div class="info">🔍 Chat Page Data Test:</div>';
+            
+            if (currentBooking && chatMessages) {
+                const booking = JSON.parse(currentBooking);
+                const messages = JSON.parse(chatMessages);
+                
+                result += '<div class="success">✅ All required data found for chat page</div>';
+                result += `<div class="info">Booking ID: ${booking.id}</div>`;
+                result += `<div class="info">Messages count: ${messages.length}</div>`;
+                
+                if (messages.length > 0) {
+                    const systemMessage = messages.find(msg => msg.is_system_message);
+                    if (systemMessage) {
+                        result += '<div class="success">✅ System message found</div>';
+                        result += `<div class="info">Message preview: ${systemMessage.message.substring(0, 100)}...</div>`;
+                    } else {
+                        result += '<div class="error">❌ No system message found</div>';
+                    }
+                }
+                
+                result += '<div class="info">🎯 Chat page should now display the booking summary!</div>';
+            } else {
+                result += '<div class="error">❌ Missing required data for chat page</div>';
+                if (!currentBooking) result += '<div class="error">- currentBooking missing</div>';
+                if (!chatMessages) result += '<div class="error">- chat messages missing</div>';
+            }
+            
+            document.getElementById('chat-result').innerHTML = result;
+        }
+        
+        // Auto-run on page load
+        window.onload = function() {
+            console.log('Test page loaded');
+            checkLocalStorage();
+        };
+    </script>
+</body>
+</html>
+
+
