@@ -8,14 +8,9 @@ export async function updateSession(request: NextRequest) {
 
   // Check if Supabase environment variables are available
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-    // In development, allow access without Supabase
-    if (process.env.NODE_ENV === 'development') {
-      return supabaseResponse
-    }
-    // In production, redirect to error page
-    const url = request.nextUrl.clone()
-    url.pathname = "/"
-    return NextResponse.redirect(url)
+    // Allow access without Supabase in both development and production
+    // This prevents infinite redirects when environment variables are missing
+    return supabaseResponse
   }
 
   // With Fluid compute, don't put this client in a global environment
