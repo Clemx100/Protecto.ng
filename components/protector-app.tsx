@@ -5,7 +5,24 @@ import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search } f
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { chatService } from "@/lib/services/chatService"
-import { bookingService } from "@/lib/services/bookingService"
+
+interface BookingDisplay {
+  id: string
+  type: string
+  protectorName?: string
+  vehicleType?: string
+  status: string
+  estimatedArrival?: string
+  pickupLocation: string
+  destination?: string
+  startTime?: string
+  protectorImage?: string
+  currentLocation?: { lat: number; lng: number }
+  cost: string
+  date: string
+  duration: string
+  rating?: number
+}
 
 export default function ProtectorApp() {
   const supabase = createClient()
@@ -147,52 +164,187 @@ export default function ProtectorApp() {
   })
   const [operatorChatMessage, setOperatorChatMessage] = useState("")
 
-  const [activeBookings, setActiveBookings] = useState([
-    {
-      id: "BK001",
-      type: "armed-protection",
-      protectorName: "Marcus Johnson",
-      vehicleType: "Mercedes S-Class",
-      status: "en-route",
-      estimatedArrival: "8 mins",
-      pickupLocation: "123 Main St, Downtown",
-      destination: "456 Oak Ave, Uptown",
-      startTime: "2:30 PM",
-      protectorImage: "/images/business-formal-agent.png",
-      currentLocation: { lat: 40.7128, lng: -74.006 },
-    },
-  ])
-
-  const [bookingHistory, setBookingHistory] = useState([
-    {
-      id: "BK002",
-      type: "car-only",
-      vehicleType: "BMW X5",
-      status: "completed",
-      date: "Dec 15, 2024",
-      duration: "2h 30m",
-      cost: "$180",
-      rating: 5,
-    },
-    {
-      id: "BK003",
-      type: "armed-protection",
-      protectorName: "Sarah Williams",
-      vehicleType: "Audi A8",
-      status: "completed",
-      date: "Dec 12, 2024",
-      duration: "4h 15m",
-      cost: "$450",
-      rating: 5,
-    },
-  ])
+  const [activeBookings, setActiveBookings] = useState<BookingDisplay[]>([])
+  const [bookingHistory, setBookingHistory] = useState<BookingDisplay[]>([])
+  const [isLoadingBookings, setIsLoadingBookings] = useState(false)
 
   const [showHistory, setShowHistory] = useState(false)
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false)
 
   const [userLocation, setUserLocation] = useState("Lagos")
+
+  // Load bookings function
+  const loadBookings = async () => {
+    if (!user?.id) return
+    
+    setIsLoadingBookings(true)
+    try {
+      // Get active bookings
+      const { data: activeData, error: activeError } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          client:profiles!bookings_client_id_fkey(first_name, last_name, phone, email),
+          assigned_agent:agents!bookings_assigned_agent_id_fkey(name, profile_image, rating, phone),
+          assigned_vehicle:vehicles!bookings_assigned_vehicle_id_fkey(model, type, license_plate),
+          service:services(name, description)
+        `)
+        .eq('client_id', user.id)
+        .in('status', ['accepted', 'en_route', 'arrived', 'in_service'])
+        .order('created_at', { ascending: false })
+
+      if (activeError) {
+        console.error('Error fetching active bookings:', activeError)
+        throw activeError
+      }
+
+      // Get booking history
+      const { data: historyData, error: historyError } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          client:profiles!bookings_client_id_fkey(first_name, last_name, phone, email),
+          assigned_agent:agents!bookings_assigned_agent_id_fkey(name, profile_image, rating, phone),
+          assigned_vehicle:vehicles!bookings_assigned_vehicle_id_fkey(model, type, license_plate),
+          service:services(name, description)
+        `)
+        .eq('client_id', user.id)
+        .in('status', ['completed', 'cancelled'])
+        .order('created_at', { ascending: false })
+
+      if (historyError) {
+        console.error('Error fetching booking history:', historyError)
+        throw historyError
+      }
+
+      const active = transformBookings(activeData || [])
+      const history = transformBookings(historyData || [])
+      
+      setActiveBookings(active)
+      setBookingHistory(history)
+      
+      // Save to localStorage as fallback
+      const allBookings = [...active, ...history]
+      localStorage.setItem(`bookings_${user.id}`, JSON.stringify(allBookings))
+    } catch (error) {
+      console.error('Error loading bookings:', error)
+      // Fallback to localStorage
+      const stored = localStorage.getItem(`bookings_${user.id}`)
+      if (stored) {
+        const storedBookings = JSON.parse(stored)
+        setActiveBookings(storedBookings.filter((b: BookingDisplay) => 
+          ['accepted', 'en-route', 'arrived', 'in-service'].includes(b.status)
+        ))
+        setBookingHistory(storedBookings.filter((b: BookingDisplay) => 
+          ['completed', 'cancelled'].includes(b.status)
+        ))
+      }
+    } finally {
+      setIsLoadingBookings(false)
+    }
+  }
+
+  // Transform bookings data
+  const transformBookings = (bookings: any[]): BookingDisplay[] => {
+    return bookings.map(booking => ({
+      id: booking.id,
+      type: formatServiceType(booking.service_type),
+      protectorName: booking.assigned_agent?.name || 'TBD',
+      vehicleType: booking.assigned_vehicle?.model || 'TBD',
+      status: formatStatus(booking.status),
+      estimatedArrival: calculateETA(booking.status),
+      pickupLocation: booking.pickup_address,
+      destination: booking.destination_address || 'TBD',
+      startTime: formatTime(booking.scheduled_time),
+      protectorImage: booking.assigned_agent?.profile_image || '/images/business-formal-agent.png',
+      currentLocation: booking.pickup_coordinates ? {
+        lat: booking.pickup_coordinates.lat || booking.pickup_coordinates.x,
+        lng: booking.pickup_coordinates.lng || booking.pickup_coordinates.y
+      } : undefined,
+      cost: `₦${booking.total_price?.toLocaleString() || '0'}`,
+      date: formatDate(booking.scheduled_date),
+      duration: `${booking.duration_hours || 0}h`,
+      rating: booking.assigned_agent?.rating || 5
+    }))
+  }
+
+  // Helper functions
+  const formatServiceType = (serviceType: string): string => {
+    return serviceType?.replace('_', '-') || 'unknown'
+  }
+
+  const formatStatus = (status: string): string => {
+    const statusMap: { [key: string]: string } = {
+      'pending': 'pending',
+      'accepted': 'accepted',
+      'en_route': 'en-route',
+      'arrived': 'arrived',
+      'in_service': 'in-service',
+      'completed': 'completed',
+      'cancelled': 'cancelled'
+    }
+    return statusMap[status] || status
+  }
+
+  const calculateETA = (status: string): string => {
+    const statusMap: { [key: string]: string } = {
+      'en_route': '8 mins',
+      'arrived': 'Arrived',
+      'accepted': '15 mins',
+      'in_service': 'In Service',
+      'completed': 'Completed',
+      'cancelled': 'Cancelled'
+    }
+    return statusMap[status] || 'TBD'
+  }
+
+  const formatTime = (timeString: string): string => {
+    try {
+      const [hours, minutes] = timeString.split(':')
+      const hour = parseInt(hours)
+      const minute = parseInt(minutes)
+      const period = hour >= 12 ? 'PM' : 'AM'
+      const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour
+      return `${displayHour}:${minute.toString().padStart(2, '0')} ${period}`
+    } catch {
+      return timeString
+    }
+  }
+
+  const formatDate = (dateString: string): string => {
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      })
+    } catch {
+      return dateString
+    }
+  }
+
+  // Load user and bookings on component mount
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const { data: { user: currentUser } } = await supabase.auth.getUser()
+        setUser(currentUser)
+      } catch (error) {
+        console.error('Error loading user:', error)
+      }
+    }
+    
+    loadUser()
+  }, [])
+
+  // Load bookings when user is available
+  useEffect(() => {
+    if (user?.id) {
+      loadBookings()
+    }
+  }, [user?.id])
+
   const [selectedCity, setSelectedCity] = useState("Lagos")
-  const [isDetectingLocation, setIsDetectingLocation] = useState(false)
   
   const cities = [
     { id: "lagos", name: "Lagos", coordinates: { lat: 6.5244, lng: 3.3792 } },
@@ -503,69 +655,7 @@ export default function ProtectorApp() {
     }
   }
 
-  const detectUserLocation = async () => {
-    if (!navigator.geolocation) {
-      console.log("Geolocation is not supported by this browser.")
-      return
-    }
 
-    setIsDetectingLocation(true)
-    
-    try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 300000 // 5 minutes
-        })
-      })
-
-      const { latitude, longitude } = position.coords
-      console.log("Detected coordinates:", latitude, longitude)
-
-      // Find the closest city based on coordinates
-      let closestCity = cities[0]
-      let minDistance = Infinity
-
-      cities.forEach(city => {
-        const distance = Math.sqrt(
-          Math.pow(latitude - city.coordinates.lat, 2) + 
-          Math.pow(longitude - city.coordinates.lng, 2)
-        )
-        if (distance < minDistance) {
-          minDistance = distance
-          closestCity = city
-        }
-      })
-
-      console.log("Closest city detected:", closestCity.name)
-      setSelectedCity(closestCity.name)
-      setUserLocation(closestCity.name)
-      
-      // Set a default pickup location based on the detected city
-      const defaultLocations = {
-        "Lagos": "15 Admiralty Way, Lekki Phase 1, Lagos",
-        "Abuja": "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
-        "Port Harcourt": "12 Trans Amadi Industrial Layout, Port Harcourt"
-      }
-      
-      if (defaultLocations[closestCity.name as keyof typeof defaultLocations]) {
-        setPickupLocation(defaultLocations[closestCity.name as keyof typeof defaultLocations])
-      }
-
-    } catch (error) {
-      console.log("Error detecting location:", error)
-      // Fallback to Lagos if location detection fails
-      setSelectedCity("Lagos")
-      setUserLocation("Lagos")
-    } finally {
-      setIsDetectingLocation(false)
-    }
-  }
-
-  useEffect(() => {
-    detectUserLocation()
-  }, [])
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -751,90 +841,80 @@ export default function ProtectorApp() {
     setBookingStep(1)
   }
 
-  const createInitialBookingMessage = async (payload: any) => {
-    console.log('=== CREATE INITIAL BOOKING MESSAGE ===')
+  const createInitialBookingMessage = (payload: any) => {
     console.log('Creating initial booking message for payload:', payload.id)
-    console.log('Current user:', user)
-    console.log('User ID:', user?.id)
-    console.log('Is user authenticated:', !!user)
     
-    if (!user) {
-      console.log('❌ No user found, cannot create message')
-      return
-    }
+    // Create a fallback user ID
+    const userId = 'anonymous-user'
     
-    console.log('✅ User found, proceeding with message creation')
+    // Create a detailed booking summary message
+    const bookingSummary = `🛡️ **New Protection Request Received** - #${payload.id}
 
-    // Create a detailed booking summary message in key-value format
-    const bookingSummary = `**Service:** ${payload.serviceType === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service'}
-**Pickup:** ${payload.pickupDetails?.location || 'N/A'}
-**Date & Time:** ${payload.pickupDetails?.date || 'N/A'} at ${payload.pickupDetails?.time || 'N/A'}
-**Duration:** ${payload.pickupDetails?.duration || 'N/A'}
-**Destination:** ${payload.destinationDetails?.primary || 'N/A'}
-**Personnel:** ${payload.personnel?.protectors || 0} protectors for ${payload.personnel?.protectee || 0} protectee
-**Contact:** ${payload.contact?.phone || 'N/A'}
-**Vehicle Type:** ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `${vehicle} (${count})`).join(', ') || 'Not specified'}
-**Dress Code:** ${payload.personnel?.dressCode || 'Not specified'}
-**Special Requirements:** ${payload.protectionType || 'Standard protection'}
-**Pricing:** To be provided by operator
+**Service Details:**
+• Service Type: ${payload.serviceType === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service'}
+• Protection Level: ${payload.protectionType || 'N/A'}
+
+**Location & Timing:**
+• Pickup Location: ${payload.pickupDetails?.location || 'N/A'}
+• Date & Time: ${payload.pickupDetails?.date || 'N/A'} at ${payload.pickupDetails?.time || 'N/A'}
+• Duration: ${payload.pickupDetails?.duration || 'N/A'}
+
+**Destination:**
+• Primary Destination: ${payload.destinationDetails?.primary || 'N/A'}
+${payload.destinationDetails?.additional?.length > 0 ? `• Additional Stops: ${payload.destinationDetails.additional.join(', ')}` : ''}
+
+**Personnel Requirements:**
+• Protectors: ${payload.personnel?.protectors || 0}
+• Protectees: ${payload.personnel?.protectee || 0}
+• Dress Code: ${payload.personnel?.dressCode || 'N/A'}
+
+**Vehicle Requirements:**
+${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicle}: ${count} unit(s)`).join('\n') || '• No specific vehicles requested'}
+
+**Contact Information:**
+• Phone: ${payload.contact?.phone || 'N/A'}
+• Client: ${payload.contact?.user?.firstName || 'N/A'} ${payload.contact?.user?.lastName || 'N/A'}
+
 **Status:** ${payload.status}
-**Submitted:** ${new Date(payload.timestamp).toLocaleString()}`
+**Submitted:** ${new Date(payload.timestamp).toLocaleString()}
 
-    try {
+---
+*This is an automated message. Please review the request details and respond accordingly.*`
 
-      // Create system message and send to database
-      console.log('Creating system message with chatService...')
-      const message = await chatService.createSystemMessage(
-        payload.id,
-        bookingSummary,
-        user.id
-      )
-
-      console.log('Booking summary message created:', message)
-
-      // Save the booking to localStorage for operator dashboard
-      const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-      const updatedBookings = [payload, ...existingBookings]
-      localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
-      console.log('Booking stored for operator dashboard')
-
-    } catch (error) {
-      console.error('Failed to create initial booking message:', error)
-      
-      // Create fallback message in localStorage
-      console.log('Creating fallback message in localStorage...')
-      
-      // Recreate the booking summary for fallback in key-value format
-      const fallbackBookingSummary = `**Service:** ${payload.serviceType === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service'}
-**Pickup:** ${payload.pickupDetails?.location || 'N/A'}
-**Date & Time:** ${payload.pickupDetails?.date || 'N/A'} at ${payload.pickupDetails?.time || 'N/A'}
-**Duration:** ${payload.pickupDetails?.duration || 'N/A'}
-**Destination:** ${payload.destinationDetails?.primary || 'N/A'}
-**Personnel:** ${payload.personnel?.protectors || 0} protectors for ${payload.personnel?.protectee || 0} protectee
-**Contact:** ${payload.contact?.phone || 'N/A'}
-**Vehicle Type:** ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `${vehicle} (${count})`).join(', ') || 'Not specified'}
-**Dress Code:** ${payload.personnel?.dressCode || 'Not specified'}
-**Special Requirements:** ${payload.protectionType || 'Standard protection'}
-**Pricing:** To be provided by operator
-**Status:** ${payload.status}
-**Submitted:** ${new Date(payload.timestamp).toLocaleString()}`
-      
-      // Create fallback message using chatService (which handles localStorage storage)
-      const fallbackMessage = await chatService.createSystemMessage(
-        payload.id,
-        fallbackBookingSummary,
-        user.id
-      )
-      
-      console.log('Fallback message created:', fallbackMessage)
+    // Create system message
+    const systemMessage = {
+      id: `system_${Date.now()}`,
+      booking_id: payload.id,
+      sender_type: 'system',
+      sender_id: userId,
+      message: bookingSummary,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      has_invoice: false,
+      is_system_message: true
     }
+
+    // Store in localStorage immediately
+    const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
+    const updatedMessages = [...existingMessages, systemMessage]
+    localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
+    console.log('System message stored in localStorage:', systemMessage.id)
+
+    // Also save the booking to localStorage for operator dashboard
+    const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+    const updatedBookings = [payload, ...existingBookings]
+    localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
+    console.log('Booking stored for operator dashboard')
+
+    // Try to store in Supabase asynchronously
+    chatService.createSystemMessage(payload.id, bookingSummary, userId).catch(error => {
+      console.log('Failed to store in Supabase, but localStorage is updated:', error)
+    })
+
+    return systemMessage
   }
 
-  const handleNextStep = async () => {
-    console.log('handleNextStep called!')
-    console.log('Current bookingStep:', bookingStep)
-    console.log('Selected service:', selectedService)
-    
+  const handleNextStep = () => {
     if (selectedService === "armed-protection") {
       if (bookingStep === 1) setBookingStep(2)
       else if (bookingStep === 2) setBookingStep(3)
@@ -843,10 +923,9 @@ export default function ProtectorApp() {
       else if (bookingStep === 5) setBookingStep(6)
       else if (bookingStep === 6) setBookingStep(8)
       else if (bookingStep === 8) {
-        console.log('Creating armed protection booking...')
         // Compile booking summary payload
         const payload = {
-          id: crypto.randomUUID(),
+          id: `REQ${Date.now()}`,
           timestamp: new Date().toISOString(),
           serviceType: selectedService,
           protectionType: protectorArmed ? "Armed" : "Unarmed",
@@ -863,7 +942,7 @@ export default function ProtectorApp() {
           personnel: {
             protectee: protecteeCount,
             protectors: protectorCount,
-            dressCode: dressCodeOptions.find((option) => option.id === selectedDressCode)?.name || 'Not specified',
+            dressCode: dressCodeOptions.find((option) => option.id === selectedDressCode)?.name,
           },
           vehicles: selectedVehicles,
           contact: {
@@ -873,18 +952,11 @@ export default function ProtectorApp() {
           status: "Pending Deployment",
         }
 
-        console.log('Setting booking payload:', payload)
         setBookingPayload(payload)
 
-        console.log('Creating booking in database...')
-        // Create booking in database first
-        await bookingService.createBooking(payload)
-
-        console.log('Creating initial booking message...')
         // Create initial system message with booking summary
-        await createInitialBookingMessage(payload)
+        createInitialBookingMessage(payload)
 
-        console.log('Navigating to chat page...')
         // Navigate to chat page
         handleChatNavigation(payload)
         return
@@ -894,10 +966,9 @@ export default function ProtectorApp() {
       else if (bookingStep === 4) setBookingStep(5)
       else if (bookingStep === 5) setBookingStep(7)
       else if (bookingStep === 7) {
-        console.log('Creating car-only booking...')
         // Compile booking summary payload for car-only service
         const payload = {
-          id: crypto.randomUUID(),
+          id: `REQ${Date.now()}`,
           timestamp: new Date().toISOString(),
           serviceType: selectedService,
           pickupDetails: {
@@ -918,18 +989,11 @@ export default function ProtectorApp() {
           status: "Pending Deployment",
         }
 
-        console.log('Setting booking payload:', payload)
         setBookingPayload(payload)
 
-        console.log('Creating booking in database...')
-        // Create booking in database first
-        await bookingService.createBooking(payload)
-
-        console.log('Creating initial booking message...')
         // Create initial system message with booking summary
-        await createInitialBookingMessage(payload)
+        createInitialBookingMessage(payload)
 
-        console.log('Navigating to chat page...')
         // Navigate to chat page
         handleChatNavigation(payload)
         return
@@ -1788,25 +1852,36 @@ export default function ProtectorApp() {
     return selectedService === "car-only" ? "₦180,000.00" : "₦450,000.00"
   }
 
-  const getCurrentLocation = () => {
+  const getCurrentLocation = async () => {
     setIsLoadingLocation(true)
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords
-          setPickupLocation(`${latitude}, ${longitude}`)
-          setIsLoadingLocation(false)
-        },
-        (error) => {
-          console.error("Error getting location:", error)
-          setIsLoadingLocation(false)
-        },
-      )
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 300000 // 5 minutes
+          })
+        })
+
+        const { latitude, longitude } = position.coords
+        console.log("GPS coordinates:", latitude, longitude)
+
+        // Use coordinates directly instead of reverse geocoding
+        setPickupLocation(`${latitude}, ${longitude}`)
+        setIsLoadingLocation(false)
+      } catch (error) {
+        console.error("Error getting location:", error)
+        alert("Unable to get your location. Please enter your address manually.")
+        setIsLoadingLocation(false)
+      }
     } else {
       alert("Geolocation is not supported by this browser.")
       setIsLoadingLocation(false)
     }
   }
+
+
 
   const renderCalendar = () => {
     //  Implemented functional calendar component instead of placeholder
@@ -2205,15 +2280,7 @@ export default function ProtectorApp() {
                       onChange={(e) => {
                         setSelectedCity(e.target.value)
                         setUserLocation(e.target.value)
-                        // Update pickup location based on selected city
-                        const defaultLocations = {
-                          "Lagos": "15 Admiralty Way, Lekki Phase 1, Lagos",
-                          "Abuja": "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
-                          "Port Harcourt": "12 Trans Amadi Industrial Layout, Port Harcourt"
-                        }
-                        if (defaultLocations[e.target.value as keyof typeof defaultLocations]) {
-                          setPickupLocation(defaultLocations[e.target.value as keyof typeof defaultLocations])
-                        }
+                        // Don't set default pickup location - let user enter manually or use auto-detect
                       }}
                       className="flex-1 p-4 bg-gray-800 rounded-lg text-white border border-gray-700 focus:border-blue-500 focus:outline-none"
                     >
@@ -2223,23 +2290,6 @@ export default function ProtectorApp() {
                         </option>
                       ))}
                     </select>
-                    <button
-                      onClick={detectUserLocation}
-                      disabled={isDetectingLocation}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      {isDetectingLocation ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          Detecting...
-                        </>
-                      ) : (
-                        <>
-                          <MapPin className="h-4 w-4" />
-                          Auto
-                        </>
-                      )}
-                    </button>
                   </div>
                 </div>
 
@@ -3371,11 +3421,20 @@ export default function ProtectorApp() {
               </div>
             </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto">
-              {!showHistory ? (
-                // Active Bookings with Map
-                activeBookings.length > 0 ? (
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto">
+                {isLoadingBookings ? (
+                  // Loading State
+                  <div className="p-4">
+                    <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+                      <h3 className="text-xl font-semibold text-white">Loading bookings...</h3>
+                      <p className="text-gray-400">Please wait while we fetch your bookings.</p>
+                    </div>
+                  </div>
+                ) : !showHistory ? (
+                  // Active Bookings with Map
+                  activeBookings.length > 0 ? (
                   <div className="space-y-4">
                     {/* Map Section */}
                     <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
@@ -3500,8 +3559,9 @@ export default function ProtectorApp() {
                 )
               ) : (
                 // Booking History
-                <div className="p-4 space-y-4">
-                  {bookingHistory.map((booking) => (
+                bookingHistory.length > 0 ? (
+                  <div className="p-4 space-y-4">
+                    {bookingHistory.map((booking) => (
                     <div key={booking.id} className="bg-gray-900 rounded-lg p-4 space-y-3">
                       {/* Header */}
                       <div className="flex items-center justify-between">
@@ -3526,7 +3586,7 @@ export default function ProtectorApp() {
                           {[...Array(5)].map((_, i) => (
                             <span
                               key={i}
-                              className={`text-sm ${i < booking.rating ? "text-yellow-400" : "text-gray-600"}`}
+                              className={`text-sm ${i < (booking.rating || 0) ? "text-yellow-400" : "text-gray-600"}`}
                             >
                               ★
                             </span>
@@ -3549,7 +3609,25 @@ export default function ProtectorApp() {
                       </div>
                     </div>
                   ))}
-                </div>
+                  </div>
+                ) : (
+                  // No Booking History
+                  <div className="p-4">
+                    <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
+                      <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto">
+                        <Calendar className="h-8 w-8 text-gray-400" />
+                      </div>
+                      <h3 className="text-xl font-semibold text-white">No Booking History</h3>
+                      <p className="text-gray-400">You haven't completed any protection services yet.</p>
+                      <Button 
+                        onClick={() => setActiveTab("protector")}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
+                      >
+                        Book Your First Service
+                      </Button>
+                    </div>
+                  </div>
+                )
               )}
             </div>
           </div>

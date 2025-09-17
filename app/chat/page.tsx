@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { chatService, ChatMessage } from "@/lib/services/chatService"
-import { ArrowLeft, Send, Shield, Clock, MapPin, User, Phone, Calendar, Car, RefreshCw } from "lucide-react"
+import { ArrowLeft, Send, Shield, Clock, MapPin, User, Phone, Calendar, Car } from "lucide-react"
 
 export default function ChatPage() {
   const router = useRouter()
@@ -16,11 +16,13 @@ export default function ChatPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [requestStatus, setRequestStatus] = useState("Pending Deployment")
-  const [bookingStatus, setBookingStatus] = useState("pending")
   const [bookingPayload, setBookingPayload] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [user, setUser] = useState<any>(null)
   const [isSending, setIsSending] = useState(false)
+  const [statusSubscription, setStatusSubscription] = useState<any>(null)
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [invoiceData, setInvoiceData] = useState<any>(null)
 
   useEffect(() => {
     initializeChat()
@@ -30,81 +32,99 @@ export default function ChatPage() {
     scrollToBottom()
   }, [chatMessages])
 
-  // Check for status updates and refresh messages periodically
+  // Cleanup subscription on unmount
   useEffect(() => {
-    const interval = setInterval(() => {
-      checkStatusUpdates()
-      // Also refresh messages every 2 seconds as fallback
-      if (bookingPayload?.id) {
-        console.log('🔄 PERIODIC MESSAGE REFRESH for booking:', bookingPayload.id)
-        loadMessages(bookingPayload.id)
-      }
-    }, 2000) // Check every 2 seconds
-    return () => clearInterval(interval)
-  }, [bookingPayload?.id, bookingStatus])
-
-  // Force refresh when window regains focus (user switches back to chat)
-  useEffect(() => {
-    const handleFocus = () => {
-      if (bookingPayload?.id) {
-        console.log('🔄 WINDOW FOCUS - REFRESHING MESSAGES')
-        loadMessages(bookingPayload.id)
+    return () => {
+      if (statusSubscription) {
+        chatService.unsubscribe(statusSubscription)
       }
     }
-    
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [bookingPayload?.id])
+  }, [statusSubscription])
+
+  // Poll for status updates
+  useEffect(() => {
+    if (!bookingPayload) return
+
+    const checkForStatusUpdates = () => {
+      // Check if booking status has changed in localStorage
+      const storedBookings = localStorage.getItem('operator_bookings')
+      if (storedBookings) {
+        try {
+          const bookings = JSON.parse(storedBookings)
+          const currentBooking = bookings.find((b: any) => b.id === bookingPayload.id)
+          if (currentBooking && currentBooking.status !== requestStatus) {
+            const newStatus = currentBooking.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
+            setRequestStatus(newStatus)
+            console.log('Status updated from localStorage:', newStatus)
+          }
+        } catch (error) {
+          console.error('Error checking status updates:', error)
+        }
+      }
+    }
+
+    // Check immediately
+    checkForStatusUpdates()
+
+    // Set up polling every 2 seconds
+    const interval = setInterval(checkForStatusUpdates, 2000)
+
+    return () => clearInterval(interval)
+  }, [bookingPayload, requestStatus])
+
+  // Poll for new messages
+  useEffect(() => {
+    if (!bookingPayload) return
+
+    const checkForNewMessages = () => {
+      const storedMessages = localStorage.getItem(`chat_${bookingPayload.id}`)
+      if (storedMessages) {
+        try {
+          const messages = JSON.parse(storedMessages)
+          
+          // Check if there are actually new messages by comparing IDs
+          const currentMessageIds = new Set(chatMessages.map(msg => msg.id))
+          const newMessages = messages.filter(msg => !currentMessageIds.has(msg.id))
+          
+          if (newMessages.length > 0) {
+            console.log('New messages found, updating chat:', newMessages.length)
+            
+            // Check for invoice messages in new messages
+            const invoiceMessage = newMessages.find((msg: any) => msg.has_invoice && msg.invoiceData)
+            if (invoiceMessage) {
+              setInvoiceData(invoiceMessage.invoiceData)
+            }
+            
+            // Update with all messages (existing + new)
+            setChatMessages(messages)
+          }
+        } catch (error) {
+          console.error('Error checking for new messages:', error)
+        }
+      }
+    }
+
+    // Check for new messages every 3 seconds
+    const messageInterval = setInterval(checkForNewMessages, 3000)
+
+    return () => clearInterval(messageInterval)
+  }, [bookingPayload, chatMessages])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
-  const checkStatusUpdates = () => {
-    if (!bookingPayload?.id) return
-    
-    try {
-      // Check for status updates in localStorage
-      const operatorBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-      const currentBooking = operatorBookings.find((booking: any) => booking.id === bookingPayload.id)
-      
-      if (currentBooking && currentBooking.status !== bookingStatus) {
-        console.log('Status update detected:', currentBooking.status)
-        setBookingStatus(currentBooking.status)
-        
-        // Update request status display
-        switch (currentBooking.status) {
-          case 'confirmed':
-            setRequestStatus('Confirmed')
-            break
-          case 'en_route':
-            setRequestStatus('En Route')
-            break
-          case 'arrived':
-            setRequestStatus('Arrived')
-            break
-          case 'in_service':
-            setRequestStatus('In Service')
-            break
-          case 'completed':
-            setRequestStatus('Completed')
-            break
-          default:
-            setRequestStatus('Pending Deployment')
-        }
-      }
-    } catch (error) {
-      console.error('Error checking status updates:', error)
-    }
-  }
-
   const initializeChat = async () => {
     try {
       setIsLoading(true)
+      console.log('=== CHAT PAGE INITIALIZATION ===')
       
       // Get current user
       const { data: { user: currentUser } } = await supabase.auth.getUser()
+      console.log('Current user from auth:', currentUser)
+      
       if (!currentUser) {
+        console.log('No user found, redirecting to home')
         router.push('/')
         return
       }
@@ -116,6 +136,7 @@ export default function ChatPage() {
       
       console.log('Chat page loaded with bookingId:', bookingId)
       console.log('Stored booking:', storedBooking)
+      console.log('All localStorage keys:', Object.keys(localStorage))
       
       if (storedBooking) {
         try {
@@ -126,43 +147,23 @@ export default function ChatPage() {
           // Load existing messages
           await loadMessages(booking.id)
           
-          // Check for status updates
-          checkStatusUpdates()
-          
-          // Try to set up real-time subscription, but don't fail if it doesn't work
-          console.log('🔗 SETTING UP REAL-TIME SUBSCRIPTION for booking:', booking.id)
-          try {
-            const subscription = chatService.subscribeToMessages(booking.id, (newMessage) => {
-              console.log('🔔 NEW MESSAGE RECEIVED IN USER CHAT:', newMessage)
-              console.log('Message sender_type:', newMessage.sender_type)
-              console.log('Message sender_id:', newMessage.sender_id)
-              console.log('Message content:', newMessage.message)
-              console.log('Has invoice:', newMessage.has_invoice)
-              console.log('Is system message:', newMessage.is_system_message)
-              
-              setChatMessages(prev => {
-                // Check if message already exists to prevent duplicates
-                const exists = prev.some(msg => msg.id === newMessage.id || (msg.message === newMessage.message && msg.is_system_message === newMessage.is_system_message))
-                if (exists) {
-                  console.log('❌ Duplicate message detected, skipping')
-                  return prev
-                }
-                console.log('✅ Adding new message to chat')
-                return [...prev, newMessage]
-              })
-              
-              // Check for status updates when new messages arrive
-              checkStatusUpdates()
-            })
+          // Subscribe to real-time messages
+          const subscription = chatService.subscribeToMessages(booking.id, (newMessage) => {
+            console.log('New message received:', newMessage)
+            setChatMessages(prev => [...prev, newMessage])
             
-            // Cleanup subscription on unmount
-            return () => {
-              chatService.unsubscribe(subscription)
+            // Check if this is a status update message
+            if (newMessage.sender_type === 'system' && newMessage.message.includes('Status updated to:')) {
+              const statusMatch = newMessage.message.match(/Status updated to: (\w+)/)
+              if (statusMatch) {
+                const newStatus = statusMatch[1].replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
+                setRequestStatus(newStatus)
+                console.log('Status updated to:', newStatus)
+              }
             }
-          } catch (error) {
-            console.log('❌ Real-time subscription failed, using fallback:', error)
-            // Don't fail the entire chat if subscription fails
-          }
+          })
+          
+          setStatusSubscription(subscription)
         } catch (error) {
           console.error("Error parsing stored booking:", error)
         }
@@ -178,57 +179,48 @@ export default function ChatPage() {
 
   const loadMessages = async (bookingId: string) => {
     try {
-      console.log('🔄 LOADING MESSAGES for booking:', bookingId)
-      const messages = await chatService.getMessages(bookingId)
-      console.log('📥 MESSAGES FROM DATABASE:', messages)
-      console.log('📊 Total messages from database:', messages.length)
+      console.log('=== LOADING MESSAGES ===')
+      console.log('Loading messages for booking:', bookingId)
       
-      // Always check both database and localStorage for messages
+      // First check localStorage immediately
       const storedMessages = localStorage.getItem(`chat_${bookingId}`)
-      const sharedMessages = localStorage.getItem(`shared_chat_${bookingId}`)
-      
-      console.log('📥 MESSAGES FROM DATABASE:', messages.length)
-      console.log('📥 MESSAGES FROM LOCALSTORAGE:', storedMessages ? JSON.parse(storedMessages).length : 0)
-      console.log('📥 MESSAGES FROM SHARED LOCALSTORAGE:', sharedMessages ? JSON.parse(sharedMessages).length : 0)
-      
-      // Combine all message sources
-      let allMessages = [...messages]
+      console.log('Stored messages from localStorage:', storedMessages)
       
       if (storedMessages) {
-        const parsedStored = JSON.parse(storedMessages)
-        allMessages = [...allMessages, ...parsedStored]
+        const parsedMessages = JSON.parse(storedMessages)
+        console.log('Parsed messages from localStorage:', parsedMessages)
+        
+        // Check for invoice messages and set invoice data
+        const invoiceMessage = parsedMessages.find((msg: any) => msg.has_invoice && msg.invoiceData)
+        if (invoiceMessage) {
+          setInvoiceData(invoiceMessage.invoiceData)
+        }
+        
+        setChatMessages(parsedMessages)
+        return // Use localStorage first for immediate display
       }
       
-      if (sharedMessages) {
-        const parsedShared = JSON.parse(sharedMessages)
-        allMessages = [...allMessages, ...parsedShared]
+      // Then try database
+      const messages = await chatService.getMessages(bookingId)
+      console.log('Messages from database:', messages)
+      
+      if (messages.length > 0) {
+        setChatMessages(messages)
+      } else {
+        console.log('No messages found in database or localStorage')
+        setChatMessages([])
       }
-      
-      // Remove duplicates based on message content and ID
-      const uniqueMessages = allMessages.filter((msg, index, self) => 
-        index === self.findIndex(m => 
-          m.id === msg.id || 
-          (m.message === msg.message && m.is_system_message === msg.is_system_message && m.sender_type === msg.sender_type)
-        )
-      )
-      
-      console.log('📊 TOTAL UNIQUE MESSAGES:', uniqueMessages.length)
-      console.log('📋 MESSAGE DETAILS:', uniqueMessages.map(m => ({
-        id: m.id,
-        sender_type: m.sender_type,
-        message: m.message.substring(0, 50) + '...',
-        has_invoice: m.has_invoice
-      })))
-      setChatMessages(uniqueMessages)
     } catch (error) {
       console.error("Error loading messages:", error)
-      // Fallback: check localStorage for messages
+      // Final fallback: check localStorage for messages
       const storedMessages = localStorage.getItem(`chat_${bookingId}`)
       console.log('Error fallback - stored messages:', storedMessages)
       if (storedMessages) {
         const parsedMessages = JSON.parse(storedMessages)
         console.log('Error fallback - parsed messages:', parsedMessages)
         setChatMessages(parsedMessages)
+      } else {
+        setChatMessages([])
       }
     }
   }
@@ -246,16 +238,27 @@ export default function ChatPage() {
         user.id
       )
       
-      // Add to local state immediately
-      setChatMessages(prev => [...prev, message])
+      // Clear input immediately to prevent double sending
+      const messageText = newMessage.trim()
+      setNewMessage("")
       
-      // Save to localStorage as fallback
-      const updatedMessages = [...chatMessages, message]
+      // Add to local state immediately
+      setChatMessages(prev => {
+        // Check if message already exists to prevent duplicates
+        const exists = prev.some(msg => msg.id === message.id)
+        if (exists) return prev
+        return [...prev, message]
+      })
+      
+      // Save to localStorage - the chatService already handles this, but we'll update it here too
+      const currentMessages = JSON.parse(localStorage.getItem(`chat_${bookingPayload.id}`) || '[]')
+      const updatedMessages = [...currentMessages, message]
       localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessages))
       
-      setNewMessage("")
     } catch (error) {
       console.error("Error sending message:", error)
+      // Restore message if sending failed
+      setNewMessage(messageText)
     } finally {
       setIsSending(false)
     }
@@ -263,6 +266,65 @@ export default function ChatPage() {
 
   const handleBackToBookings = () => {
     router.push('/')
+  }
+
+  const handleApprovePayment = async () => {
+    if (!bookingPayload || !invoiceData) return
+
+    try {
+      setIsSending(true)
+      
+      // Create payment approval message
+      const approvalMessage = {
+        id: `approval_${Date.now()}`,
+        booking_id: bookingPayload.id,
+        sender_type: 'client',
+        message: "✅ Payment approved! Please proceed with the service.",
+        created_at: new Date().toISOString()
+      }
+
+      // Create status update message for operator
+      const statusMessage = {
+        id: `status_${Date.now()}`,
+        booking_id: bookingPayload.id,
+        sender_type: 'system',
+        message: "🔄 Status updated: Payment approved → Ready for deployment",
+        created_at: new Date().toISOString()
+      }
+
+      // Add to local state immediately
+      setChatMessages(prev => [...prev, approvalMessage, statusMessage])
+      
+      // Save to localStorage
+      const updatedMessages = [...chatMessages, approvalMessage, statusMessage]
+      localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessages))
+      
+      // Update booking status to accepted and add payment approval flag
+      const storedBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+      const updatedBookings = storedBookings.map((booking: any) => 
+        booking.id === bookingPayload.id 
+          ? { 
+              ...booking, 
+              status: 'accepted',
+              payment_approved: true,
+              payment_approved_at: new Date().toISOString()
+            }
+          : booking
+      )
+      localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
+      
+      // Update local booking payload
+      setBookingPayload({ ...bookingPayload, status: 'accepted' })
+      setRequestStatus('Accepted')
+      
+      setShowInvoiceModal(false)
+      setInvoiceData(null)
+      
+    } catch (error) {
+      console.error("Error approving payment:", error)
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const formatTime = (timestamp: string) => {
@@ -278,7 +340,6 @@ export default function ChatPage() {
         <div className="text-center text-white">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <div className="text-sm">Loading chat...</div>
-          <div className="text-xs text-gray-400 mt-2">Check browser console for debug info</div>
         </div>
       </div>
     )
@@ -321,41 +382,14 @@ export default function ChatPage() {
               <p className="text-xs text-gray-400">#{bookingPayload?.id}</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                if (bookingPayload?.id) {
-                  console.log('🔄 MANUAL REFRESH triggered')
-                  loadMessages(bookingPayload.id)
-                  // Force immediate re-render
-                  setChatMessages(prev => [...prev])
-                }
-              }}
-              className="text-white hover:bg-white/10 p-1"
-            >
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <div
-              className={`px-2 py-1 rounded-full text-xs font-medium ${
-                requestStatus === "Pending Deployment"
-                  ? "bg-yellow-600 text-yellow-100"
-                  : requestStatus === "Confirmed"
-                  ? "bg-blue-600 text-blue-100"
-                  : requestStatus === "En Route"
-                  ? "bg-purple-600 text-purple-100"
-                  : requestStatus === "Arrived"
-                  ? "bg-orange-600 text-orange-100"
-                  : requestStatus === "In Service"
-                  ? "bg-indigo-600 text-indigo-100"
-                  : requestStatus === "Completed"
-                  ? "bg-green-600 text-green-100"
-                  : "bg-yellow-600 text-yellow-100"
-              }`}
-            >
-              {requestStatus}
-            </div>
+          <div
+            className={`px-2 py-1 rounded-full text-xs font-medium ${
+              requestStatus === "Pending Deployment"
+                ? "bg-yellow-600 text-yellow-100"
+                : "bg-green-600 text-green-100"
+            }`}
+          >
+            {requestStatus}
           </div>
         </div>
       </header>
@@ -375,28 +409,15 @@ export default function ChatPage() {
             >
               {msg.is_system_message ? (
                 <div className="space-y-3">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Shield className="h-5 w-5 text-blue-400" />
-                    <span className="font-bold text-lg text-blue-400">New Protection Request</span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Shield className="h-4 w-4 text-blue-400" />
+                    <span className="font-semibold text-sm">Protection Request</span>
                   </div>
                   
                   {/* Display the formatted booking summary message */}
-                  <div className="bg-gray-900 p-4 rounded-lg border border-gray-700">
-                    <div className="space-y-2">
-                      {msg.message.split('\n').map((line, index) => {
-                        if (line.includes('**') && line.includes(':')) {
-                          const [key, value] = line.split(':').map(s => s.replace(/\*\*/g, '').trim())
-                          if (key && value) {
-                            return (
-                              <div key={index} className="flex justify-between items-center py-1">
-                                <span className="text-gray-400 text-sm font-medium">{key}:</span>
-                                <span className="text-white text-sm text-right">{value}</span>
-                              </div>
-                            )
-                          }
-                        }
-                        return null
-                      })}
+                  <div className="bg-gray-900 p-3 rounded-lg">
+                    <div className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">
+                      {msg.message}
                     </div>
                   </div>
                   
@@ -407,44 +428,38 @@ export default function ChatPage() {
               ) : (
                 <div>
                   <div className="text-sm leading-relaxed">{msg.message}</div>
-                  {msg.has_invoice && msg.invoice_data && (
-                    <div className="mt-3 p-4 bg-blue-900/20 border border-blue-500/50 rounded-lg">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                        <span className="text-blue-300 text-sm font-medium">Invoice Details</span>
-                      </div>
-                      
-                      <div className="space-y-2 mb-4">
-                        <div className="flex justify-between items-center py-1">
-                          <span className="text-gray-300 text-sm">Base Price:</span>
-                          <span className="text-white text-sm font-medium">₦{msg.invoice_data.basePrice?.toLocaleString() || '0'}</span>
+                  {msg.has_invoice && msg.invoiceData && (
+                    <div className="mt-2 p-3 bg-gray-800 rounded-lg border border-gray-700">
+                      <div className="text-xs text-gray-400 mb-2 font-semibold">Invoice Details</div>
+                      <div className="space-y-1 text-xs">
+                        <div className="flex justify-between">
+                          <span>Base Price:</span>
+                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{msg.invoiceData.basePrice?.toLocaleString()}</span>
                         </div>
-                        <div className="flex justify-between items-center py-1">
-                          <span className="text-gray-300 text-sm">Hourly Rate ({msg.invoice_data.hours}h):</span>
-                          <span className="text-white text-sm font-medium">₦{msg.invoice_data.hourlyRate?.toLocaleString() || '0'}</span>
+                        <div className="flex justify-between">
+                          <span>Hourly Rate ({msg.invoiceData.duration}h):</span>
+                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{((msg.invoiceData.hourlyRate || 0) * (msg.invoiceData.duration || 0)).toLocaleString()}</span>
                         </div>
-                        <div className="flex justify-between items-center py-1">
-                          <span className="text-gray-300 text-sm">Vehicle Fee:</span>
-                          <span className="text-white text-sm font-medium">₦{msg.invoice_data.vehicleFee?.toLocaleString() || '0'}</span>
+                        <div className="flex justify-between">
+                          <span>Vehicle Fee:</span>
+                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{msg.invoiceData.vehicleFee?.toLocaleString()}</span>
                         </div>
-                        <div className="flex justify-between items-center py-1">
-                          <span className="text-gray-300 text-sm">Personnel Fee:</span>
-                          <span className="text-white text-sm font-medium">₦{msg.invoice_data.personnelFee?.toLocaleString() || '0'}</span>
+                        <div className="flex justify-between">
+                          <span>Personnel Fee:</span>
+                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{msg.invoiceData.personnelFee?.toLocaleString()}</span>
                         </div>
-                        <div className="border-t border-gray-600 pt-2 mt-2">
-                          <div className="flex justify-between items-center py-1">
-                            <span className="text-white text-sm font-bold">Total Amount:</span>
-                            <span className="text-white text-lg font-bold">₦{msg.invoice_data.totalAmount?.toLocaleString() || '0'}</span>
-                          </div>
+                        <div className="flex justify-between font-semibold border-t border-gray-600 pt-1 mt-2">
+                          <span>Total Amount:</span>
+                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{msg.invoiceData.totalAmount?.toLocaleString()}</span>
                         </div>
                       </div>
-                      
                       <Button
-                        onClick={() => handleOperatorAction("approve-payment")}
+                        onClick={handleApprovePayment}
                         size="sm"
-                        className="w-full bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2"
+                        className="mt-3 bg-green-600 hover:bg-green-700 text-white text-xs px-4 py-2 w-full"
+                        disabled={isSending}
                       >
-                        Approve & Pay
+                        {isSending ? 'Processing...' : 'Approve & Pay'}
                       </Button>
                     </div>
                   )}

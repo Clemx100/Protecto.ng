@@ -12,8 +12,6 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
-import { bookingService } from "@/lib/services/bookingService"
-import { chatService } from "@/lib/services/chatService"
 import { AdminAPI } from "@/lib/api"
 
 interface OperatorDashboardProps {
@@ -82,6 +80,21 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     setFilteredBookings(filtered)
   }, [bookings, searchQuery, statusFilter])
 
+  // Real-time refresh for operator dashboard
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      // Refresh bookings data
+      loadBookings()
+      
+      // Refresh messages if a booking is selected
+      if (selectedBooking) {
+        loadMessages(selectedBooking.id)
+      }
+    }, 3000) // Refresh every 3 seconds
+
+    return () => clearInterval(refreshInterval)
+  }, [selectedBooking])
+
   const initializeDashboard = async () => {
     try {
       setIsLoading(true)
@@ -96,15 +109,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
   const loadBookings = async () => {
     try {
-      console.log('Loading bookings from database and localStorage...')
-      
-      // Try to load from database first
-      const dbBookings = await bookingService.getBookings()
-      console.log('Database bookings:', dbBookings.length)
-      
       // Load bookings from localStorage (where new bookings are stored)
       const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-      console.log('LocalStorage bookings:', localBookings.length)
       
       // Mock data with detailed request information (fallback)
       const mockBookings = [
@@ -165,14 +171,19 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         }
       ]
       
-      // Combine all sources: database, localStorage, and mock data
-      const allBookings = [...dbBookings, ...localBookings, ...mockBookings.filter(mock => 
-        !localBookings.some(local => local.id === mock.id) &&
-        !dbBookings.some(db => db.id === mock.id)
+      // Combine local bookings with mock data, prioritizing local bookings
+      const allBookings = [...localBookings, ...mockBookings.filter(mock => 
+        !localBookings.some(local => local.id === mock.id)
       )]
       
-      console.log('Total bookings loaded:', allBookings.length)
       setBookings(allBookings)
+      
+      // Update payment approval status
+      const paymentStatus: { [bookingId: string]: boolean } = {}
+      allBookings.forEach(booking => {
+        paymentStatus[booking.id] = booking.payment_approved || false
+      })
+      setPaymentApproved(paymentStatus)
       
       // Auto-select first pending booking if none selected
       if (!selectedBooking && allBookings.length > 0) {
@@ -206,9 +217,11 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         const convertedMessages = dbMessages.map(msg => ({
           id: msg.id,
           booking_id: msg.booking_id,
-          sender_type: 'client', // Default to client
+          sender_type: msg.sender_type || 'client', // Use actual sender_type if available
+          sender_id: msg.sender_id,
           message: msg.content,
-          created_at: msg.created_at
+          created_at: msg.created_at,
+          is_system_message: msg.sender_type === 'system' || msg.is_system_message
         }))
         setMessages(convertedMessages)
       } else {
@@ -230,14 +243,21 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
     try {
       const message = {
-        id: messages.length + 1,
+        id: `operator_${Date.now()}`,
         booking_id: selectedBooking.id,
         sender_type: 'operator',
         message: newMessage,
         created_at: new Date().toISOString()
       }
 
-      setMessages([...messages, message])
+      // Add to local state
+      setMessages(prev => [...prev, message])
+      
+      // Store in localStorage for real-time updates
+      const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
+      const updatedMessages = [...currentStoredMessages, message]
+      localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedMessages))
+      
       setNewMessage("")
       scrollToBottom()
     } catch (error) {
@@ -298,14 +318,15 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     try {
       let message = ""
       let systemMessage = ""
+      let newStatus = selectedBooking.status
 
       switch (action) {
         case "confirm":
           message = "✅ Request confirmed! Your protection team is being assigned."
           systemMessage = "Booking confirmed by operator"
+          newStatus = "accepted"
           break
         case "invoice":
-        case "send_invoice":
           const invoice = calculateInvoice(selectedBooking, currency)
           setInvoiceData(invoice)
           setShowInvoiceModal(true)
@@ -316,99 +337,115 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             setError("Payment must be approved before deploying team")
             return
           }
-          message = "🚀 Protection team deployed! They are en route to your location."
+          message = "🚀 Protection team deployed! They are preparing for departure."
           systemMessage = "Protection team deployed"
-          // Update booking status to en_route
-          const updatedBookings = bookings.map(booking => 
-            booking.id === selectedBooking.id 
-              ? { ...booking, status: 'en_route' }
-              : booking
-          )
-          setBookings(updatedBookings)
-          setSelectedBooking({ ...selectedBooking, status: 'en_route' })
+          newStatus = "deployed"
+          break
+        case "en_route":
+          message = "🚗 Protection team is en route to your location."
+          systemMessage = "Protection team en route"
+          newStatus = "en_route"
           break
         case "arrived":
           message = "📍 Your protection team has arrived at the pickup location."
           systemMessage = "Protection team arrived"
+          newStatus = "arrived"
           break
         case "start_service":
           message = "🛡️ Protection service has begun. Your team is now active."
           systemMessage = "Protection service started"
+          newStatus = "in_service"
           break
         case "complete":
           message = "✅ Service completed successfully. Thank you for choosing Protector.Ng!"
           systemMessage = "Service completed"
+          newStatus = "completed"
           break
       }
 
-      // Send messages through chat service for real-time synchronization
-      if (systemMessage) {
-        console.log('📤 OPERATOR SENDING SYSTEM MESSAGE:', systemMessage)
-        const systemMsg = await chatService.sendMessage({
-          booking_id: selectedBooking.id,
-          sender_type: 'system',
-          sender_id: 'operator', // Use 'operator' as sender ID for system messages
-          message: systemMessage,
-          is_system_message: true
-        })
-        console.log('✅ System message sent successfully:', systemMsg)
-        setMessages(prev => [...prev, systemMsg])
-        
-        // Also store in shared localStorage for user chat fallback
-        const sharedKey = `shared_chat_${selectedBooking.id}`
-        const userKey = `chat_${selectedBooking.id}`
-        const existingShared = JSON.parse(localStorage.getItem(sharedKey) || '[]')
-        const existingUser = JSON.parse(localStorage.getItem(userKey) || '[]')
-        
-        const updatedShared = [...existingShared, systemMsg]
-        const updatedUser = [...existingUser, systemMsg]
-        
-        localStorage.setItem(sharedKey, JSON.stringify(updatedShared))
-        localStorage.setItem(userKey, JSON.stringify(updatedUser))
-        console.log('💾 System message stored in BOTH localStorage keys')
-      }
-
-      // Send operator message
-      if (message) {
-        console.log('📤 OPERATOR SENDING MESSAGE:', message)
-        const operatorMsg = await chatService.sendMessage({
-          booking_id: selectedBooking.id,
-          sender_type: 'operator',
-          sender_id: 'operator',
-          message: message,
-          is_system_message: false
-        })
-        console.log('✅ Operator message sent successfully:', operatorMsg)
-        setMessages(prev => [...prev, operatorMsg])
-        
-        // Also store in shared localStorage for user chat fallback
-        const sharedKey = `shared_chat_${selectedBooking.id}`
-        const userKey = `chat_${selectedBooking.id}`
-        const existingShared = JSON.parse(localStorage.getItem(sharedKey) || '[]')
-        const existingUser = JSON.parse(localStorage.getItem(userKey) || '[]')
-        
-        const updatedShared = [...existingShared, operatorMsg]
-        const updatedUser = [...existingUser, operatorMsg]
-        
-        localStorage.setItem(sharedKey, JSON.stringify(updatedShared))
-        localStorage.setItem(userKey, JSON.stringify(updatedUser))
-        console.log('💾 Operator message stored in BOTH localStorage keys')
-      }
-
-      // Update booking status in localStorage for user to see
-      if (action === 'confirm') {
+      // Update booking status
+      if (newStatus !== selectedBooking.status) {
         const updatedBookings = bookings.map(booking => 
           booking.id === selectedBooking.id 
-            ? { ...booking, status: 'confirmed' }
+            ? { ...booking, status: newStatus }
             : booking
         )
         setBookings(updatedBookings)
-        setSelectedBooking({ ...selectedBooking, status: 'confirmed' })
+        setSelectedBooking({ ...selectedBooking, status: newStatus })
         
         // Update localStorage
-        localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
-        console.log('Booking status updated to confirmed')
+        const updatedBookingsForStorage = updatedBookings.map(booking => 
+          booking.id === selectedBooking.id 
+            ? { ...booking, status: newStatus }
+            : booking
+        )
+        localStorage.setItem('operator_bookings', JSON.stringify(updatedBookingsForStorage))
       }
+
+      // Create status update message
+      const statusUpdateMessage = `Status updated to: ${newStatus}`
+      
+      // Add status update system message
+      const statusMsg = {
+        id: `status_${Date.now()}`,
+        booking_id: selectedBooking.id,
+        sender_type: 'system',
+        message: statusUpdateMessage,
+        created_at: new Date().toISOString(),
+        is_system_message: true
+      }
+
+      // Add action system message
+      if (systemMessage) {
+        const systemMsg = {
+          id: `system_${Date.now()}`,
+          booking_id: selectedBooking.id,
+          sender_type: 'system',
+          message: systemMessage,
+          created_at: new Date().toISOString(),
+          is_system_message: true
+        }
+        setMessages(prev => [...prev, systemMsg])
+      }
+
+      // Add client message
+      if (message) {
+        const clientMsg = {
+          id: `operator_${Date.now()}`,
+          booking_id: selectedBooking.id,
+          sender_type: 'operator',
+          message: message,
+          created_at: new Date().toISOString()
+        }
+        setMessages(prev => [...prev, clientMsg])
+      }
+
+      // Store messages in localStorage for real-time updates
+      // Get current messages from localStorage first, then add new ones
+      const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
+      const allMessages = [...currentStoredMessages, statusMsg]
+      
+      if (systemMessage) {
+        allMessages.push({
+          id: `system_${Date.now()}`,
+          booking_id: selectedBooking.id,
+          sender_type: 'system',
+          message: systemMessage,
+          created_at: new Date().toISOString(),
+          is_system_message: true
+        })
+      }
+      if (message) {
+        allMessages.push({
+          id: `operator_${Date.now()}`,
+          booking_id: selectedBooking.id,
+          sender_type: 'operator',
+          message: message,
+          created_at: new Date().toISOString()
+        })
+      }
+      
+      localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(allMessages))
 
       setSuccess(`Action completed: ${action}`)
       scrollToBottom()
@@ -417,66 +454,39 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     }
   }
 
-  const sendInvoice = async () => {
+  const sendInvoice = () => {
     if (!selectedBooking) return
 
-    try {
-      console.log('Sending invoice to user...')
-      
-      // Send system message
-      console.log('📤 OPERATOR SENDING INVOICE SYSTEM MESSAGE')
-      const systemMsg = await chatService.sendMessage({
-        booking_id: selectedBooking.id,
-        sender_type: 'system',
-        sender_id: 'operator',
-        message: "Invoice sent to client",
-        is_system_message: true
-      })
-      console.log('✅ Invoice system message sent:', systemMsg)
-      setMessages(prev => [...prev, systemMsg])
-      
-      // Store in shared localStorage
-      const sharedKey = `shared_chat_${selectedBooking.id}`
-      const userKey = `chat_${selectedBooking.id}`
-      const existingShared = JSON.parse(localStorage.getItem(sharedKey) || '[]')
-      const existingUser = JSON.parse(localStorage.getItem(userKey) || '[]')
-      
-      const updatedShared1 = [...existingShared, systemMsg]
-      const updatedUser1 = [...existingUser, systemMsg]
-      
-      localStorage.setItem(sharedKey, JSON.stringify(updatedShared1))
-      localStorage.setItem(userKey, JSON.stringify(updatedUser1))
-      console.log('💾 Invoice system message stored in BOTH localStorage keys')
-
-      // Send invoice message with invoice data
-      console.log('📤 OPERATOR SENDING INVOICE MESSAGE WITH DATA:', invoiceData)
-      const invoiceMsg = await chatService.sendMessage({
-        booking_id: selectedBooking.id,
-        sender_type: 'operator',
-        sender_id: 'operator',
-        message: `📄 Invoice sent. Please review and approve payment to proceed.`,
-        is_system_message: false,
-        has_invoice: true,
-        invoice_data: invoiceData
-      })
-      console.log('✅ Invoice message sent successfully:', invoiceMsg)
-      setMessages(prev => [...prev, invoiceMsg])
-      
-      // Store in shared localStorage
-      const updatedShared2 = [...updatedShared1, invoiceMsg]
-      const updatedUser2 = [...updatedUser1, invoiceMsg]
-      
-      localStorage.setItem(sharedKey, JSON.stringify(updatedShared2))
-      localStorage.setItem(userKey, JSON.stringify(updatedUser2))
-      console.log('💾 Invoice message stored in BOTH localStorage keys')
-
-      setShowInvoiceModal(false)
-      setSuccess("Invoice sent successfully!")
-      scrollToBottom()
-    } catch (error) {
-      console.error('Failed to send invoice:', error)
-      setError('Failed to send invoice')
+    const invoiceMessage = {
+      id: `invoice_${Date.now()}`,
+      booking_id: selectedBooking.id,
+      sender_type: 'operator',
+      message: `📄 Invoice sent. Please review and approve payment to proceed.`,
+      created_at: new Date().toISOString(),
+      has_invoice: true,
+      invoiceData: invoiceData
     }
+
+    const systemMessage = {
+      id: `system_${Date.now()}`,
+      booking_id: selectedBooking.id,
+      sender_type: 'system',
+      message: "Invoice sent to client",
+      created_at: new Date().toISOString(),
+      is_system_message: true
+    }
+
+    // Add to local state
+    setMessages(prev => [...prev, systemMessage, invoiceMessage])
+    
+    // Store in localStorage for real-time updates
+    const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
+    const allMessages = [...currentStoredMessages, systemMessage, invoiceMessage]
+    localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(allMessages))
+    
+    setShowInvoiceModal(false)
+    setSuccess("Invoice sent successfully!")
+    scrollToBottom()
   }
 
   const scrollToBottom = () => {
@@ -484,29 +494,51 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   }
 
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-500/20 text-yellow-300'
-      case 'accepted': return 'bg-blue-500/20 text-blue-300'
-      case 'en_route': return 'bg-purple-500/20 text-purple-300'
-      case 'arrived': return 'bg-green-500/20 text-green-300'
-      case 'in_service': return 'bg-green-500/20 text-green-300'
-      case 'completed': return 'bg-gray-500/20 text-gray-300'
-      case 'cancelled': return 'bg-red-500/20 text-red-300'
-      default: return 'bg-gray-500/20 text-gray-300'
+    // Normalize status to lowercase for comparison
+    const normalizedStatus = status.toLowerCase().replace(/\s+/g, '_')
+    
+    switch (normalizedStatus) {
+      case 'pending':
+      case 'pending_deployment':
+        return 'bg-yellow-500/20 text-yellow-300'
+      case 'accepted':
+      case 'confirmed':
+        return 'bg-blue-500/20 text-blue-300'
+      case 'en_route':
+        return 'bg-purple-500/20 text-purple-300'
+      case 'arrived':
+        return 'bg-green-500/20 text-green-300'
+      case 'in_service':
+        return 'bg-green-500/20 text-green-300'
+      case 'completed':
+        return 'bg-gray-500/20 text-gray-300'
+      case 'cancelled':
+        return 'bg-red-500/20 text-red-300'
+      default: 
+        return 'bg-yellow-500/20 text-yellow-300'
     }
   }
 
   const getStatusActions = (status: string, hasPaymentApproved: boolean = false) => {
-    switch (status) {
+    // Normalize status to lowercase for comparison
+    const normalizedStatus = status.toLowerCase().replace(/\s+/g, '_')
+    
+    switch (normalizedStatus) {
       case 'pending':
+      case 'pending_deployment':
         return [
           { action: 'confirm', label: 'Confirm', color: 'bg-green-600 hover:bg-green-700' },
           { action: 'invoice', label: 'Send Invoice', color: 'bg-blue-600 hover:bg-blue-700' }
         ]
       case 'accepted':
+      case 'confirmed':
         return [
           { action: 'invoice', label: 'Send Invoice', color: 'bg-blue-600 hover:bg-blue-700' },
           ...(hasPaymentApproved ? [{ action: 'deploy', label: 'Deploy Team', color: 'bg-purple-600 hover:bg-purple-700' }] : [])
+        ]
+      case 'deployed':
+        return [
+          { action: 'en_route', label: 'Mark En Route', color: 'bg-blue-600 hover:bg-blue-700' }
         ]
       case 'en_route':
         return [
@@ -521,7 +553,10 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           { action: 'complete', label: 'Complete Service', color: 'bg-gray-600 hover:bg-gray-700' }
         ]
       default:
-        return []
+        return [
+          { action: 'confirm', label: 'Confirm', color: 'bg-green-600 hover:bg-green-700' },
+          { action: 'invoice', label: 'Send Invoice', color: 'bg-blue-600 hover:bg-blue-700' }
+        ]
     }
   }
 
@@ -654,9 +689,31 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                       </div>
                     </div>
                     <div className="text-sm text-gray-300">
-                      <p>{booking.client?.first_name} {booking.client?.last_name}</p>
-                      <p className="text-xs">{booking.pickup_address}</p>
-                      <p className="text-xs">{new Date(booking.created_at).toLocaleString()}</p>
+                      <p>
+                        {(() => {
+                          const email = booking.contact?.user?.email
+                          const firstName = booking.client?.first_name
+                          const lastName = booking.client?.last_name
+                          
+                          if (email) return email
+                          if (firstName && lastName) return `${firstName} ${lastName}`
+                          if (firstName) return firstName
+                          return 'Client'
+                        })()}
+                      </p>
+                      <p className="text-xs">
+                        {booking.pickupDetails?.location || 
+                         booking.pickup_address || 
+                         'Location not specified'}
+                      </p>
+                      <p className="text-xs">
+                        {booking.timestamp ? 
+                          new Date(booking.timestamp).toLocaleString() :
+                          booking.created_at ? 
+                            new Date(booking.created_at).toLocaleString() :
+                            'Invalid Date'
+                        }
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -673,9 +730,22 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                   <div className="flex items-center justify-between">
                     <div>
                       <h3 className="text-lg font-semibold text-white">
-                        #{selectedBooking.id} - {selectedBooking.client?.first_name} {selectedBooking.client?.last_name}
+                        #{selectedBooking.id} - {(() => {
+                          const email = selectedBooking.contact?.user?.email
+                          const firstName = selectedBooking.client?.first_name
+                          const lastName = selectedBooking.client?.last_name
+                          
+                          if (email) return email
+                          if (firstName && lastName) return `${firstName} ${lastName}`
+                          if (firstName) return firstName
+                          return 'Client'
+                        })()}
                       </h3>
-                      <p className="text-sm text-gray-300">{selectedBooking.pickup_address}</p>
+                      <p className="text-sm text-gray-300">
+                        {selectedBooking.pickupDetails?.location || 
+                         selectedBooking.pickup_address || 
+                         'Location not specified'}
+                      </p>
                     </div>
                     <div className="flex items-center space-x-2">
                       <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedBooking.status)}`}>
@@ -692,38 +762,42 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                     <div className="flex justify-between">
                       <span className="text-gray-300">Service:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.service?.name || 
-                         (selectedBooking.serviceType === 'armed-protection' ? 'Armed Protection Service' : 
-                          selectedBooking.serviceType === 'car-only' ? 'Vehicle Only Service' : 
-                          'Armed Protection Service')}
+                        {selectedBooking.serviceType ? 
+                          selectedBooking.serviceType.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' Service' : 
+                          'Armed Protection Service'
+                        }
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Pickup:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.pickup_address || selectedBooking.pickupDetails?.location || 'N/A'}
+                        {selectedBooking.pickupDetails?.location || selectedBooking.pickup_address || 'N/A'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Date & Time:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.scheduled_date ? 
-                          `${new Date(selectedBooking.scheduled_date).toLocaleDateString()} at ${new Date(selectedBooking.scheduled_date).toLocaleTimeString()}` :
-                          selectedBooking.pickupDetails?.date && selectedBooking.pickupDetails?.time ?
+                        {selectedBooking.pickupDetails?.date && selectedBooking.pickupDetails?.time ? 
                           `${selectedBooking.pickupDetails.date} at ${selectedBooking.pickupDetails.time}` :
-                          'N/A at N/A'}
+                          selectedBooking.scheduled_date ? 
+                            `${new Date(selectedBooking.scheduled_date).toLocaleDateString()} at ${new Date(selectedBooking.scheduled_date).toLocaleTimeString()}` :
+                            'N/A'
+                        }
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Duration:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.duration || selectedBooking.pickupDetails?.duration || 'N/A'}
+                        {selectedBooking.pickupDetails?.duration || selectedBooking.duration || 'N/A'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Destination:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.destination_address || selectedBooking.destinationDetails?.primary || 'N/A'}
+                        {selectedBooking.destinationDetails?.primary || selectedBooking.destination_address || 'N/A'}
+                        {selectedBooking.destinationDetails?.additional && selectedBooking.destinationDetails.additional.length > 0 && 
+                          ` (${selectedBooking.destinationDetails.additional.join(', ')})`
+                        }
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -731,35 +805,57 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                       <span className="text-white font-medium">
                         {selectedBooking.personnel ? 
                           `${selectedBooking.personnel.protectors} protectors for ${selectedBooking.personnel.protectee} protectee` :
-                          selectedBooking.protector_count !== undefined && selectedBooking.protectee_count !== undefined ?
-                          `${selectedBooking.protector_count} protectors for ${selectedBooking.protectee_count} protectee` :
-                          'N/A'}
+                          'N/A'
+                        }
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Contact:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.client?.phone || selectedBooking.contact?.phone || 'N/A'}
+                        {selectedBooking.contact?.phone || selectedBooking.client?.phone || 'N/A'}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Vehicle Type:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.vehicle_type || 
-                         (selectedBooking.vehicles ? Object.entries(selectedBooking.vehicles).map(([vehicle, count]) => `${vehicle} (${count})`).join(', ') : null) ||
-                         'N/A'}
+                        {selectedBooking.vehicles ? 
+                          (() => {
+                            if (Array.isArray(selectedBooking.vehicles)) {
+                              return selectedBooking.vehicles.join(', ')
+                            } else if (typeof selectedBooking.vehicles === 'object') {
+                              // Handle object format: {vehicleId: count}
+                              return Object.entries(selectedBooking.vehicles)
+                                .filter(([_, count]) => count > 0)
+                                .map(([vehicleId, count]) => {
+                                  // Map vehicle IDs to readable names
+                                  const vehicleNames: { [key: string]: string } = {
+                                    'armoredSedan': 'Armored Sedan',
+                                    'suv': 'SUV',
+                                    'motorcycle': 'Motorcycle',
+                                    'van': 'Van'
+                                  }
+                                  const vehicleName = vehicleNames[vehicleId] || vehicleId
+                                  return count > 1 ? `${vehicleName} (${count})` : vehicleName
+                                })
+                                .join(', ')
+                            } else {
+                              return String(selectedBooking.vehicles)
+                            }
+                          })() :
+                          selectedBooking.vehicle_type || 'N/A'
+                        }
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-300">Dress Code:</span>
                       <span className="text-white font-medium capitalize">
-                        {selectedBooking.dress_code?.replace('-', ' ') || selectedBooking.personnel?.dressCode || 'N/A'}
+                        {selectedBooking.personnel?.dressCode || selectedBooking.dress_code?.replace('-', ' ') || 'N/A'}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-300">Special Requirements:</span>
+                      <span className="text-gray-300">Protection Level:</span>
                       <span className="text-white font-medium">
-                        {selectedBooking.special_requirements || selectedBooking.protectionType || 'N/A'}
+                        {selectedBooking.protectionType || 'N/A'}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -767,7 +863,12 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                       <span className="text-white font-medium">To be provided by operator</span>
                     </div>
                     <div className="text-xs text-gray-400 mt-4">
-                      Submitted: {new Date(selectedBooking.created_at || selectedBooking.timestamp).toLocaleString()}
+                      Submitted: {selectedBooking.timestamp ? 
+                        new Date(selectedBooking.timestamp).toLocaleString() :
+                        selectedBooking.created_at ? 
+                          new Date(selectedBooking.created_at).toLocaleString() :
+                          'N/A'
+                      }
                     </div>
                   </div>
                 </div>
@@ -775,19 +876,17 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                 {/* Operator Actions */}
                 <div className="p-6 border-b border-white/10">
                   <h4 className="text-sm font-medium text-white mb-3">Operator Actions</h4>
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={() => handleOperatorAction('confirm')}
-                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2"
-                    >
-                      Confirm
-                    </Button>
-                    <Button
-                      onClick={() => handleOperatorAction('send_invoice')}
-                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2"
-                    >
-                      Send Invoice
-                    </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {getStatusActions(selectedBooking.status, paymentApproved[selectedBooking.id]).map(({ action, label, color }) => (
+                      <Button
+                        key={action}
+                        onClick={() => handleOperatorAction(action)}
+                        className={`${color} text-white`}
+                        size="sm"
+                      >
+                        {label}
+                      </Button>
+                    ))}
                   </div>
                   
                   {/* Payment Status Indicator */}
