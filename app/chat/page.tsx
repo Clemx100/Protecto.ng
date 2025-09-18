@@ -231,15 +231,31 @@ export default function ChatPage() {
     try {
       setIsSending(true)
       
+      const messageText = newMessage.trim()
+      
+      // Check for duplicates before sending
+      const existingMessages = JSON.parse(localStorage.getItem(`chat_${bookingPayload.id}`) || '[]')
+      const isDuplicate = existingMessages.some((msg: any) => 
+        msg.message === messageText && 
+        msg.sender_type === 'client' && 
+        msg.sender_id === user.id &&
+        Math.abs(new Date(msg.created_at).getTime() - Date.now()) < 3000 // Within 3 seconds
+      )
+      
+      if (isDuplicate) {
+        console.log('Duplicate message detected, skipping')
+        setNewMessage("")
+        return
+      }
+      
       // Create client message
       const message = await chatService.createClientMessage(
         bookingPayload.id,
-        newMessage.trim(),
+        messageText,
         user.id
       )
       
       // Clear input immediately to prevent double sending
-      const messageText = newMessage.trim()
       setNewMessage("")
       
       // Add to local state immediately

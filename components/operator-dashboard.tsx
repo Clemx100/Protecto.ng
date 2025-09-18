@@ -446,6 +446,15 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       }
       
       localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(allMessages))
+      
+      // Also update the client-side booking status in localStorage
+      const clientBookings = JSON.parse(localStorage.getItem('user_bookings') || '[]')
+      const updatedClientBookings = clientBookings.map((booking: any) => 
+        booking.id === selectedBooking.id 
+          ? { ...booking, status: newStatus }
+          : booking
+      )
+      localStorage.setItem('user_bookings', JSON.stringify(updatedClientBookings))
 
       setSuccess(`Action completed: ${action}`)
       scrollToBottom()
@@ -532,10 +541,16 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         ]
       case 'accepted':
       case 'confirmed':
-        return [
-          { action: 'invoice', label: 'Send Invoice', color: 'bg-blue-600 hover:bg-blue-700' },
-          ...(hasPaymentApproved ? [{ action: 'deploy', label: 'Deploy Team', color: 'bg-purple-600 hover:bg-purple-700' }] : [])
-        ]
+        // Only show invoice if payment not approved, only show deploy if payment approved
+        if (hasPaymentApproved) {
+          return [
+            { action: 'deploy', label: 'Deploy Team', color: 'bg-purple-600 hover:bg-purple-700' }
+          ]
+        } else {
+          return [
+            { action: 'invoice', label: 'Send Invoice', color: 'bg-blue-600 hover:bg-blue-700' }
+          ]
+        }
       case 'deployed':
         return [
           { action: 'en_route', label: 'Mark En Route', color: 'bg-blue-600 hover:bg-blue-700' }
@@ -552,6 +567,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         return [
           { action: 'complete', label: 'Complete Service', color: 'bg-gray-600 hover:bg-gray-700' }
         ]
+      case 'completed':
+        return [] // No actions available for completed bookings
       default:
         return [
           { action: 'confirm', label: 'Confirm', color: 'bg-green-600 hover:bg-green-700' },
