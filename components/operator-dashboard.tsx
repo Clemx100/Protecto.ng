@@ -109,71 +109,60 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
   const loadBookings = async () => {
     try {
-      // Load bookings from localStorage (where new bookings are stored)
+      // First try to load from Supabase
+      const { data: dbBookings, error } = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          client:profiles!bookings_client_id_fkey(first_name, last_name, phone, email)
+        `)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Error loading bookings from Supabase:', error)
+        // Fallback to localStorage
+        const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+        setBookings(localBookings)
+        return
+      }
+
+      // Transform Supabase bookings to match expected format
+      const transformedBookings = (dbBookings || []).map(booking => ({
+        id: booking.id,
+        client: {
+          first_name: booking.client?.first_name || 'Unknown',
+          last_name: booking.client?.last_name || 'User',
+          phone: booking.client?.phone || 'N/A',
+          email: booking.client?.email || 'N/A'
+        },
+        pickup_address: booking.pickup_address || 'N/A',
+        destination_address: booking.destination_address || 'N/A',
+        status: booking.status || 'pending',
+        created_at: booking.created_at,
+        service: {
+          name: booking.service_type === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service',
+          type: booking.service_type
+        },
+        scheduled_date: booking.scheduled_date,
+        duration: `${booking.duration_hours || 1} hour(s)`,
+        total_price: booking.total_price || 0,
+        personnel: booking.booking_data?.personnel || { protectors: 0, protectee: 1 },
+        dress_code: booking.booking_data?.personnel?.dressCode || 'N/A',
+        vehicle_type: booking.booking_data?.vehicles ? Object.keys(booking.booking_data.vehicles).join(', ') : 'N/A',
+        special_requirements: 'N/A',
+        emergency_contact: booking.booking_data?.contact?.phone || 'N/A',
+        payment_approved: booking.payment_approved || false,
+        vehicles: booking.booking_data?.vehicles || {},
+        protectionType: booking.booking_data?.protectionType || 'N/A',
+        destinationDetails: booking.booking_data?.destinationDetails || {}
+      }))
+
+      // Also load from localStorage as fallback for any missing bookings
       const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
       
-      // Mock data with detailed request information (fallback)
-      const mockBookings = [
-        {
-          id: "REQ1757448303416",
-          client: { 
-            first_name: "John", 
-            last_name: "Doe",
-            phone: "+234 2222222222",
-            email: "john.doe@example.com"
-          },
-          pickup_address: "123 Victoria Island, Lagos",
-          destination_address: "456 Ikoyi, Lagos",
-          status: "pending",
-          created_at: new Date().toISOString(),
-          service: { 
-            name: "Armed Protection Service",
-            type: "armed_protection"
-          },
-          scheduled_date: "2025-02-22T11:45:00Z",
-          duration: "1 day",
-          total_price: 450000,
-          personnel: {
-            protectors: 1,
-            protectee: 1
-          },
-          dress_code: "tactical-casual",
-          vehicle_type: "Mercedes S-Class",
-          special_requirements: "High-risk area protection",
-          emergency_contact: "+234 3333333333"
-        },
-        {
-          id: "REQ1757448303417", 
-          client: { 
-            first_name: "Jane", 
-            last_name: "Smith",
-            phone: "+234 4444444444",
-            email: "jane.smith@example.com"
-          },
-          pickup_address: "789 Lekki Phase 1, Lagos",
-          destination_address: "321 Surulere, Lagos",
-          status: "accepted",
-          created_at: new Date().toISOString(),
-          service: { 
-            name: "Vehicle Only Service",
-            type: "vehicle_only"
-          },
-          scheduled_date: "2025-02-23T14:30:00Z",
-          duration: "2 hours",
-          total_price: 25000,
-          personnel: {
-            protectors: 0,
-            protectee: 2
-          },
-          dress_code: "business-casual",
-          vehicle_type: "BMW X7",
-          special_requirements: "Airport pickup"
-        }
-      ]
-      
-      // Combine local bookings with mock data, prioritizing local bookings
-      const allBookings = [...localBookings, ...mockBookings.filter(mock => 
-        !localBookings.some(local => local.id === mock.id)
+      // Combine Supabase bookings with localStorage bookings, prioritizing Supabase
+      const allBookings = [...transformedBookings, ...localBookings.filter(local => 
+        !transformedBookings.some(db => db.id === local.id)
       )]
       
       setBookings(allBookings)
@@ -195,6 +184,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       }
     } catch (error) {
       console.error('Failed to load bookings:', error)
+      // Final fallback to localStorage
+      const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+      setBookings(localBookings)
     }
   }
 
@@ -380,6 +372,25 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             : booking
         )
         localStorage.setItem('operator_bookings', JSON.stringify(updatedBookingsForStorage))
+        
+        // Update Supabase
+        try {
+          const { error } = await supabase
+            .from('bookings')
+            .update({ 
+              status: newStatus.toLowerCase().replace(/\s+/g, '_'),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', selectedBooking.id)
+          
+          if (error) {
+            console.error('Error updating booking status in Supabase:', error)
+          } else {
+            console.log('Booking status updated in Supabase')
+          }
+        } catch (error) {
+          console.error('Failed to update booking status in Supabase:', error)
+        }
       }
 
       // Create status update message

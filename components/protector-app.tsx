@@ -329,8 +329,19 @@ export default function ProtectorApp() {
       try {
         const { data: { user: currentUser } } = await supabase.auth.getUser()
         setUser(currentUser)
+        
+        // If no user is logged in, show login form
+        if (!currentUser) {
+          setShowLoginForm(true)
+          setIsLoggedIn(false)
+        } else {
+          setShowLoginForm(false)
+          setIsLoggedIn(true)
+        }
       } catch (error) {
         console.error('Error loading user:', error)
+        setShowLoginForm(true)
+        setIsLoggedIn(false)
       }
     }
     
@@ -343,6 +354,24 @@ export default function ProtectorApp() {
       loadBookings()
     }
   }, [user?.id])
+
+  // Listen for auth state changes
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('Auth state changed:', event, session?.user?.id)
+      setUser(session?.user || null)
+      
+      if (session?.user) {
+        setShowLoginForm(false)
+        setIsLoggedIn(true)
+      } else {
+        setShowLoginForm(true)
+        setIsLoggedIn(false)
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
 
   const [selectedCity, setSelectedCity] = useState("Lagos")
   
@@ -841,11 +870,52 @@ export default function ProtectorApp() {
     setBookingStep(1)
   }
 
+  const storeBookingInSupabase = async (payload: any) => {
+    try {
+      // Store booking in Supabase bookings table
+      const { data, error } = await supabase
+        .from('bookings')
+        .insert([{
+          id: payload.id,
+          client_id: user?.id || null,
+          service_type: payload.serviceType,
+          status: payload.status.toLowerCase().replace(/\s+/g, '_'),
+          pickup_address: payload.pickupDetails?.location || '',
+          pickup_coordinates: null, // Will be set later if needed
+          destination_address: payload.destinationDetails?.primary || '',
+          scheduled_date: payload.pickupDetails?.date || '',
+          scheduled_time: payload.pickupDetails?.time || '',
+          duration_hours: payload.pickupDetails?.duration ? parseInt(payload.pickupDetails.duration) : 1,
+          total_price: 0, // Will be calculated later
+          created_at: payload.timestamp,
+          updated_at: payload.timestamp,
+          // Store additional data in a JSON field
+          booking_data: {
+            protectionType: payload.protectionType,
+            personnel: payload.personnel,
+            vehicles: payload.vehicles,
+            contact: payload.contact,
+            destinationDetails: payload.destinationDetails
+          }
+        }])
+
+      if (error) {
+        console.error('Error storing booking in Supabase:', error)
+        throw error
+      }
+
+      console.log('Booking stored in Supabase:', data)
+    } catch (error) {
+      console.error('Failed to store booking in Supabase:', error)
+      throw error
+    }
+  }
+
   const createInitialBookingMessage = (payload: any) => {
     console.log('Creating initial booking message for payload:', payload.id)
     
-    // Create a fallback user ID
-    const userId = 'anonymous-user'
+    // Use real user ID if available, otherwise fallback
+    const userId = user?.id || 'anonymous-user'
     
     // Create a detailed booking summary message
     const bookingSummary = `🛡️ **New Protection Request Received** - #${payload.id}
@@ -905,6 +975,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     const updatedBookings = [payload, ...existingBookings]
     localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
     console.log('Booking stored for operator dashboard')
+
+    // Store booking in Supabase for cross-network visibility
+    storeBookingInSupabase(payload).catch(error => {
+      console.log('Failed to store booking in Supabase:', error)
+    })
 
     // Try to store in Supabase asynchronously
     chatService.createSystemMessage(payload.id, bookingSummary, userId).catch(error => {
