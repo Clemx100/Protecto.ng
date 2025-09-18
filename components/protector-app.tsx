@@ -358,12 +358,26 @@ export default function ProtectorApp() {
   // Listen for auth state changes
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('Auth state changed:', event, session?.user?.id)
+      console.log('Auth state changed:', event, session?.user?.id, 'Verified:', session?.user?.email_confirmed_at)
       setUser(session?.user || null)
       
       if (session?.user) {
-        setShowLoginForm(false)
-        setIsLoggedIn(true)
+        // Check if email is verified
+        if (session.user.email_confirmed_at) {
+          setShowLoginForm(false)
+          setIsLoggedIn(true)
+          // If we were on email verification step, move to profile
+          if (authStep === "email-verification") {
+            setAuthStep("profile")
+            setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
+          }
+        } else {
+          // User exists but email not verified
+          setVerificationEmail(session.user.email || "")
+          setAuthStep("email-verification")
+          setEmailVerificationSent(true)
+          setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
+        }
       } else {
         setShowLoginForm(true)
         setIsLoggedIn(false)
@@ -836,14 +850,24 @@ export default function ProtectorApp() {
         
         setUser(session.user)
         setIsLoggedIn(true)
+        setShowLoginForm(false)
         setAuthStep("profile")
         setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
-        await loadUserProfile(session.user.id)
+        
+        // Load user profile
+        try {
+          await loadUserProfile(session.user.id)
+        } catch (profileError) {
+          console.error('Error loading user profile:', profileError)
+        }
         
         // Show success animation
         setTimeout(() => {
           setAuthSuccess("")
         }, 5000)
+      } else {
+        console.log('Email not yet verified')
+        setAuthError('Email not yet verified. Please check your email and click the verification link.')
       }
     } catch (error) {
       console.error('Error checking verification status:', error)
@@ -1700,11 +1724,16 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 </div>
                 <div className="flex flex-col gap-3">
                   <button
-                    onClick={checkVerificationStatus}
+                    onClick={async () => {
+                      setAuthLoading(true)
+                      setAuthError("")
+                      await checkVerificationStatus()
+                      setAuthLoading(false)
+                    }}
                     className="text-xs text-blue-400 hover:text-blue-300 underline"
                     disabled={authLoading}
                   >
-                    Check verification status manually
+                    {authLoading ? "Checking..." : "Check verification status manually"}
                   </button>
                   
                   {/* Proceed to Continue Signing Up Option */}
@@ -1714,14 +1743,21 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                     </p>
                     <button
                       onClick={async () => {
-                        // Ensure user is set before proceeding
-                        const { data: { session } } = await supabase.auth.getSession()
-                        if (session?.user) {
-                          setUser(session.user)
-                          setAuthStep("profile-completion")
-                          setAuthSuccess("You can complete your profile now. Email verification can be done later.")
-                        } else {
-                          setAuthError("Please log in first to complete your profile.")
+                        try {
+                          // Ensure user is set before proceeding
+                          const { data: { session } } = await supabase.auth.getSession()
+                          if (session?.user) {
+                            setUser(session.user)
+                            setIsLoggedIn(true)
+                            setShowLoginForm(false)
+                            setAuthStep("profile-completion")
+                            setAuthSuccess("You can complete your profile now. Email verification can be done later.")
+                          } else {
+                            setAuthError("Please log in first to complete your profile.")
+                          }
+                        } catch (error) {
+                          console.error('Error proceeding to profile completion:', error)
+                          setAuthError("Failed to proceed. Please try again.")
                         }
                       }}
                       className="w-full bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors duration-200"
