@@ -53,6 +53,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Helper function to check if user is operator
+CREATE OR REPLACE FUNCTION is_operator()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN get_user_role() = 'operator';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 -- PROFILES TABLE POLICIES
 -- Users can view their own profile
 CREATE POLICY "Users can view own profile" ON profiles
@@ -139,6 +147,14 @@ CREATE POLICY "Agents can update assigned booking status" ON bookings
 CREATE POLICY "Admins can manage all bookings" ON bookings
     FOR ALL USING (is_admin());
 
+-- Operators can view all bookings (for operator dashboard)
+CREATE POLICY "Operators can view all bookings" ON bookings
+    FOR SELECT USING (is_operator() OR is_admin());
+
+-- Operators can update booking status
+CREATE POLICY "Operators can update booking status" ON bookings
+    FOR UPDATE USING (is_operator() OR is_admin());
+
 -- BOOKING_VEHICLES TABLE POLICIES
 -- Users can view booking vehicles for their bookings
 CREATE POLICY "Users can view booking vehicles" ON booking_vehicles
@@ -215,6 +231,14 @@ CREATE POLICY "Users can send booking messages" ON messages
 -- Users can update their own messages (mark as read)
 CREATE POLICY "Users can update own messages" ON messages
     FOR UPDATE USING (auth.uid() = recipient_id);
+
+-- Operators can view all messages
+CREATE POLICY "Operators can view all messages" ON messages
+    FOR SELECT USING (is_operator() OR is_admin());
+
+-- Operators can send messages
+CREATE POLICY "Operators can send messages" ON messages
+    FOR INSERT WITH CHECK (is_operator() OR is_admin());
 
 -- LOCATION_TRACKING TABLE POLICIES
 -- Agents can view location tracking for their bookings

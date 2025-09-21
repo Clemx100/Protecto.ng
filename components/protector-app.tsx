@@ -896,46 +896,106 @@ export default function ProtectorApp() {
 
   const storeBookingInSupabase = async (payload: any) => {
     try {
+      console.log('🔍 storeBookingInSupabase called with payload:', payload)
+      console.log('🔍 User ID:', user?.id)
+      
+      if (!user?.id) {
+        throw new Error('User not authenticated')
+      }
+
+      // First, ensure we have a service record
+      let serviceId = null
+      const serviceType = payload.serviceType === 'armed-protection' ? 'armed_protection' : 'unarmed_protection'
+      
+      // Check if service exists, if not create it
+      console.log('🔍 Checking for service type:', serviceType)
+      const { data: existingService, error: serviceCheckError } = await supabase
+        .from('services')
+        .select('id')
+        .eq('type', serviceType)
+        .single()
+
+      console.log('🔍 Service check result:', { existingService, serviceCheckError })
+
+      if (existingService) {
+        serviceId = existingService.id
+        console.log('🔍 Using existing service ID:', serviceId)
+      } else {
+        // Create service if it doesn't exist
+        const { data: newService, error: serviceError } = await supabase
+          .from('services')
+          .insert([{
+            name: payload.serviceType === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service',
+            type: serviceType,
+            description: payload.serviceType === 'armed-protection' ? 'Professional armed security protection' : 'Vehicle transportation service',
+            base_price: payload.serviceType === 'armed-protection' ? 100000 : 50000,
+            price_per_hour: payload.serviceType === 'armed-protection' ? 25000 : 15000,
+            minimum_duration: 4,
+            is_active: true
+          }])
+          .select()
+          .single()
+
+        if (serviceError) {
+          console.error('❌ Error creating service:', serviceError)
+          throw serviceError
+        }
+        serviceId = newService.id
+        console.log('🔍 Created new service with ID:', serviceId)
+      }
+
+      // Parse duration to get hours
+      const durationText = payload.pickupDetails?.duration || '1 day'
+      const durationHours = durationText.includes('day') ? 24 : 
+                           durationText.includes('hour') ? parseInt(durationText) : 4
+
       // Store booking in Supabase bookings table
+      console.log('🔍 Inserting booking with serviceId:', serviceId)
       const { data, error } = await supabase
         .from('bookings')
         .insert([{
-          id: payload.id,
-          client_id: user?.id || null,
-          service_type: payload.serviceType,
-          status: payload.status.toLowerCase().replace(/\s+/g, '_'),
+          booking_code: payload.id,
+          client_id: user.id,
+          service_id: serviceId,
+          service_type: serviceType,
+          protector_count: payload.personnel?.protectors || 1,
+          protectee_count: payload.personnel?.protectee || 1,
+          dress_code: payload.personnel?.dressCode?.toLowerCase().replace(/\s+/g, '_') || 'tactical_casual',
+          duration_hours: durationHours,
           pickup_address: payload.pickupDetails?.location || '',
           pickup_coordinates: null, // Will be set later if needed
           destination_address: payload.destinationDetails?.primary || '',
-          scheduled_date: payload.pickupDetails?.date || '',
-          scheduled_time: payload.pickupDetails?.time || '',
-          duration_hours: payload.pickupDetails?.duration ? parseInt(payload.pickupDetails.duration) : 1,
-          total_price: 0, // Will be calculated later
-          created_at: payload.timestamp,
-          updated_at: payload.timestamp,
-          // Store additional data in a JSON field
-          booking_data: {
-            protectionType: payload.protectionType,
-            personnel: payload.personnel,
+          destination_coordinates: null, // Will be set later if needed
+          scheduled_date: payload.pickupDetails?.date || new Date().toISOString().split('T')[0],
+          scheduled_time: payload.pickupDetails?.time || '12:00:00',
+          base_price: 0, // Will be calculated by operator
+          total_price: 0, // Will be calculated by operator
+          special_instructions: JSON.stringify({
             vehicles: payload.vehicles,
-            contact: payload.contact,
-            destinationDetails: payload.destinationDetails
-          }
+            protectionType: payload.protectionType,
+            destinationDetails: payload.destinationDetails,
+            contact: payload.contact
+          }),
+          emergency_contact: payload.contact?.phone || '',
+          emergency_phone: payload.contact?.phone || '',
+          status: 'pending'
         }])
+        .select()
 
       if (error) {
-        console.error('Error storing booking in Supabase:', error)
+        console.error('❌ Error storing booking in Supabase:', error)
         throw error
       }
 
-      console.log('Booking stored in Supabase:', data)
+      console.log('✅ Booking stored in Supabase successfully:', data)
+      return data
     } catch (error) {
       console.error('Failed to store booking in Supabase:', error)
       throw error
     }
   }
 
-  const createInitialBookingMessage = (payload: any) => {
+  const createInitialBookingMessage = async (payload: any) => {
     console.log('Creating initial booking message for payload:', payload.id)
     
     // Use real user ID if available, otherwise fallback
@@ -988,27 +1048,42 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       is_system_message: true
     }
 
-    // Store in localStorage immediately
-    const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
-    const updatedMessages = [...existingMessages, systemMessage]
-    localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
-    console.log('System message stored in localStorage:', systemMessage.id)
+    try {
+      // PRIMARY: Store booking in Supabase first
+      console.log('🚀 Starting booking storage process...')
+      await storeBookingInSupabase(payload)
+      console.log('✅ Booking stored in Supabase successfully')
 
-    // Also save the booking to localStorage for operator dashboard
-    const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-    const updatedBookings = [payload, ...existingBookings]
-    localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
-    console.log('Booking stored for operator dashboard')
+      // Store system message in Supabase
+      await chatService.createSystemMessage(payload.id, bookingSummary, userId)
+      console.log('System message stored in Supabase successfully')
 
-    // Store booking in Supabase for cross-network visibility
-    storeBookingInSupabase(payload).catch(error => {
-      console.log('Failed to store booking in Supabase:', error)
-    })
+      // FALLBACK: Store in localStorage as backup
+      const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
+      const updatedMessages = [...existingMessages, systemMessage]
+      localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
+      console.log('System message stored in localStorage as backup')
 
-    // Try to store in Supabase asynchronously
-    chatService.createSystemMessage(payload.id, bookingSummary, userId).catch(error => {
-      console.log('Failed to store in Supabase, but localStorage is updated:', error)
-    })
+      // Store booking in localStorage for operator dashboard fallback
+      const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+      const updatedBookings = [payload, ...existingBookings]
+      localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
+      console.log('Booking stored in localStorage as backup')
+
+    } catch (error) {
+      console.error('❌ Failed to store in Supabase, falling back to localStorage:', error)
+      
+      // FALLBACK: Store in localStorage if Supabase fails
+      const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
+      const updatedMessages = [...existingMessages, systemMessage]
+      localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
+      console.log('System message stored in localStorage (fallback)')
+
+      const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+      const updatedBookings = [payload, ...existingBookings]
+      localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
+      console.log('Booking stored in localStorage (fallback)')
+    }
 
     return systemMessage
   }
@@ -1054,10 +1129,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         setBookingPayload(payload)
 
         // Create initial system message with booking summary
-        createInitialBookingMessage(payload)
-
-        // Navigate to chat page
-        handleChatNavigation(payload)
+        createInitialBookingMessage(payload).then(() => {
+          // Navigate to chat page after storing
+          handleChatNavigation(payload)
+        }).catch(error => {
+          console.error('Failed to create initial booking message:', error)
+          // Still navigate even if storage fails
+          handleChatNavigation(payload)
+        })
         return
       }
     } else if (selectedService === "car-only") {
@@ -1091,10 +1170,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         setBookingPayload(payload)
 
         // Create initial system message with booking summary
-        createInitialBookingMessage(payload)
-
-        // Navigate to chat page
-        handleChatNavigation(payload)
+        createInitialBookingMessage(payload).then(() => {
+          // Navigate to chat page after storing
+          handleChatNavigation(payload)
+        }).catch(error => {
+          console.error('Failed to create initial booking message:', error)
+          // Still navigate even if storage fails
+          handleChatNavigation(payload)
+        })
         return
       }
     }

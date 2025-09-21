@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "postgis";
 
 -- Create custom types
-CREATE TYPE user_role AS ENUM ('client', 'agent', 'admin');
+CREATE TYPE user_role AS ENUM ('client', 'agent', 'operator', 'admin');
 CREATE TYPE booking_status AS ENUM ('pending', 'accepted', 'en_route', 'arrived', 'in_service', 'completed', 'cancelled');
 CREATE TYPE service_type AS ENUM ('armed_protection', 'unarmed_protection', 'armored_vehicle', 'convoy', 'event_security');
 CREATE TYPE vehicle_type AS ENUM ('sedan', 'suv', 'van', 'motorcade');

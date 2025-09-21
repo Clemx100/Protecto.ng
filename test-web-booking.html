@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Booking Creation</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <h1>Test Booking Creation</h1>
+    <div id="status">Loading...</div>
+    <div id="results"></div>
+
+    <script>
+        // Initialize Supabase
+        const supabaseUrl = 'https://mjdbhusnplveeaveeovd.supabase.co'
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDU5NTMsImV4cCI6MjA3MzUyMTk1M30.Jhsz_eRvmotyGgRzszwfKF8czxSnNE92q1SBupR9DB4'
+        
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey)
+        
+        async function testBookingFlow() {
+            const statusDiv = document.getElementById('status')
+            const resultsDiv = document.getElementById('results')
+            
+            try {
+                statusDiv.textContent = 'Testing booking creation...'
+                
+                // Test 1: Check if we can access services
+                const { data: services, error: servicesError } = await supabase
+                    .from('services')
+                    .select('*')
+                    .limit(1)
+                
+                if (servicesError) {
+                    resultsDiv.innerHTML += `<p>❌ Services error: ${servicesError.message}</p>`
+                    return
+                }
+                
+                resultsDiv.innerHTML += `<p>✅ Services accessible: ${services.length} found</p>`
+                
+                // Test 2: Check if we can access bookings
+                const { data: bookings, error: bookingsError } = await supabase
+                    .from('bookings')
+                    .select('*')
+                    .limit(1)
+                
+                if (bookingsError) {
+                    resultsDiv.innerHTML += `<p>❌ Bookings error: ${bookingsError.message}</p>`
+                    return
+                }
+                
+                resultsDiv.innerHTML += `<p>✅ Bookings accessible: ${bookings.length} found</p>`
+                
+                // Test 3: Try to create a simple booking (without coordinates first)
+                const testBooking = {
+                    booking_code: `WEB_TEST_${Date.now()}`,
+                    client_id: '00000000-0000-0000-0000-000000000000',
+                    service_id: services[0].id,
+                    service_type: 'armed_protection',
+                    protector_count: 1,
+                    protectee_count: 1,
+                    dress_code: 'tactical_casual',
+                    duration_hours: 4,
+                    pickup_address: 'Test Location',
+                    pickup_coordinates: null, // Try without coordinates first
+                    destination_address: 'Test Destination',
+                    destination_coordinates: null,
+                    scheduled_date: new Date().toISOString().split('T')[0],
+                    scheduled_time: '12:00:00',
+                    base_price: 100000,
+                    total_price: 100000,
+                    special_instructions: 'Test booking from web',
+                    emergency_contact: 'Test Contact',
+                    emergency_phone: '1234567890',
+                    status: 'pending'
+                }
+                
+                const { data: newBooking, error: bookingError } = await supabase
+                    .from('bookings')
+                    .insert([testBooking])
+                    .select()
+                
+                if (bookingError) {
+                    resultsDiv.innerHTML += `<p>❌ Booking creation error: ${bookingError.message}</p>`
+                    resultsDiv.innerHTML += `<p>Error details: ${JSON.stringify(bookingError, null, 2)}</p>`
+                } else {
+                    resultsDiv.innerHTML += `<p>✅ Booking created successfully!</p>`
+                    resultsDiv.innerHTML += `<p>Booking ID: ${newBooking[0].id}</p>`
+                    resultsDiv.innerHTML += `<p>Booking Code: ${newBooking[0].booking_code}</p>`
+                    
+                    // Clean up
+                    await supabase
+                        .from('bookings')
+                        .delete()
+                        .eq('id', newBooking[0].id)
+                    
+                    resultsDiv.innerHTML += `<p>✅ Test booking cleaned up</p>`
+                }
+                
+                statusDiv.textContent = 'Test completed!'
+                
+            } catch (error) {
+                statusDiv.textContent = 'Test failed!'
+                resultsDiv.innerHTML += `<p>❌ Unexpected error: ${error.message}</p>`
+            }
+        }
+        
+        // Run the test when page loads
+        testBookingFlow()
+    </script>
+</body>
+</html>

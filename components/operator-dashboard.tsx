@@ -82,17 +82,57 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
   // Real-time refresh for operator dashboard
   useEffect(() => {
+    // Set up real-time subscription for bookings
+    const bookingsChannel = supabase
+      .channel('operator-bookings')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'bookings'
+        },
+        (payload) => {
+          console.log('Real-time booking update:', payload)
+          // Refresh bookings when any booking changes
+          loadBookings()
+        }
+      )
+      .subscribe()
+
+    // Set up real-time subscription for messages
+    const messagesChannel = supabase
+      .channel('operator-messages')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages'
+        },
+        (payload) => {
+          console.log('Real-time message update:', payload)
+          // Refresh messages if a booking is selected
+          if (selectedBooking) {
+            loadMessages(selectedBooking.id)
+          }
+        }
+      )
+      .subscribe()
+
+    // Fallback: Refresh every 10 seconds as backup
     const refreshInterval = setInterval(() => {
-      // Refresh bookings data
       loadBookings()
-      
-      // Refresh messages if a booking is selected
       if (selectedBooking) {
         loadMessages(selectedBooking.id)
       }
-    }, 3000) // Refresh every 3 seconds
+    }, 10000)
 
-    return () => clearInterval(refreshInterval)
+    return () => {
+      clearInterval(refreshInterval)
+      supabase.removeChannel(bookingsChannel)
+      supabase.removeChannel(messagesChannel)
+    }
   }, [selectedBooking])
 
   const initializeDashboard = async () => {
@@ -109,151 +149,250 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
   const loadBookings = async () => {
     try {
-      // First try to load from Supabase
-      const { data: dbBookings, error } = await supabase
-        .from('bookings')
-        .select(`
-          *,
-          client:profiles!bookings_client_id_fkey(first_name, last_name, phone, email)
-        `)
-        .order('created_at', { ascending: false })
+      // Use the new API endpoint
+      const response = await fetch('/api/operator/bookings', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
 
-      if (error) {
-        console.error('Error loading bookings from Supabase:', error)
-        // Fallback to localStorage
-        const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-        setBookings(localBookings)
-        return
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      // Transform Supabase bookings to match expected format
-      const transformedBookings = (dbBookings || []).map(booking => ({
-        id: booking.id,
-        client: {
-          first_name: booking.client?.first_name || 'Unknown',
-          last_name: booking.client?.last_name || 'User',
-          phone: booking.client?.phone || 'N/A',
-          email: booking.client?.email || 'N/A'
-        },
-        pickup_address: booking.pickup_address || 'N/A',
-        destination_address: booking.destination_address || 'N/A',
-        status: booking.status || 'pending',
-        created_at: booking.created_at,
-        service: {
-          name: booking.service_type === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service',
-          type: booking.service_type
-        },
-        scheduled_date: booking.scheduled_date,
-        duration: `${booking.duration_hours || 1} hour(s)`,
-        total_price: booking.total_price || 0,
-        personnel: booking.booking_data?.personnel || { protectors: 0, protectee: 1 },
-        dress_code: booking.booking_data?.personnel?.dressCode || 'N/A',
-        vehicle_type: booking.booking_data?.vehicles ? Object.keys(booking.booking_data.vehicles).join(', ') : 'N/A',
-        special_requirements: 'N/A',
-        emergency_contact: booking.booking_data?.contact?.phone || 'N/A',
-        payment_approved: booking.payment_approved || false,
-        vehicles: booking.booking_data?.vehicles || {},
-        protectionType: booking.booking_data?.protectionType || 'N/A',
-        destinationDetails: booking.booking_data?.destinationDetails || {}
-      }))
-
-      // Also load from localStorage as fallback for any missing bookings
-      const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+      const result = await response.json()
       
-      // Combine Supabase bookings with localStorage bookings, prioritizing Supabase
-      const allBookings = [...transformedBookings, ...localBookings.filter(local => 
-        !transformedBookings.some(db => db.id === local.id)
-      )]
+      console.log('API response:', result)
       
-      setBookings(allBookings)
-      
-      // Update payment approval status
-      const paymentStatus: { [bookingId: string]: boolean } = {}
-      allBookings.forEach(booking => {
-        paymentStatus[booking.id] = booking.payment_approved || false
-      })
-      setPaymentApproved(paymentStatus)
-      
-      // Auto-select first pending booking if none selected
-      if (!selectedBooking && allBookings.length > 0) {
-        const pendingBooking = allBookings.find(b => b.status === 'pending')
-        if (pendingBooking) {
-          setSelectedBooking(pendingBooking)
-          loadMessages(pendingBooking.id)
+      if (result.success) {
+        const transformedBookings = result.data.map((booking: any) => ({
+          ...booking,
+          // Add additional fields for compatibility
+          payment_approved: booking.payment_approved || false,
+          vehicles: booking.vehicles || {},
+          protectionType: booking.protectionType || 'N/A',
+          destinationDetails: booking.destinationDetails || {},
+          personnel: booking.personnel || { protectors: 0, protectee: 1 },
+          dress_code: booking.dress_code || 'N/A',
+          vehicle_type: booking.vehicle_type || 'N/A',
+          special_requirements: booking.special_requirements || 'N/A'
+        }))
+        
+        setBookings(transformedBookings)
+        
+        // Update payment approval status
+        const paymentStatus: { [bookingId: string]: boolean } = {}
+        transformedBookings.forEach((booking: any) => {
+          paymentStatus[booking.id] = booking.payment_approved || false
+        })
+        setPaymentApproved(paymentStatus)
+        
+        // Auto-select first pending booking if none selected
+        if (!selectedBooking && transformedBookings.length > 0) {
+          const pendingBooking = transformedBookings.find((b: any) => b.status === 'pending')
+          if (pendingBooking) {
+            setSelectedBooking(pendingBooking)
+            loadMessages(pendingBooking.id)
+          }
         }
+      } else {
+        throw new Error(result.error || 'Failed to load bookings')
       }
     } catch (error) {
-      console.error('Failed to load bookings:', error)
-      // Final fallback to localStorage
-      const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-      setBookings(localBookings)
+      console.error('Failed to load bookings from API:', error)
+      
+      // Fallback to direct Supabase query
+      try {
+        const { data: dbBookings, error } = await supabase
+          .from('bookings')
+          .select(`
+            *,
+            client:profiles!bookings_client_id_fkey(first_name, last_name, phone, email)
+          `)
+          .order('created_at', { ascending: false })
+
+        if (error) {
+          throw error
+        }
+
+        // Transform Supabase bookings to match expected format
+        const transformedBookings = (dbBookings || []).map(booking => ({
+          id: booking.id,
+          booking_code: booking.booking_code,
+          client: {
+            first_name: booking.client?.first_name || 'Unknown',
+            last_name: booking.client?.last_name || 'User',
+            phone: booking.client?.phone || 'N/A',
+            email: booking.client?.email || 'N/A'
+          },
+          pickup_address: booking.pickup_address || 'N/A',
+          destination_address: booking.destination_address || 'N/A',
+          status: booking.status || 'pending',
+          created_at: booking.created_at,
+          service: {
+            name: booking.service_type === 'armed_protection' ? 'Armed Protection Service' : 'Vehicle Only Service',
+            type: booking.service_type
+          },
+          scheduled_date: booking.scheduled_date,
+          duration: `${booking.duration_hours || 1} hour(s)`,
+          total_price: booking.total_price || 0,
+          personnel: booking.personnel || { protectors: 0, protectee: 1 },
+          dress_code: booking.dress_code || 'N/A',
+          vehicle_type: 'N/A',
+          special_requirements: 'N/A',
+          emergency_contact: booking.emergency_contact || 'N/A',
+          payment_approved: false,
+          vehicles: {},
+          protectionType: 'N/A',
+          destinationDetails: {}
+        }))
+
+        setBookings(transformedBookings)
+      } catch (fallbackError) {
+        console.error('Fallback Supabase query failed:', fallbackError)
+        // Final fallback to localStorage
+        const localBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+        setBookings(localBookings)
+      }
     }
   }
 
   const loadMessages = async (bookingId: string) => {
     try {
-      // First try to load from database
-      const { data: dbMessages, error } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('booking_id', bookingId)
-        .order('created_at', { ascending: true })
+      // Find the database ID for this booking
+      const booking = bookings.find(b => b.id === bookingId)
+      const actualBookingId = booking?.database_id || bookingId
+      
+      // Use the new API endpoint
+      const response = await fetch(`/api/operator/messages?bookingId=${actualBookingId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
 
-      if (error) {
-        console.error('Error loading messages from database:', error)
-        // Fallback to localStorage
-        const localMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
-        setMessages(localMessages)
-      } else if (dbMessages && dbMessages.length > 0) {
-        // Convert messages table format to expected format
-        const convertedMessages = dbMessages.map(msg => ({
-          id: msg.id,
-          booking_id: msg.booking_id,
-          sender_type: msg.sender_type || 'client', // Use actual sender_type if available
-          sender_id: msg.sender_id,
-          message: msg.content,
-          created_at: msg.created_at,
-          is_system_message: msg.sender_type === 'system' || msg.is_system_message
-        }))
-        setMessages(convertedMessages)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+      
+      if (result.success) {
+        setMessages(result.data)
       } else {
-        // If no messages in database, check localStorage
+        throw new Error(result.error || 'Failed to load messages')
+      }
+    } catch (error) {
+      console.error('Failed to load messages from API:', error)
+      
+      // Fallback to direct Supabase query
+      try {
+        const { data: dbMessages, error } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('booking_id', actualBookingId)
+          .order('created_at', { ascending: true })
+
+        if (error) {
+          throw error
+        }
+
+        if (dbMessages && dbMessages.length > 0) {
+          // Convert messages table format to expected format
+          const convertedMessages = dbMessages.map(msg => ({
+            id: msg.id,
+            booking_id: msg.booking_id,
+            sender_type: msg.sender_type || 'client',
+            sender_id: msg.sender_id,
+            message: msg.content,
+            created_at: msg.created_at,
+            is_system_message: msg.sender_type === 'system' || msg.is_system_message
+          }))
+          setMessages(convertedMessages)
+        } else {
+          // If no messages in database, check localStorage
+          const localMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+          setMessages(localMessages)
+        }
+      } catch (fallbackError) {
+        console.error('Fallback Supabase query failed:', fallbackError)
+        // Final fallback to localStorage
         const localMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
         setMessages(localMessages)
       }
-      
-      scrollToBottom()
-    } catch (error) {
-      console.error('Failed to load messages:', error)
-      // Final fallback to empty array
-      setMessages([])
     }
+    
+    scrollToBottom()
   }
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !selectedBooking) return
 
     try {
-      const message = {
-        id: `operator_${Date.now()}`,
-        booking_id: selectedBooking.id,
-        sender_type: 'operator',
-        message: newMessage,
-        created_at: new Date().toISOString()
+      // Use the API to send message
+      const response = await fetch('/api/operator/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bookingId: selectedBooking.database_id || selectedBooking.id,
+          content: newMessage,
+          messageType: 'text'
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
-      // Add to local state
-      setMessages(prev => [...prev, message])
+      const result = await response.json()
       
-      // Store in localStorage for real-time updates
-      const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
-      const updatedMessages = [...currentStoredMessages, message]
-      localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedMessages))
-      
-      setNewMessage("")
-      scrollToBottom()
+      if (result.success) {
+        // Add to local state
+        const message = {
+          id: result.data.id,
+          booking_id: selectedBooking.id,
+          sender_type: 'operator',
+          sender_id: result.data.sender_id,
+          message: newMessage,
+          created_at: result.data.created_at
+        }
+        
+        setMessages(prev => [...prev, message])
+        setNewMessage("")
+        scrollToBottom()
+      } else {
+        throw new Error(result.error || 'Failed to send message')
+      }
     } catch (error) {
-      setError('Failed to send message')
+      console.error('Failed to send message via API:', error)
+      
+      // Fallback to localStorage
+      try {
+        const message = {
+          id: `operator_${Date.now()}`,
+          booking_id: selectedBooking.id,
+          sender_type: 'operator',
+          message: newMessage,
+          created_at: new Date().toISOString()
+        }
+
+        // Add to local state
+        setMessages(prev => [...prev, message])
+        
+        // Store in localStorage for real-time updates
+        const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
+        const updatedMessages = [...currentStoredMessages, message]
+        localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedMessages))
+        
+        setNewMessage("")
+        scrollToBottom()
+      } catch (fallbackError) {
+        console.error('Fallback message sending failed:', fallbackError)
+        setError('Failed to send message')
+      }
     }
   }
 
@@ -381,7 +520,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
               status: newStatus.toLowerCase().replace(/\s+/g, '_'),
               updated_at: new Date().toISOString()
             })
-            .eq('id', selectedBooking.id)
+            .eq('id', selectedBooking.database_id || selectedBooking.id)
           
           if (error) {
             console.error('Error updating booking status in Supabase:', error)
