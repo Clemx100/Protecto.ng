@@ -963,9 +963,9 @@ export default function ProtectorApp() {
           dress_code: payload.personnel?.dressCode?.toLowerCase().replace(/\s+/g, '_') || 'tactical_casual',
           duration_hours: durationHours,
           pickup_address: payload.pickupDetails?.location || '',
-          pickup_coordinates: null, // Will be set later if needed
+          pickup_coordinates: '(0,0)', // Default coordinates - will be updated later
           destination_address: payload.destinationDetails?.primary || '',
-          destination_coordinates: null, // Will be set later if needed
+          destination_coordinates: '(0,0)', // Default coordinates - will be updated later
           scheduled_date: payload.pickupDetails?.date || new Date().toISOString().split('T')[0],
           scheduled_time: payload.pickupDetails?.time || '12:00:00',
           base_price: 0, // Will be calculated by operator
@@ -1097,6 +1097,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       else if (bookingStep === 5) setBookingStep(6)
       else if (bookingStep === 6) setBookingStep(8)
       else if (bookingStep === 8) {
+        // Check if user is authenticated before creating booking
+        if (!user?.id) {
+          setAuthError('Please log in to create a booking')
+          setShowLoginForm(true)
+          return
+        }
+        
         // Compile booking summary payload
         const payload = {
           id: `REQ${Date.now()}`,
@@ -1144,6 +1151,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       else if (bookingStep === 4) setBookingStep(5)
       else if (bookingStep === 5) setBookingStep(7)
       else if (bookingStep === 7) {
+        // Check if user is authenticated before creating booking
+        if (!user?.id) {
+          setAuthError('Please log in to create a booking')
+          setShowLoginForm(true)
+          return
+        }
+        
         // Compile booking summary payload for car-only service
         const payload = {
           id: `REQ${Date.now()}`,
@@ -2457,6 +2471,19 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         {/* Booking Flow */}
         {activeTab === "booking" && (
           <div className="p-4 space-y-6">
+            {/* Login Prompt for Unauthenticated Users */}
+            {!user?.id && (
+              <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-lg p-4 mb-6">
+                <div className="flex items-center space-x-3">
+                  <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
+                  <div>
+                    <p className="text-yellow-200 font-medium">Login Required</p>
+                    <p className="text-yellow-300 text-sm">Please log in to create a booking. Your session will be saved.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Step 1: Location and Time */}
             {bookingStep === 1 && (
               <div className="space-y-6">
