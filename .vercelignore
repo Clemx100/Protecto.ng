@@ -1,0 +1,16 @@
+# Vercel ignore file
+node_modules
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.next
+.git
+*.log
+test-*.js
+test-*.html
+scripts/
+*.md
+!README.md
+!DEPLOYMENT_STATUS.md
+!MOBILE_TESTING_GUIDE.md

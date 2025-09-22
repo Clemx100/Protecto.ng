@@ -27,3 +27,4 @@ UNION ALL
 SELECT 'Locations:', count(*) FROM locations
 UNION ALL
 SELECT 'Profiles:', count(*) FROM profiles;
+

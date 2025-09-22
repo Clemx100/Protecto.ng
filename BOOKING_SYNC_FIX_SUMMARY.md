@@ -136,3 +136,4 @@ If bookings still don't appear:
 5. **Check RLS policies** ensure they allow proper access
 
 The booking synchronization issue should now be resolved, and all new bookings will properly appear on the operator dashboard.
+
