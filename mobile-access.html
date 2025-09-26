@@ -88,12 +88,12 @@
             <h3>Access URLs:</h3>
             <div class="url">
                 <strong>Client App:</strong><br>
-                <span id="client-url">http://192.168.1.142:3000/app</span>
+                <span id="client-url">http://192.168.1.143:3000/app</span>
                 <button class="copy-btn" onclick="copyToClipboard('client-url')">Copy</button>
             </div>
             <div class="url">
                 <strong>Operator Dashboard:</strong><br>
-                <span id="operator-url">http://192.168.1.142:3000/operator</span>
+                <span id="operator-url">http://192.168.1.143:3000/operator</span>
                 <button class="copy-btn" onclick="copyToClipboard('operator-url')">Copy</button>
             </div>
         </div>
@@ -121,7 +121,7 @@
 
     <script>
         // Generate QR code for client app
-        const clientUrl = 'http://192.168.1.142:3000/app';
+        const clientUrl = 'http://192.168.1.143:3000/app';
         QRCode.toCanvas(document.getElementById('qrcode'), clientUrl, {
             width: 200,
             height: 200,

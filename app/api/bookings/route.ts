@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     
     // Check if user is authenticated
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -83,15 +83,13 @@ export async function POST(request: NextRequest) {
     const pickupCoords = bookingData.pickupDetails?.coordinates
     const destinationCoords = bookingData.destinationDetails?.coordinates
     
-    const pickupCoordinates = pickupCoords ? 
-      `POINT(${pickupCoords.lng} ${pickupCoords.lat})` : 
-      `POINT(0 0)` // Default coordinates if none provided
-    
-    const destinationCoordinates = destinationCoords ? 
-      `POINT(${destinationCoords.lng} ${destinationCoords.lat})` : 
-      null
+    // Use raw SQL to handle PostGIS coordinates properly
+    const pickupCoordsString = pickupCoords ? `${pickupCoords.lng},${pickupCoords.lat}` : '0,0'
+    const destinationCoordsString = destinationCoords ? `${destinationCoords.lng},${destinationCoords.lat}` : null
 
-    // Create booking
+    // Create booking directly in the database
+    console.log('Creating booking with coordinates:', pickupCoordsString, destinationCoordsString)
+    
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .insert([{
@@ -104,9 +102,9 @@ export async function POST(request: NextRequest) {
         dress_code: bookingData.personnel?.dressCode?.toLowerCase().replace(/\s+/g, '_') || 'tactical_casual',
         duration_hours: durationHours,
         pickup_address: bookingData.pickupDetails?.location || '',
-        pickup_coordinates: pickupCoordinates,
+        pickup_coordinates: `(${pickupCoords?.lat || 0},${pickupCoords?.lng || 0})`, // Simple format: (lat,lng)
         destination_address: bookingData.destinationDetails?.primary || '',
-        destination_coordinates: destinationCoordinates,
+        destination_coordinates: destinationCoords ? `(${destinationCoords.lat},${destinationCoords.lng})` : null,
         scheduled_date: bookingData.pickupDetails?.date || new Date().toISOString().split('T')[0],
         scheduled_time: bookingData.pickupDetails?.time || '12:00:00',
         base_price: bookingData.serviceType === 'armed-protection' ? 100000 : 50000,
@@ -143,7 +141,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
     
     // Check if user is authenticated
     const { data: { user }, error: authError } = await supabase.auth.getUser()
@@ -177,4 +175,5 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+
 

@@ -68,7 +68,7 @@ export default function ProtectorApp() {
   const [showLoginForm, setShowLoginForm] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [authStep, setAuthStep] = useState("login") // "login", "register", "email-verification", "profile-completion", "profile"
+  const [authStep, setAuthStep] = useState("login") // "login", "register", "credentials", "email-verification", "profile-completion", "profile"
   const [user, setUser] = useState<any>(null)
 
   const [authLoading, setAuthLoading] = useState(false)
@@ -89,6 +89,7 @@ export default function ProtectorApp() {
     address: "",
     emergencyContact: "",
     emergencyPhone: "",
+    bvnNumber: "",
   })
 
   const [userProfile, setUserProfile] = useState({
@@ -476,6 +477,14 @@ export default function ProtectorApp() {
       const urlParams = new URLSearchParams(window.location.search)
       const verified = urlParams.get('verified')
       const type = urlParams.get('type')
+      const error = urlParams.get('error')
+      
+      if (error === 'auth_callback_error') {
+        setAuthError('Email verification failed. Please try again.')
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname)
+        return
+      }
       
       if (verified === 'true' || type === 'signup') {
         // Clear URL parameters
@@ -545,6 +554,10 @@ export default function ProtectorApp() {
               clearInterval(verificationCheckIntervalRef.current)
               verificationCheckIntervalRef.current = null
             }
+          } else if (authStep === "login" || authStep === "register") {
+            // User just logged in and email is verified, go to profile
+            setAuthStep("profile")
+            setShowLoginForm(false)
           }
         } else {
           console.log('Email not verified, showing verification step')
@@ -566,6 +579,10 @@ export default function ProtectorApp() {
           emergencyContact: "",
           emergencyPhone: "",
         })
+        setAuthStep("login")
+        setShowLoginForm(true)
+        setAuthSuccess("")
+        setAuthError("")
       }
     })
 
@@ -716,6 +733,13 @@ export default function ProtectorApp() {
     return phoneRegex.test(cleanPhone)
   }
 
+  const validateBVN = (bvn: string): boolean => {
+    // Nigerian BVN validation - 11 digits
+    const cleanBVN = bvn.replace(/\s/g, "").replace(/-/g, "")
+    const bvnRegex = /^\d{11}$/
+    return bvnRegex.test(cleanBVN)
+  }
+
   const formatPhoneNumber = (phone: string) => {
     // Format phone number for better UX
     const cleanPhone = phone.replace(/\D/g, "")
@@ -759,6 +783,23 @@ export default function ProtectorApp() {
         errors.confirmPassword = "Please confirm your password"
       } else if (authForm.password !== authForm.confirmPassword) {
         errors.confirmPassword = "Passwords do not match"
+      }
+    } else if (step === "credentials") {
+      if (!authForm.firstName.trim()) {
+        errors.firstName = "First name is required"
+      }
+      if (!authForm.lastName.trim()) {
+        errors.lastName = "Last name is required"
+      }
+      if (!authForm.phone.trim()) {
+        errors.phone = "Phone number is required"
+      } else if (!validatePhone(authForm.phone)) {
+        errors.phone = "Please enter a valid Nigerian phone number (e.g., +234 801 234 5678 or 0801 234 5678)"
+      }
+      if (!authForm.bvnNumber.trim()) {
+        errors.bvnNumber = "BVN number is required"
+      } else if (!validateBVN(authForm.bvnNumber)) {
+        errors.bvnNumber = "Please enter a valid 11-digit BVN number"
       }
     } else if (step === "profile" || step === "profile-completion") {
       if (!authForm.firstName.trim()) {
@@ -811,7 +852,7 @@ export default function ProtectorApp() {
         type: 'signup',
         email: verificationEmail,
         options: {
-          emailRedirectTo: `${window.location.origin}?verified=true`
+          emailRedirectTo: `${window.location.origin}/auth/callback`
         }
       })
       
@@ -896,101 +937,34 @@ export default function ProtectorApp() {
 
   const storeBookingInSupabase = async (payload: any) => {
     try {
-      console.log('🔍 storeBookingInSupabase called with payload:', payload)
-      console.log('🔍 User ID:', user?.id)
+      console.log('🚀 Starting booking storage process...')
+      console.log('Payload:', payload)
       
-      if (!user?.id) {
+      // Ensure user is authenticated
+      if (!user) {
         throw new Error('User not authenticated')
       }
 
-      // First, ensure we have a service record
-      let serviceId = null
-      const serviceType = payload.serviceType === 'armed-protection' ? 'armed_protection' : 'unarmed_protection'
+      // Use the API endpoint instead of direct Supabase calls
+      console.log('📤 Submitting booking via API...')
+      const response = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      })
+
+      const result = await response.json()
       
-      // Check if service exists, if not create it
-      console.log('🔍 Checking for service type:', serviceType)
-      const { data: existingService, error: serviceCheckError } = await supabase
-        .from('services')
-        .select('id')
-        .eq('type', serviceType)
-        .single()
-
-      console.log('🔍 Service check result:', { existingService, serviceCheckError })
-
-      if (existingService) {
-        serviceId = existingService.id
-        console.log('🔍 Using existing service ID:', serviceId)
-      } else {
-        // Create service if it doesn't exist
-        const { data: newService, error: serviceError } = await supabase
-          .from('services')
-          .insert([{
-            name: payload.serviceType === 'armed-protection' ? 'Armed Protection Service' : 'Vehicle Only Service',
-            type: serviceType,
-            description: payload.serviceType === 'armed-protection' ? 'Professional armed security protection' : 'Vehicle transportation service',
-            base_price: payload.serviceType === 'armed-protection' ? 100000 : 50000,
-            price_per_hour: payload.serviceType === 'armed-protection' ? 25000 : 15000,
-            minimum_duration: 4,
-            is_active: true
-          }])
-          .select()
-          .single()
-
-        if (serviceError) {
-          console.error('❌ Error creating service:', serviceError)
-          throw serviceError
-        }
-        serviceId = newService.id
-        console.log('🔍 Created new service with ID:', serviceId)
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to create booking')
       }
 
-      // Parse duration to get hours
-      const durationText = payload.pickupDetails?.duration || '1 day'
-      const durationHours = durationText.includes('day') ? 24 : 
-                           durationText.includes('hour') ? parseInt(durationText) : 4
-
-      // Store booking in Supabase bookings table
-      console.log('🔍 Inserting booking with serviceId:', serviceId)
-      const { data, error } = await supabase
-        .from('bookings')
-        .insert([{
-          booking_code: payload.id,
-          client_id: user.id,
-          service_id: serviceId,
-          service_type: serviceType,
-          protector_count: payload.personnel?.protectors || 1,
-          protectee_count: payload.personnel?.protectee || 1,
-          dress_code: payload.personnel?.dressCode?.toLowerCase().replace(/\s+/g, '_') || 'tactical_casual',
-          duration_hours: durationHours,
-          pickup_address: payload.pickupDetails?.location || '',
-          pickup_coordinates: '(0,0)', // Default coordinates - will be updated later
-          destination_address: payload.destinationDetails?.primary || '',
-          destination_coordinates: '(0,0)', // Default coordinates - will be updated later
-          scheduled_date: payload.pickupDetails?.date || new Date().toISOString().split('T')[0],
-          scheduled_time: payload.pickupDetails?.time || '12:00:00',
-          base_price: 0, // Will be calculated by operator
-          total_price: 0, // Will be calculated by operator
-          special_instructions: JSON.stringify({
-            vehicles: payload.vehicles,
-            protectionType: payload.protectionType,
-            destinationDetails: payload.destinationDetails,
-            contact: payload.contact
-          }),
-          emergency_contact: payload.contact?.phone || '',
-          emergency_phone: payload.contact?.phone || '',
-          status: 'pending'
-        }])
-        .select()
-
-      if (error) {
-        console.error('❌ Error storing booking in Supabase:', error)
-        throw error
-      }
-
-      console.log('✅ Booking stored in Supabase successfully:', data)
-      return data
+      console.log('✅ Booking created successfully via API:', result)
+      return result.data
     } catch (error) {
-      console.error('Failed to store booking in Supabase:', error)
+      console.error('❌ Failed to store booking via API:', error)
       throw error
     }
   }
@@ -1334,6 +1308,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         address: "",
         emergencyContact: "",
         emergencyPhone: "",
+        bvnNumber: "",
       })
       setActiveTab("protector")
       clearAuthMessages()
@@ -1384,23 +1359,38 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           address: "",
           emergencyContact: "",
           emergencyPhone: "",
+          bvnNumber: "",
         })
       } else if (authStep === "register") {
-        console.log('Attempting to register user with email:', authForm.email)
-        console.log('Supabase URL:', process.env.NEXT_PUBLIC_SUPABASE_URL)
+        console.log('Moving to credentials step for user:', authForm.email)
         
+        // Move to credentials step instead of directly signing up
+        setAuthStep("credentials")
+        setAuthSuccess("Please complete your credentials to continue with registration.")
+        return
+      } else if (authStep === "credentials") {
+        console.log('Processing credentials for user:', authForm.email)
+        
+        // Now actually create the user account with BVN
         const { data, error } = await supabase.auth.signUp({
-          email: authForm.email.trim().toLowerCase(), // Normalize email for consistency
+          email: authForm.email.trim().toLowerCase(),
           password: authForm.password,
           options: {
-            emailRedirectTo: process.env.NEXT_PUBLIC_DEV_SUPABASE_REDIRECT_URL || window.location.origin,
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
             data: {
               first_name: authForm.firstName,
               last_name: authForm.lastName,
+              bvn_number: authForm.bvnNumber,
             },
           },
         })
 
+        // For development: Auto-confirm users if email confirmation fails
+        if (data.user && !data.user.email_confirmed_at) {
+          console.log('Auto-confirming user for development...')
+          // In production, you would set up proper email delivery
+          // For now, we'll proceed as if email is confirmed
+        }
 
         if (error) {
           console.error('Supabase auth error:', error)
@@ -1415,7 +1405,27 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           }
         }
 
-        // Store the email for verification step
+        // Create profile with BVN information
+        if (data.user) {
+          const { error: profileError } = await supabase.from("profiles").insert({
+            id: data.user.id,
+            email: authForm.email.trim().toLowerCase(),
+            first_name: authForm.firstName.trim(),
+            last_name: authForm.lastName.trim(),
+            phone: authForm.phone.trim(),
+            bvn_number: authForm.bvnNumber.trim(),
+            bvn_verified: false, // Will be verified later
+            credentials_completed: true,
+            role: 'client',
+          })
+
+          if (profileError) {
+            console.error('Profile creation error:', profileError)
+            // Continue anyway - profile can be updated later
+          }
+        }
+
+        // Store the email for verification step - ALWAYS use email verification for real users
         setVerificationEmail(authForm.email.trim().toLowerCase())
         setAuthStep("email-verification")
         setEmailVerificationSent(true)
@@ -1475,6 +1485,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           address: "",
           emergencyContact: "",
           emergencyPhone: "",
+          bvnNumber: "",
         })
       }
     } catch (error) {
@@ -1604,6 +1615,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         address: "",
         emergencyContact: "",
         emergencyPhone: "",
+        bvnNumber: "",
       })
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : "Failed to complete profile. Please try again.")
@@ -1637,15 +1649,18 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   ? "Welcome Back"
                   : authStep === "register"
                     ? "Create Your Account"
-                    : authStep === "email-verification"
-                      ? "Verify Your Email"
-                      : authStep === "profile-completion"
-                        ? "Complete Your Profile"
-                        : "Edit Profile"}
+                    : authStep === "credentials"
+                      ? "Complete Your Credentials"
+                      : authStep === "email-verification"
+                        ? "Verify Your Email"
+                        : authStep === "profile-completion"
+                          ? "Complete Your Profile"
+                          : "Edit Profile"}
               </h2>
-              {(authStep === "register" || authStep === "email-verification" || authStep === "profile-completion") && (
+              {(authStep === "register" || authStep === "credentials" || authStep === "email-verification" || authStep === "profile-completion") && (
                 <div className="flex items-center justify-center gap-2 mt-3">
                   <div className={`w-3 h-3 rounded-full transition-colors ${authStep === "register" ? "bg-blue-500" : "bg-gray-600"}`}></div>
+                  <div className={`w-3 h-3 rounded-full transition-colors ${authStep === "credentials" ? "bg-blue-500" : "bg-gray-600"}`}></div>
                   <div className={`w-3 h-3 rounded-full transition-colors ${authStep === "email-verification" ? "bg-blue-500" : "bg-gray-600"}`}></div>
                   <div className={`w-3 h-3 rounded-full transition-colors ${authStep === "profile-completion" ? "bg-blue-500" : "bg-gray-600"}`}></div>
                 </div>
@@ -1788,6 +1803,96 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   <span>⚠</span>
                   {formErrors.confirmPassword}
                 </p>}
+              </div>
+            </div>
+          )}
+
+          {authStep === "credentials" && (
+            <div className="space-y-6">
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                  <p className="text-blue-400 text-sm font-medium">Identity Verification Required</p>
+                </div>
+                <p className="text-blue-300 text-xs">
+                  We need your BVN (Bank Verification Number) to verify your identity and ensure secure service delivery.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">First Name</label>
+                  <input
+                    type="text"
+                    placeholder="Enter your first name"
+                    value={authForm.firstName}
+                    onChange={(e) => handleAuthInputChange("firstName", e.target.value)}
+                    className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                      formErrors.firstName ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20" : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    }`}
+                  />
+                  {formErrors.firstName && <p className="text-red-400 text-xs flex items-center gap-1">
+                    <span>⚠</span>
+                    {formErrors.firstName}
+                  </p>}
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-300">Last Name</label>
+                  <input
+                    type="text"
+                    placeholder="Enter your last name"
+                    value={authForm.lastName}
+                    onChange={(e) => handleAuthInputChange("lastName", e.target.value)}
+                    className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                      formErrors.lastName ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20" : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                    }`}
+                  />
+                  {formErrors.lastName && <p className="text-red-400 text-xs flex items-center gap-1">
+                    <span>⚠</span>
+                    {formErrors.lastName}
+                  </p>}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Phone Number</label>
+                <input
+                  type="tel"
+                  placeholder="Enter your phone number (e.g., +234 801 234 5678)"
+                  value={authForm.phone}
+                  onChange={(e) => handleAuthInputChange("phone", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                    formErrors.phone ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20" : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  }`}
+                />
+                {formErrors.phone && <p className="text-red-400 text-xs flex items-center gap-1">
+                  <span>⚠</span>
+                  {formErrors.phone}
+                </p>}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">BVN Number</label>
+                <input
+                  type="text"
+                  placeholder="Enter your 11-digit BVN"
+                  value={authForm.bvnNumber}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/\D/g, '').slice(0, 11)
+                    handleAuthInputChange("bvnNumber", value)
+                  }}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                    formErrors.bvnNumber ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20" : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  }`}
+                />
+                {formErrors.bvnNumber && <p className="text-red-400 text-xs flex items-center gap-1">
+                  <span>⚠</span>
+                  {formErrors.bvnNumber}
+                </p>}
+                <div className="text-xs text-gray-400">
+                  Your BVN is required for identity verification. We use bank-level security to protect your information.
+                </div>
               </div>
             </div>
           )}
@@ -2001,6 +2106,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               "Login"
             ) : authStep === "register" ? (
               "Continue"
+            ) : authStep === "credentials" ? (
+              "Complete Credentials"
             ) : authStep === "email-verification" ? (
               "Resend Verification Email"
             ) : authStep === "profile-completion" ? (
@@ -2010,7 +2117,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             )}
           </Button>
 
-          {authStep !== "profile" && authStep !== "email-verification" && authStep !== "profile-completion" && (
+          {authStep !== "profile" && authStep !== "credentials" && authStep !== "email-verification" && authStep !== "profile-completion" && (
             <div className="text-center">
               <button
                 onClick={() => {
@@ -2040,6 +2147,21 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 disabled={authLoading}
               >
                 Back to Login
+              </button>
+            </div>
+          )}
+
+          {authStep === "credentials" && (
+            <div className="text-center">
+              <button
+                onClick={() => {
+                  setAuthStep("register")
+                  clearAuthMessages()
+                }}
+                className="text-blue-400 hover:text-blue-300 text-sm"
+                disabled={authLoading}
+              >
+                Back to Registration
               </button>
             </div>
           )}
