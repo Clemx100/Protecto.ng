@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete UI Flow Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .test-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.pending { background: #fff3cd; color: #856404; }
+        .status.accepted { background: #d4edda; color: #155724; }
+        .status.rejected { background: #f8d7da; color: #721c24; }
+        .booking-item {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Complete UI Flow Test</h1>
+    <p>This page tests the complete end-to-end flow: <strong>Request → Chat → Action Buttons → Status Updates</strong></p>
+
+    <div class="test-section">
+        <h2>📱 Step 1: Mobile App (Client Side)</h2>
+        <p>Create a booking from the mobile app:</p>
+        <iframe src="http://192.168.1.142:3000/app" title="Mobile App"></iframe>
+        <div id="mobile-result" class="result info">
+            <strong>Instructions:</strong> Use the mobile app above to create a new booking. The booking will appear in the operator dashboard below.
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>🔧 Step 2: Operator Dashboard</h2>
+        <p>View and manage bookings from the operator dashboard:</p>
+        <iframe src="http://192.168.1.142:3000/operator" title="Operator Dashboard"></iframe>
+        <div id="operator-result" class="result info">
+            <strong>Instructions:</strong> Use the operator dashboard above to view new bookings, send messages, and update status.
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>🧪 Step 3: API Testing</h2>
+        <p>Test the APIs directly to verify functionality:</p>
+        
+        <button class="test-button" onclick="testBookingCreation()">📱 Test Booking Creation</button>
+        <button class="test-button" onclick="testOperatorBookings()">🔍 Test Operator Bookings</button>
+        <button class="test-button" onclick="testStatusUpdate()">🔄 Test Status Update</button>
+        <button class="test-button" onclick="testChatMessage()">💬 Test Chat Message</button>
+        <button class="test-button" onclick="runCompleteTest()">🚀 Run Complete Test</button>
+        
+        <div id="api-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>📊 Step 4: Real-time Monitoring</h2>
+        <p>Monitor real-time updates:</p>
+        <button class="test-button" onclick="startMonitoring()">👁️ Start Monitoring</button>
+        <button class="test-button" onclick="stopMonitoring()">⏹️ Stop Monitoring</button>
+        <div id="monitoring-results"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://192.168.1.142:3000/api';
+        let monitoringInterval = null;
+        let testBookingId = null;
+
+        function logResult(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<strong>[${new Date().toLocaleTimeString()}]</strong> ${message}`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearResults(containerId) {
+            document.getElementById(containerId).innerHTML = '';
+        }
+
+        async function testBookingCreation() {
+            logResult('api-results', '📱 Testing booking creation...', 'info');
+            
+            const bookingData = {
+                id: `UI_TEST_${Date.now()}`,
+                serviceType: 'armed-protection',
+                protectionType: 'armed',
+                pickupDetails: {
+                    location: 'UI Test Location, Lagos',
+                    date: '2025-02-22',
+                    time: '16:00',
+                    duration: '6 hours',
+                    coordinates: { lat: 6.4281, lng: 3.4216 }
+                },
+                destinationDetails: {
+                    primary: 'UI Test Destination',
+                    coordinates: { lat: 6.5774, lng: 3.3211 }
+                },
+                personnel: {
+                    protectors: 2,
+                    protectee: 1,
+                    dressCode: 'Tactical Casual'
+                },
+                vehicles: {
+                    armoredSuv: 1
+                },
+                contact: {
+                    user: {
+                        firstName: 'UI',
+                        lastName: 'Tester'
+                    },
+                    phone: '08012345678'
+                }
+            };
+
+            try {
+                const response = await fetch(`${API_BASE}/bookings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bookingData)
+                });
+                
+                const result = await response.json();
+                if (response.ok) {
+                    testBookingId = result.data.id;
+                    logResult('api-results', `✅ Booking created: ${result.data.booking_code}`, 'success');
+                } else {
+                    logResult('api-results', `❌ Booking creation failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('api-results', `❌ Network error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testOperatorBookings() {
+            logResult('api-results', '🔍 Testing operator bookings...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/operator/bookings`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    logResult('api-results', `✅ Found ${result.count} bookings in operator dashboard`, 'success');
+                    result.data?.slice(0, 3).forEach((booking, index) => {
+                        logResult('api-results', `${index + 1}. ${booking.booking_code} - ${booking.client?.first_name} ${booking.client?.last_name} <span class="status ${booking.status}">${booking.status}</span>`, 'info');
+                    });
+                } else {
+                    logResult('api-results', `❌ Failed to fetch operator bookings: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('api-results', `❌ Network error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testStatusUpdate() {
+            if (!testBookingId) {
+                logResult('api-results', '⚠️ No test booking available. Create a booking first.', 'error');
+                return;
+            }
+
+            logResult('api-results', '🔄 Testing status update...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/bookings/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        booking_id: testBookingId,
+                        status: 'accepted',
+                        message: 'Your booking has been accepted via UI test!'
+                    })
+                });
+                
+                const result = await response.json();
+                if (response.ok) {
+                    logResult('api-results', `✅ Status updated to: ${result.data.status}`, 'success');
+                } else {
+                    logResult('api-results', `❌ Status update failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('api-results', `❌ Network error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testChatMessage() {
+            if (!testBookingId) {
+                logResult('api-results', '⚠️ No test booking available. Create a booking first.', 'error');
+                return;
+            }
+
+            logResult('api-results', '💬 Testing chat message...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/operator/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bookingId: testBookingId,
+                        content: 'Hello! This is a test message from the operator.',
+                        messageType: 'text'
+                    })
+                });
+                
+                const result = await response.json();
+                if (response.ok) {
+                    logResult('api-results', `✅ Message sent successfully`, 'success');
+                } else {
+                    logResult('api-results', `❌ Message sending failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('api-results', `❌ Network error: ${error.message}`, 'error');
+            }
+        }
+
+        async function runCompleteTest() {
+            clearResults('api-results');
+            logResult('api-results', '🚀 Running complete end-to-end test...', 'info');
+            
+            await testBookingCreation();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await testOperatorBookings();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await testStatusUpdate();
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await testChatMessage();
+            
+            logResult('api-results', '🎉 Complete test finished!', 'success');
+        }
+
+        function startMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+            }
+            
+            logResult('monitoring-results', '👁️ Starting real-time monitoring...', 'info');
+            
+            monitoringInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/operator/bookings`);
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        const recentBookings = result.data?.slice(0, 3);
+                        logResult('monitoring-results', `📊 Monitoring: ${result.count} total bookings, ${recentBookings?.length || 0} recent`, 'info');
+                    }
+                } catch (error) {
+                    logResult('monitoring-results', `❌ Monitoring error: ${error.message}`, 'error');
+                }
+            }, 5000);
+        }
+
+        function stopMonitoring() {
+            if (monitoringInterval) {
+                clearInterval(monitoringInterval);
+                monitoringInterval = null;
+                logResult('monitoring-results', '⏹️ Monitoring stopped', 'info');
+            }
+        }
+
+        // Auto-start monitoring
+        startMonitoring();
+    </script>
+</body>
+</html>
+
+
+

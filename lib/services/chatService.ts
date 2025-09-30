@@ -38,6 +38,50 @@ export class ChatService {
 
   // Send a message
   async sendMessage(message: Omit<ChatMessage, 'id' | 'created_at' | 'updated_at'>) {
+    // Try to send via API first
+    try {
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bookingId: message.booking_id,
+          content: message.message,
+          messageType: 'text'
+        }),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          // Convert API response to ChatMessage format
+          const chatMessage: ChatMessage = {
+            id: result.data.id,
+            booking_id: message.booking_id,
+            sender_type: message.sender_type,
+            sender_id: message.sender_id,
+            message: message.message,
+            created_at: result.data.created_at,
+            updated_at: result.data.created_at,
+            has_invoice: false,
+            is_system_message: false
+          }
+
+          // Store in localStorage for immediate availability
+          const existingMessages = JSON.parse(localStorage.getItem(`chat_${message.booking_id}`) || '[]')
+          const updatedMessages = [...existingMessages, chatMessage]
+          localStorage.setItem(`chat_${message.booking_id}`, JSON.stringify(updatedMessages))
+          
+          console.log('Message sent via API:', chatMessage.id)
+          return chatMessage
+        }
+      }
+    } catch (error) {
+      console.log('API send failed, falling back to localStorage:', error)
+    }
+
+    // Fallback to localStorage if API fails
     const chatMessage: ChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       ...message,
@@ -45,103 +89,80 @@ export class ChatService {
       updated_at: new Date().toISOString()
     }
 
-    // Always store in localStorage first for immediate availability
     const existingMessages = JSON.parse(localStorage.getItem(`chat_${message.booking_id}`) || '[]')
-    
-    // Check if message already exists to prevent duplicates
-    const messageExists = existingMessages.some((msg: any) => 
-      msg.message === message.message && 
-      msg.sender_type === message.sender_type && 
-      msg.sender_id === message.sender_id &&
-      Math.abs(new Date(msg.created_at).getTime() - new Date(chatMessage.created_at).getTime()) < 5000 // Within 5 seconds
-    )
-    
-    if (messageExists) {
-      console.log('Message already exists, skipping duplicate:', chatMessage.id)
-      return existingMessages.find((msg: any) => 
-        msg.message === message.message && 
-        msg.sender_type === message.sender_type && 
-        msg.sender_id === message.sender_id
-      )
-    }
-    
     const updatedMessages = [...existingMessages, chatMessage]
     localStorage.setItem(`chat_${message.booking_id}`, JSON.stringify(updatedMessages))
     console.log('Message stored in localStorage:', chatMessage.id)
-
-    // Try to store in Supabase if available
-    if (this.isSupabaseAvailable) {
-      try {
-        const messageData = {
-          booking_id: message.booking_id,
-          sender_id: message.sender_id,
-          recipient_id: message.sender_id,
-          content: message.message,
-          message_type: 'text'
-        }
-
-        const { data, error } = await this.supabase
-          .from('messages')
-          .insert([messageData])
-          .select()
-          .single()
-
-        if (!error && data) {
-          console.log('Message also stored in Supabase:', data.id)
-        }
-      } catch (error) {
-        console.log('Failed to store in Supabase, using localStorage only:', error)
-      }
-    }
 
     return chatMessage
   }
 
   // Get messages for a specific booking
   async getMessages(bookingId: string) {
-    // Always check localStorage first for immediate response
-    const localMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
-    console.log('Loaded messages from localStorage:', localMessages.length)
+    // Try to get from API first
+    try {
+      // First try with the booking ID as-is
+      let response = await fetch(`/api/messages?bookingId=${bookingId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
 
-    // Try to get from Supabase if available
-    if (this.isSupabaseAvailable) {
-      try {
-        const { data, error } = await this.supabase
-          .from('messages')
-          .select('*')
-          .eq('booking_id', bookingId)
-          .order('created_at', { ascending: true })
+      // If that fails and it looks like a booking code, try to find the database ID
+      if (!response.ok && bookingId.startsWith('REQ')) {
+        console.log('Booking code detected, trying to find database ID...')
+        try {
+          const bookingsResponse = await fetch('/api/operator/bookings')
+          if (bookingsResponse.ok) {
+            const bookingsData = await bookingsResponse.json()
+            if (bookingsData.success) {
+              const booking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
+              if (booking && booking.database_id) {
+                console.log('Found database ID for booking code:', booking.database_id)
+                response = await fetch(`/api/operator/messages?bookingId=${booking.database_id}`, {
+                  method: 'GET',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                })
+              }
+            }
+          }
+        } catch (error) {
+          console.log('Failed to find database ID:', error)
+        }
+      }
 
-        if (!error && data && data.length > 0) {
-          // Convert messages table format to ChatMessage format
-          const dbMessages = data.map(msg => ({
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          // Convert API response to ChatMessage format
+          const apiMessages = result.data.map((msg: any) => ({
             id: msg.id,
             booking_id: msg.booking_id,
-            sender_type: 'client' as const,
+            sender_type: msg.sender_type,
             sender_id: msg.sender_id,
-            message: msg.content,
+            message: msg.content || msg.message,
             created_at: msg.created_at,
             updated_at: msg.created_at,
-            has_invoice: false,
-            is_system_message: false
+            has_invoice: msg.has_invoice || false,
+            is_system_message: msg.message_type === 'system'
           })) as ChatMessage[]
 
-          // Merge with localStorage messages and remove duplicates
-          const allMessages = [...localMessages, ...dbMessages]
-          const uniqueMessages = allMessages.filter((msg, index, self) => 
-            index === self.findIndex(m => m.id === msg.id)
-          )
-          
-          // Update localStorage with merged messages
-          localStorage.setItem(`chat_${bookingId}`, JSON.stringify(uniqueMessages))
-          console.log('Merged messages from Supabase and localStorage:', uniqueMessages.length)
-          return uniqueMessages
+          // Store in localStorage for offline access
+          localStorage.setItem(`chat_${bookingId}`, JSON.stringify(apiMessages))
+          console.log('Messages loaded from API:', apiMessages.length)
+          return apiMessages
         }
-      } catch (error) {
-        console.log('Failed to fetch from Supabase, using localStorage only:', error)
       }
+    } catch (error) {
+      console.log('API fetch failed, using localStorage:', error)
     }
 
+    // Fallback to localStorage
+    const localMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+    console.log('Loaded messages from localStorage:', localMessages.length)
     return localMessages as ChatMessage[]
   }
 
@@ -149,10 +170,58 @@ export class ChatService {
   subscribeToMessages(bookingId: string, callback: (message: ChatMessage) => void) {
     if (!this.isSupabaseAvailable) {
       // If Supabase not available, return a mock subscription that polls localStorage
-      const pollInterval = setInterval(() => {
-        const messages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
-        // This is a simple implementation - in a real app you'd track last seen message
-      }, 3000)
+      let lastMessageCount = 0
+      const pollInterval = setInterval(async () => {
+        try {
+          // Try to fetch from API first
+          const response = await fetch(`/api/messages?bookingId=${bookingId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          })
+
+          if (response.ok) {
+            const result = await response.json()
+            if (result.success && result.data.length > lastMessageCount) {
+              // New messages available, update localStorage and trigger callback
+              localStorage.setItem(`chat_${bookingId}`, JSON.stringify(result.data))
+              const newMessages = result.data.slice(lastMessageCount)
+              newMessages.forEach((msg: any) => {
+                const chatMessage: ChatMessage = {
+                  id: msg.id,
+                  booking_id: msg.booking_id,
+                  sender_type: msg.sender_type,
+                  sender_id: msg.sender_id,
+                  message: msg.message,
+                  created_at: msg.created_at,
+                  updated_at: msg.created_at,
+                  has_invoice: false,
+                  is_system_message: msg.is_system_message
+                }
+                callback(chatMessage)
+              })
+              lastMessageCount = result.data.length
+            }
+          } else {
+            // Fallback to localStorage polling
+            const messages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+            if (messages.length > lastMessageCount) {
+              const newMessages = messages.slice(lastMessageCount)
+              newMessages.forEach((msg: ChatMessage) => callback(msg))
+              lastMessageCount = messages.length
+            }
+          }
+        } catch (error) {
+          console.log('Polling error, using localStorage:', error)
+          const messages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+          if (messages.length > lastMessageCount) {
+            const newMessages = messages.slice(lastMessageCount)
+            newMessages.forEach((msg: ChatMessage) => callback(msg))
+            lastMessageCount = messages.length
+          }
+        }
+      }, 2000) // Poll every 2 seconds
 
       return {
         unsubscribe: () => clearInterval(pollInterval)
@@ -174,14 +243,20 @@ export class ChatService {
           const chatMessage: ChatMessage = {
             id: msg.id,
             booking_id: msg.booking_id,
-            sender_type: 'client' as const,
+            sender_type: msg.sender?.role === 'operator' || msg.sender?.role === 'admin' ? 'operator' : 'client',
             sender_id: msg.sender_id,
             message: msg.content,
             created_at: msg.created_at,
             updated_at: msg.created_at,
             has_invoice: false,
-            is_system_message: false
+            is_system_message: msg.message_type === 'system'
           }
+          
+          // Store in localStorage
+          const existingMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+          const updatedMessages = [...existingMessages, chatMessage]
+          localStorage.setItem(`chat_${bookingId}`, JSON.stringify(updatedMessages))
+          
           callback(chatMessage)
         }
       )

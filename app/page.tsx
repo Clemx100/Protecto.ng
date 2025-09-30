@@ -3,7 +3,6 @@
 import Link from "next/link"
 import { 
   Shield, 
-  Users, 
   Settings, 
   MapPin, 
   Clock, 
@@ -22,7 +21,7 @@ export default function HomePage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
       {/* Header */}
       <header className="bg-black/20 backdrop-blur-lg border-b border-white/10 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -37,7 +36,6 @@ export default function HomePage() {
             <nav className="hidden md:flex items-center space-x-6">
               <a href="#services" className="text-gray-300 hover:text-white transition-colors">Services</a>
               <a href="#about" className="text-gray-300 hover:text-white transition-colors">About</a>
-              <a href="#careers" className="text-gray-300 hover:text-white transition-colors">Careers</a>
               <a href="#contact" className="text-gray-300 hover:text-white transition-colors">Contact</a>
             </nav>
 
@@ -62,15 +60,14 @@ export default function HomePage() {
 
           {/* Mobile Menu */}
           {isMenuOpen && (
-            <div className="md:hidden py-4 border-t border-white/10">
-              <nav className="flex flex-col space-y-4">
-                <a href="#services" className="text-gray-300 hover:text-white transition-colors">Services</a>
-                <a href="#about" className="text-gray-300 hover:text-white transition-colors">About</a>
-                <a href="#careers" className="text-gray-300 hover:text-white transition-colors">Careers</a>
-                <a href="#contact" className="text-gray-300 hover:text-white transition-colors">Contact</a>
+            <div className="md:hidden py-4 border-t border-white/10 bg-black/30 backdrop-blur-lg">
+              <nav className="flex flex-col space-y-4 px-4">
+                <a href="#services" className="text-gray-300 hover:text-white transition-colors py-2">Services</a>
+                <a href="#about" className="text-gray-300 hover:text-white transition-colors py-2">About</a>
+                <a href="#contact" className="text-gray-300 hover:text-white transition-colors py-2">Contact</a>
                 <Link 
                   href="/client"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium text-center"
+                  className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium text-center mt-2"
                 >
                   Request Protection
                 </Link>
@@ -84,7 +81,7 @@ export default function HomePage() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">
         <div className="text-center">
           <h1 className="text-4xl md:text-6xl font-bold text-white mb-6 leading-tight">
-            Executive Protection
+            Executive Protection{' '}
             <span className="block text-blue-400">Services</span>
           </h1>
           <p className="text-lg md:text-xl text-gray-300 mb-8 max-w-4xl mx-auto leading-relaxed">
@@ -93,7 +90,7 @@ export default function HomePage() {
             and 24/7 emergency response capabilities.
           </p>
           
-          <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12 items-center">
             <Link 
               href="/client"
               className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white text-lg font-semibold rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg hover:shadow-blue-500/25"
@@ -111,9 +108,9 @@ export default function HomePage() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-4xl mx-auto">
             <div className="text-center">
-              <div className="text-3xl font-bold text-blue-400">500+</div>
+              <div className="text-3xl font-bold text-blue-400">25+</div>
               <div className="text-gray-300 text-sm">Successful Missions</div>
             </div>
             <div className="text-center">
@@ -121,11 +118,11 @@ export default function HomePage() {
               <div className="text-gray-300 text-sm">Emergency Response</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-purple-400">50+</div>
+              <div className="text-3xl font-bold text-purple-400">8+</div>
               <div className="text-gray-300 text-sm">Trained Agents</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-yellow-400">100%</div>
+              <div className="text-3xl font-bold text-yellow-400">98%</div>
               <div className="text-gray-300 text-sm">Client Satisfaction</div>
             </div>
           </div>
@@ -293,67 +290,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Careers Section */}
-      <section id="careers" className="bg-white/5 py-16 md:py-24">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">Join Our Team</h2>
-            <p className="text-lg text-gray-300 max-w-3xl mx-auto">
-              Become part of Nigeria's most elite security team. We're looking for dedicated professionals 
-              who are committed to excellence and client safety.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-white/10 rounded-xl p-8 border border-white/20">
-              <h3 className="text-2xl font-bold text-white mb-4">Security Agent Positions</h3>
-              <p className="text-gray-300 mb-6">
-                Join our team of highly trained security professionals. We offer competitive packages, 
-                comprehensive training, and career advancement opportunities.
-              </p>
-              <ul className="text-gray-300 space-y-2 mb-6">
-                <li>• Executive Protection Specialist</li>
-                <li>• Tactical Response Team</li>
-                <li>• Event Security Coordinator</li>
-                <li>• Travel Security Specialist</li>
-              </ul>
-              <Link 
-                href="/operator"
-                className="inline-flex items-center space-x-2 px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors"
-              >
-                <Users className="h-5 w-5" />
-                <span>View Operator Dashboard</span>
-              </Link>
-            </div>
-            
-            <div className="bg-white/10 rounded-xl p-8 border border-white/20">
-              <h3 className="text-2xl font-bold text-white mb-4">Requirements</h3>
-              <ul className="text-gray-300 space-y-3">
-                <li className="flex items-start space-x-3">
-                  <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
-                  <span>Valid security license and firearms permit</span>
-                </li>
-                <li className="flex items-start space-x-3">
-                  <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
-                  <span>Minimum 3 years security experience</span>
-                </li>
-                <li className="flex items-start space-x-3">
-                  <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
-                  <span>Clean criminal record and background check</span>
-                </li>
-                <li className="flex items-start space-x-3">
-                  <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
-                  <span>Excellent communication and interpersonal skills</span>
-                </li>
-                <li className="flex items-start space-x-3">
-                  <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
-                  <span>Physical fitness and tactical training</span>
-                </li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* Contact Section */}
       <section id="contact" className="py-16 md:py-24">
@@ -370,15 +306,15 @@ export default function HomePage() {
             <div className="text-center">
               <Phone className="h-12 w-12 text-blue-400 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-white mb-2">Emergency Hotline</h3>
-              <p className="text-gray-300 mb-2">+234 800 PROTECT</p>
+              <p className="text-gray-300 mb-2">+234 712 000 5328</p>
               <p className="text-sm text-gray-400">24/7 Emergency Response</p>
             </div>
             
             <div className="text-center">
               <MapPin className="h-12 w-12 text-green-400 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-white mb-2">Headquarters</h3>
-              <p className="text-gray-300 mb-2">Victoria Island, Lagos</p>
-              <p className="text-sm text-gray-400">Nigeria</p>
+              <p className="text-gray-300 mb-2">No 3 Balogu street Anifowoshe, Ikeja</p>
+              <p className="text-sm text-gray-400">Lagos, Nigeria</p>
             </div>
             
             <div className="text-center">
@@ -420,7 +356,6 @@ export default function HomePage() {
               <h4 className="text-lg font-semibold text-white mb-4">Company</h4>
               <ul className="space-y-2 text-sm text-gray-300">
                 <li>About Us</li>
-                <li>Careers</li>
                 <li>Contact</li>
                 <li>Privacy Policy</li>
               </ul>

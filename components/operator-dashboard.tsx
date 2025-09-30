@@ -26,6 +26,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
   
   // Chat and messaging
   const [messages, setMessages] = useState<any[]>([])
@@ -60,6 +61,21 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     initializeDashboard()
   }, [])
 
+  // Auto-dismiss error and success messages
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(""), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [error])
+
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => setSuccess(""), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [success])
+
   // Filter bookings based on search and status
   useEffect(() => {
     let filtered = bookings
@@ -82,6 +98,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
   // Real-time refresh for operator dashboard
   useEffect(() => {
+    console.log('Setting up real-time subscriptions...')
+    
     // Set up real-time subscription for bookings
     const bookingsChannel = supabase
       .channel('operator-bookings')
@@ -93,12 +111,22 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           table: 'bookings'
         },
         (payload) => {
-          console.log('Real-time booking update:', payload)
+          console.log('Real-time booking update received:', payload)
+          console.log('Event type:', payload.eventType)
+          console.log('New record:', payload.new)
+          
           // Refresh bookings when any booking changes
           loadBookings()
+          
+          // Show notification for new bookings
+          if (payload.eventType === 'INSERT') {
+            setSuccess(`New booking received: ${payload.new?.booking_code || 'Unknown'}`)
+          }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('Bookings channel subscription status:', status)
+      })
 
     // Set up real-time subscription for messages
     const messagesChannel = supabase
@@ -111,24 +139,55 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           table: 'messages'
         },
         (payload) => {
-          console.log('Real-time message update:', payload)
-          // Refresh messages if a booking is selected
-          if (selectedBooking) {
-            loadMessages(selectedBooking.id)
+          console.log('Real-time message update received:', payload)
+          const newMessage = payload.new as any
+          
+          // Check if this message is for the currently selected booking
+          if (selectedBooking && newMessage.booking_id === selectedBooking.database_id) {
+            const chatMessage = {
+              id: newMessage.id,
+              booking_id: newMessage.booking_id,
+              sender_type: newMessage.sender_type || (newMessage.message_type === 'system' ? 'system' : 'client'),
+              sender_id: newMessage.sender_id,
+              message: newMessage.content,
+              created_at: newMessage.created_at,
+              is_system_message: newMessage.message_type === 'system',
+              hasInvoice: newMessage.has_invoice || false,
+              invoiceData: newMessage.invoice_data || null
+            }
+            
+            // Add to local state
+            setMessages(prev => [...prev, chatMessage])
+            
+            // Store in localStorage for both operator and client sync
+            const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
+            const updatedMessages = [...currentStoredMessages, chatMessage]
+            localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedMessages))
+            
+            // Also update the client's localStorage for real-time sync
+            const clientMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
+            const updatedClientMessages = [...clientMessages, chatMessage]
+            localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedClientMessages))
+            
+            scrollToBottom()
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('Messages channel subscription status:', status)
+      })
 
-    // Fallback: Refresh every 10 seconds as backup
+    // More frequent refresh for testing - every 3 seconds
     const refreshInterval = setInterval(() => {
+      console.log('Refreshing bookings...')
       loadBookings()
       if (selectedBooking) {
         loadMessages(selectedBooking.id)
       }
-    }, 10000)
+    }, 3000)
 
     return () => {
+      console.log('Cleaning up real-time subscriptions...')
       clearInterval(refreshInterval)
       supabase.removeChannel(bookingsChannel)
       supabase.removeChannel(messagesChannel)
@@ -168,6 +227,10 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       if (result.success) {
         const transformedBookings = result.data.map((booking: any) => ({
           ...booking,
+          // Use booking_code as the main ID for consistency
+          id: booking.booking_code,
+          // Store the database ID for API calls
+          database_id: booking.id,
           // Add additional fields for compatibility
           payment_approved: booking.payment_approved || false,
           vehicles: booking.vehicles || {},
@@ -186,14 +249,23 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         transformedBookings.forEach((booking: any) => {
           paymentStatus[booking.id] = booking.payment_approved || false
         })
-        setPaymentApproved(paymentStatus)
-        
-        // Auto-select first pending booking if none selected
+          setPaymentApproved(paymentStatus)
+          
+          // Update selectedBooking if it exists to reflect current database status
+          if (selectedBooking) {
+            const updatedSelectedBooking = transformedBookings.find((b: any) => b.id === selectedBooking.id)
+            if (updatedSelectedBooking) {
+              console.log('Updating selected booking status from', selectedBooking.status, 'to', updatedSelectedBooking.status)
+              setSelectedBooking(updatedSelectedBooking)
+            }
+          }
+          
+          // Auto-select first pending booking if none selected
         if (!selectedBooking && transformedBookings.length > 0) {
           const pendingBooking = transformedBookings.find((b: any) => b.status === 'pending')
           if (pendingBooking) {
             setSelectedBooking(pendingBooking)
-            loadMessages(pendingBooking.id)
+            loadMessages(pendingBooking.database_id || pendingBooking.id)
           }
         }
       } else {
@@ -259,12 +331,20 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   }
 
   const loadMessages = async (bookingId: string) => {
-    try {
-      // Find the database ID for this booking
+    // Check if bookingId is already a database ID (UUID format) or a booking code
+    let actualBookingId = bookingId
+    
+    // If it's a booking code (starts with REQ), find the database ID
+    if (bookingId.startsWith('REQ')) {
       const booking = bookings.find(b => b.id === bookingId)
-      const actualBookingId = booking?.database_id || bookingId
+      actualBookingId = booking?.database_id || bookingId
+    }
+    
+    console.log('Loading messages for booking:', bookingId, 'Database ID:', actualBookingId)
+    
+    try {
       
-      // Use the new API endpoint
+      // Use the operator messages API endpoint
       const response = await fetch(`/api/operator/messages?bookingId=${actualBookingId}`, {
         method: 'GET',
         headers: {
@@ -279,6 +359,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       const result = await response.json()
       
       if (result.success) {
+        console.log('Messages loaded:', result.data.length)
         setMessages(result.data)
       } else {
         throw new Error(result.error || 'Failed to load messages')
@@ -327,18 +408,29 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   }
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !selectedBooking) return
+    if (!newMessage.trim() || !selectedBooking) {
+      console.log('Cannot send message:', { hasMessage: !!newMessage.trim(), hasBooking: !!selectedBooking })
+      return
+    }
+
+    const messageText = newMessage.trim()
+    setNewMessage("") // Clear input immediately for better UX
+
+    console.log('Sending message:', messageText, 'to booking:', selectedBooking.id)
 
     try {
-      // Use the API to send message
+      // Ensure we have the correct database ID
+      const databaseId = selectedBooking.database_id || selectedBooking.id
+      
+      // Use the operator messages API to send message
       const response = await fetch('/api/operator/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          bookingId: selectedBooking.database_id || selectedBooking.id,
-          content: newMessage,
+          bookingId: databaseId,
+          content: messageText,
           messageType: 'text'
         }),
       })
@@ -356,13 +448,20 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           booking_id: selectedBooking.id,
           sender_type: 'operator',
           sender_id: result.data.sender_id,
-          message: newMessage,
-          created_at: result.data.created_at
+          message: messageText,
+          created_at: result.data.created_at,
+          is_system_message: false
         }
         
         setMessages(prev => [...prev, message])
-        setNewMessage("")
+        
+        // Store in localStorage for persistence
+        const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
+        const updatedMessages = [...currentStoredMessages, message]
+        localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedMessages))
+        
         scrollToBottom()
+        setSuccess('Message sent successfully!')
       } else {
         throw new Error(result.error || 'Failed to send message')
       }
@@ -372,11 +471,13 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       // Fallback to localStorage
       try {
         const message = {
-          id: `operator_${Date.now()}`,
+          id: `operator_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           booking_id: selectedBooking.id,
           sender_type: 'operator',
-          message: newMessage,
-          created_at: new Date().toISOString()
+          sender_id: 'operator',
+          message: messageText,
+          created_at: new Date().toISOString(),
+          is_system_message: false
         }
 
         // Add to local state
@@ -387,11 +488,12 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         const updatedMessages = [...currentStoredMessages, message]
         localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedMessages))
         
-        setNewMessage("")
         scrollToBottom()
+        setSuccess('Message sent (offline mode)')
       } catch (fallbackError) {
         console.error('Fallback message sending failed:', fallbackError)
         setError('Failed to send message')
+        setNewMessage(messageText) // Restore message on failure
       }
     }
   }
@@ -444,7 +546,16 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   }
 
   const handleOperatorAction = async (action: string) => {
-    if (!selectedBooking) return
+    if (!selectedBooking) {
+      console.error('No selected booking for action:', action)
+      setError('No booking selected')
+      return
+    }
+
+    console.log('Handling operator action:', action, 'for booking:', selectedBooking.id)
+    setActionLoading(action)
+    setError("")
+    setSuccess("")
 
     try {
       let message = ""
@@ -470,7 +581,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           }
           message = "🚀 Protection team deployed! They are preparing for departure."
           systemMessage = "Protection team deployed"
-          newStatus = "deployed"
+          newStatus = "en_route"
           break
         case "en_route":
           message = "🚗 Protection team is en route to your location."
@@ -494,41 +605,97 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           break
       }
 
-      // Update booking status
+      // Update booking status using the new API
       if (newStatus !== selectedBooking.status) {
-        const updatedBookings = bookings.map(booking => 
-          booking.id === selectedBooking.id 
-            ? { ...booking, status: newStatus }
-            : booking
-        )
-        setBookings(updatedBookings)
-        setSelectedBooking({ ...selectedBooking, status: newStatus })
-        
-        // Update localStorage
-        const updatedBookingsForStorage = updatedBookings.map(booking => 
-          booking.id === selectedBooking.id 
-            ? { ...booking, status: newStatus }
-            : booking
-        )
-        localStorage.setItem('operator_bookings', JSON.stringify(updatedBookingsForStorage))
-        
-        // Update Supabase
         try {
-          const { error } = await supabase
-            .from('bookings')
-            .update({ 
-              status: newStatus.toLowerCase().replace(/\s+/g, '_'),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', selectedBooking.database_id || selectedBooking.id)
+          // Ensure we have the correct database ID
+          const databaseId = selectedBooking.database_id || selectedBooking.id
           
-          if (error) {
-            console.error('Error updating booking status in Supabase:', error)
+          console.log('Updating booking status:', {
+            bookingId: databaseId,
+            status: newStatus.toLowerCase().replace(/\s+/g, '_'),
+            notes: systemMessage
+          })
+
+          const response = await fetch('/api/bookings/status', {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              bookingId: databaseId,
+              status: newStatus.toLowerCase().replace(/\s+/g, '_'),
+              notes: systemMessage
+            }),
+          })
+
+          console.log('Status update response:', response.status, response.statusText)
+
+          if (!response.ok) {
+            const errorText = await response.text()
+            console.error('Status update failed:', errorText)
+            throw new Error(`HTTP ${response.status}: ${errorText}`)
+          }
+
+          const result = await response.json()
+          console.log('Status update result:', result)
+
+          if (result.success) {
+            console.log('Status update successful, updating UI...')
+            
+            // Update local state
+            const updatedBookings = bookings.map(booking => 
+              booking.id === selectedBooking.id 
+                ? { ...booking, status: newStatus }
+                : booking
+            )
+            setBookings(updatedBookings)
+            setSelectedBooking({ ...selectedBooking, status: newStatus })
+            
+            console.log('Updated selected booking status to:', newStatus)
+            console.log('Updated bookings array:', updatedBookings.length, 'bookings')
+            
+            // Update localStorage
+            const updatedBookingsForStorage = updatedBookings.map(booking => 
+              booking.id === selectedBooking.id 
+                ? { ...booking, status: newStatus }
+                : booking
+            )
+            localStorage.setItem('operator_bookings', JSON.stringify(updatedBookingsForStorage))
+            
+            // Also update client bookings in localStorage for real-time sync
+            const clientBookings = JSON.parse(localStorage.getItem('user_bookings') || '[]')
+            const updatedClientBookings = clientBookings.map((booking: any) => 
+              booking.id === selectedBooking.id 
+                ? { ...booking, status: newStatus }
+                : booking
+            )
+            localStorage.setItem('user_bookings', JSON.stringify(updatedClientBookings))
+            
+            // Update current booking in localStorage for client chat
+            const currentBooking = JSON.parse(localStorage.getItem('currentBooking') || '{}')
+            if (currentBooking.id === selectedBooking.id) {
+              currentBooking.status = newStatus
+              localStorage.setItem('currentBooking', JSON.stringify(currentBooking))
+            }
+            
+            console.log('Booking status updated successfully')
+            setSuccess(`Status updated to: ${newStatus}`)
+            
+            // Refresh messages to get the system message
+            loadMessages(selectedBooking.id)
+            
+            // Force a re-render by updating the bookings list
+            setTimeout(() => {
+              loadBookings()
+            }, 100)
           } else {
-            console.log('Booking status updated in Supabase')
+            throw new Error(result.error || 'Failed to update booking status')
           }
         } catch (error) {
-          console.error('Failed to update booking status in Supabase:', error)
+          console.error('Failed to update booking status:', error)
+          setError(`Failed to update booking status: ${error.message}. Please try again.`)
+          return
         }
       }
 
@@ -609,7 +776,10 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       setSuccess(`Action completed: ${action}`)
       scrollToBottom()
     } catch (error) {
-      setError(`Failed to ${action} booking`)
+      console.error(`Failed to ${action} booking:`, error)
+      setError(`Failed to ${action} booking: ${error.message || error}`)
+    } finally {
+      setActionLoading(null)
     }
   }
 
@@ -701,10 +871,6 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             { action: 'invoice', label: 'Send Invoice', color: 'bg-blue-600 hover:bg-blue-700' }
           ]
         }
-      case 'deployed':
-        return [
-          { action: 'en_route', label: 'Mark En Route', color: 'bg-blue-600 hover:bg-blue-700' }
-        ]
       case 'en_route':
         return [
           { action: 'arrived', label: 'Mark Arrived', color: 'bg-green-600 hover:bg-green-700' }
@@ -771,14 +937,20 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Error/Success Messages */}
         {error && (
-          <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-6">
-            <p className="text-red-200">{error}</p>
+          <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-6 animate-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-red-400 rounded-full"></div>
+              <p className="text-red-200 font-medium">{error}</p>
+            </div>
           </div>
         )}
 
         {success && (
-          <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-4 mb-6">
-            <p className="text-green-200">{success}</p>
+          <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-4 mb-6 animate-in slide-in-from-top-2 duration-300">
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+              <p className="text-green-200 font-medium">{success}</p>
+            </div>
           </div>
         )}
 
@@ -833,7 +1005,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                     key={booking.id}
                     onClick={() => {
                       setSelectedBooking(booking)
-                      loadMessages(booking.id)
+                      loadMessages(booking.database_id || booking.id)
                     }}
                     className={`p-4 rounded-lg cursor-pointer transition-colors ${
                       selectedBooking?.id === booking.id
@@ -1042,29 +1214,49 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
                 {/* Operator Actions */}
                 <div className="p-6 border-b border-white/10">
-                  <h4 className="text-sm font-medium text-white mb-3">Operator Actions</h4>
-                  <div className="flex flex-wrap gap-2">
+                  <h4 className="text-lg font-semibold text-white mb-4">Operator Actions</h4>
+                  <div className="flex flex-wrap gap-3">
                     {getStatusActions(selectedBooking.status, paymentApproved[selectedBooking.id]).map(({ action, label, color }) => (
                       <Button
                         key={action}
                         onClick={() => handleOperatorAction(action)}
-                        className={`${color} text-white`}
+                        disabled={actionLoading === action}
+                        className={`${color} text-white px-4 py-2 text-sm font-medium ${
+                          actionLoading === action ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
                         size="sm"
                       >
-                        {label}
+                        {actionLoading === action ? (
+                          <div className="flex items-center space-x-2">
+                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Processing...</span>
+                          </div>
+                        ) : (
+                          label
+                        )}
                       </Button>
                     ))}
                   </div>
                   
                   {/* Payment Status Indicator */}
                   {paymentApproved[selectedBooking.id] && (
-                    <div className="mt-3 p-2 bg-green-500/20 border border-green-500/50 rounded-lg">
+                    <div className="mt-4 p-3 bg-green-500/20 border border-green-500/50 rounded-lg">
                       <div className="flex items-center space-x-2">
                         <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                         <span className="text-green-300 text-sm font-medium">Payment Approved</span>
                       </div>
                     </div>
                   )}
+                  
+                  {/* Status Information */}
+                  <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <div className="text-sm text-blue-200">
+                      <strong>Current Status:</strong> {selectedBooking.status.replace('_', ' ').toUpperCase()}
+                    </div>
+                    <div className="text-xs text-blue-300 mt-1">
+                      Available actions depend on current status and payment approval
+                    </div>
+                  </div>
                 </div>
 
                 {/* Messages */}

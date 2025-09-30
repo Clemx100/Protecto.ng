@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Operator Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .test-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #45a049;
+        }
+        .result {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+        .error {
+            background: rgba(255, 0, 0, 0.3);
+        }
+        .success {
+            background: rgba(0, 255, 0, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛡️ Protector.Ng Operator Dashboard Test</h1>
+            <p>Testing real-time communication and API endpoints</p>
+        </div>
+
+        <div class="test-section">
+            <h3>📡 API Endpoint Tests</h3>
+            <button class="test-button" onclick="testOperatorBookings()">Test Operator Bookings API</button>
+            <button class="test-button" onclick="testOperatorMessages()">Test Operator Messages API</button>
+            <button class="test-button" onclick="testBookingStatus()">Test Booking Status API</button>
+            <div id="api-results" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔄 Real-time Communication Test</h3>
+            <button class="test-button" onclick="testRealtimeConnection()">Test Real-time Connection</button>
+            <button class="test-button" onclick="testWebSocketConnection()">Test WebSocket Connection</button>
+            <div id="realtime-results" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📱 Mobile App Integration Test</h3>
+            <button class="test-button" onclick="testMobileAppConnection()">Test Mobile App Connection</button>
+            <button class="test-button" onclick="testBookingCreation()">Test Booking Creation</button>
+            <div id="mobile-results" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔧 Quick Fixes</h3>
+            <button class="test-button" onclick="createTestOperator()">Create Test Operator Account</button>
+            <button class="test-button" onclick="testDatabaseConnection()">Test Database Connection</button>
+            <div id="fix-results" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://192.168.1.142:3000/api';
+        
+        function logResult(elementId, message, isError = false) {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const className = isError ? 'error' : 'success';
+            element.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+        }
+
+        async function testOperatorBookings() {
+            logResult('api-results', 'Testing Operator Bookings API...');
+            try {
+                const response = await fetch(`${API_BASE}/operator/bookings`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('api-results', `✅ Operator Bookings API working! Found ${data.count || 0} bookings`);
+                } else {
+                    logResult('api-results', `❌ Operator Bookings API failed: ${data.error}`, true);
+                }
+            } catch (error) {
+                logResult('api-results', `❌ Network error: ${error.message}`, true);
+            }
+        }
+
+        async function testOperatorMessages() {
+            logResult('api-results', 'Testing Operator Messages API...');
+            try {
+                const response = await fetch(`${API_BASE}/operator/messages?bookingId=test`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('api-results', `✅ Operator Messages API working! Found ${data.data?.length || 0} messages`);
+                } else {
+                    logResult('api-results', `❌ Operator Messages API failed: ${data.error}`, true);
+                }
+            } catch (error) {
+                logResult('api-results', `❌ Network error: ${error.message}`, true);
+            }
+        }
+
+        async function testBookingStatus() {
+            logResult('api-results', 'Testing Booking Status API...');
+            try {
+                const response = await fetch(`${API_BASE}/bookings/status`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bookingId: 'test', status: 'pending' })
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('api-results', `✅ Booking Status API working!`);
+                } else {
+                    logResult('api-results', `❌ Booking Status API failed: ${data.error}`, true);
+                }
+            } catch (error) {
+                logResult('api-results', `❌ Network error: ${error.message}`, true);
+            }
+        }
+
+        function testRealtimeConnection() {
+            logResult('realtime-results', 'Testing Real-time Connection...');
+            try {
+                // Test if we can connect to the server
+                const ws = new WebSocket('ws://192.168.1.142:3000');
+                
+                ws.onopen = function() {
+                    logResult('realtime-results', '✅ WebSocket connection established!');
+                    ws.close();
+                };
+                
+                ws.onerror = function(error) {
+                    logResult('realtime-results', '❌ WebSocket connection failed. Server might not support WebSocket.', true);
+                };
+                
+                ws.onclose = function() {
+                    logResult('realtime-results', 'WebSocket connection closed.');
+                };
+            } catch (error) {
+                logResult('realtime-results', `❌ WebSocket error: ${error.message}`, true);
+            }
+        }
+
+        function testWebSocketConnection() {
+            logResult('realtime-results', 'Testing WebSocket Connection...');
+            // For now, just test if the server is responding
+            fetch('http://192.168.1.142:3000')
+                .then(response => {
+                    if (response.ok) {
+                        logResult('realtime-results', '✅ Server is responding to HTTP requests');
+                    } else {
+                        logResult('realtime-results', `❌ Server returned status: ${response.status}`, true);
+                    }
+                })
+                .catch(error => {
+                    logResult('realtime-results', `❌ Server connection failed: ${error.message}`, true);
+                });
+        }
+
+        async function testMobileAppConnection() {
+            logResult('mobile-results', 'Testing Mobile App Connection...');
+            try {
+                const response = await fetch('http://192.168.1.142:3000/app');
+                if (response.ok) {
+                    logResult('mobile-results', '✅ Mobile app is accessible!');
+                } else {
+                    logResult('mobile-results', `❌ Mobile app returned status: ${response.status}`, true);
+                }
+            } catch (error) {
+                logResult('mobile-results', `❌ Mobile app connection failed: ${error.message}`, true);
+            }
+        }
+
+        async function testBookingCreation() {
+            logResult('mobile-results', 'Testing Booking Creation...');
+            try {
+                const response = await fetch(`${API_BASE}/bookings`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        serviceType: 'armed_protection',
+                        pickupLocation: 'Test Location',
+                        destination: 'Test Destination',
+                        date: new Date().toISOString(),
+                        duration: 4,
+                        personnel: { protectors: 1, protectee: 1 }
+                    })
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('mobile-results', `✅ Booking creation working! Booking ID: ${data.booking?.id || 'N/A'}`);
+                } else {
+                    logResult('mobile-results', `❌ Booking creation failed: ${data.error}`, true);
+                }
+            } catch (error) {
+                logResult('mobile-results', `❌ Booking creation error: ${error.message}`, true);
+            }
+        }
+
+        async function createTestOperator() {
+            logResult('fix-results', 'Creating Test Operator Account...');
+            try {
+                // This would normally require server-side implementation
+                logResult('fix-results', '⚠️ Test operator creation requires server-side implementation');
+                logResult('fix-results', 'Please use the operator login with existing credentials or create manually in Supabase');
+            } catch (error) {
+                logResult('fix-results', `❌ Error: ${error.message}`, true);
+            }
+        }
+
+        async function testDatabaseConnection() {
+            logResult('fix-results', 'Testing Database Connection...');
+            try {
+                const response = await fetch(`${API_BASE}/operator/bookings`);
+                if (response.ok) {
+                    logResult('fix-results', '✅ Database connection working!');
+                } else {
+                    logResult('fix-results', `❌ Database connection failed: ${response.status}`, true);
+                }
+            } catch (error) {
+                logResult('fix-results', `❌ Database connection error: ${error.message}`, true);
+            }
+        }
+
+        // Auto-run some tests on page load
+        window.onload = function() {
+            logResult('api-results', '🚀 Starting automated tests...');
+            setTimeout(() => testOperatorBookings(), 1000);
+            setTimeout(() => testMobileAppConnection(), 2000);
+            setTimeout(() => testDatabaseConnection(), 3000);
+        };
+    </script>
+</body>
+</html>
+
+
+

@@ -47,7 +47,9 @@ export default function ChatPage() {
 
     const checkForStatusUpdates = () => {
       // Check if booking status has changed in localStorage
-      const storedBookings = localStorage.getItem('operator_bookings')
+      const storedBookings = localStorage.getItem('user_bookings')
+      const operatorBookings = localStorage.getItem('operator_bookings')
+      
       if (storedBookings) {
         try {
           const bookings = JSON.parse(storedBookings)
@@ -55,10 +57,30 @@ export default function ChatPage() {
           if (currentBooking && currentBooking.status !== requestStatus) {
             const newStatus = currentBooking.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
             setRequestStatus(newStatus)
-            console.log('Status updated from localStorage:', newStatus)
+            console.log('Status updated from user_bookings:', newStatus)
           }
         } catch (error) {
           console.error('Error checking status updates:', error)
+        }
+      }
+      
+      // Also check operator bookings for real-time sync
+      if (operatorBookings) {
+        try {
+          const bookings = JSON.parse(operatorBookings)
+          const currentBooking = bookings.find((b: any) => b.id === bookingPayload.id)
+          if (currentBooking && currentBooking.status !== requestStatus) {
+            const newStatus = currentBooking.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
+            setRequestStatus(newStatus)
+            console.log('Status updated from operator_bookings:', newStatus)
+            
+            // Update current booking status
+            const updatedCurrentBooking = { ...bookingPayload, status: currentBooking.status }
+            setBookingPayload(updatedCurrentBooking)
+            localStorage.setItem('currentBooking', JSON.stringify(updatedCurrentBooking))
+          }
+        } catch (error) {
+          console.error('Error checking operator status updates:', error)
         }
       }
     }
@@ -144,11 +166,15 @@ export default function ChatPage() {
           console.log('Parsed booking:', booking)
           setBookingPayload(booking)
           
+          // Use database_id if available, otherwise use booking.id
+          const messageBookingId = booking.database_id || booking.id
+          console.log('Using booking ID for messages:', messageBookingId)
+          
           // Load existing messages
-          await loadMessages(booking.id)
+          await loadMessages(messageBookingId)
           
           // Subscribe to real-time messages
-          const subscription = chatService.subscribeToMessages(booking.id, (newMessage) => {
+          const subscription = chatService.subscribeToMessages(messageBookingId, (newMessage) => {
             console.log('New message received:', newMessage)
             setChatMessages(prev => [...prev, newMessage])
             
@@ -166,9 +192,37 @@ export default function ChatPage() {
           setStatusSubscription(subscription)
         } catch (error) {
           console.error("Error parsing stored booking:", error)
+          // If parsing fails, try to get booking from URL params
+          if (bookingId) {
+            console.log('Trying to find booking by ID:', bookingId)
+            // Create a minimal booking object from the ID
+            const fallbackBooking = {
+              id: bookingId,
+              status: 'pending',
+              created_at: new Date().toISOString()
+            }
+            setBookingPayload(fallbackBooking)
+            // Try to find the database ID for this booking code
+            const messageBookingId = bookingId // Use the booking code as fallback
+            await loadMessages(messageBookingId)
+          }
         }
       } else {
         console.log('No stored booking found in localStorage')
+        // If no stored booking but we have a booking ID, try to find it
+        if (bookingId) {
+          console.log('Trying to find booking by ID:', bookingId)
+          // Create a minimal booking object from the ID
+          const fallbackBooking = {
+            id: bookingId,
+            status: 'pending',
+            created_at: new Date().toISOString()
+          }
+          setBookingPayload(fallbackBooking)
+          // Try to find the database ID for this booking code
+          const messageBookingId = bookingId // Use the booking code as fallback
+          await loadMessages(messageBookingId)
+        }
       }
     } catch (error) {
       console.error("Error initializing chat:", error)
@@ -368,12 +422,28 @@ export default function ChatPage() {
           <Shield className="h-12 w-12 text-gray-400 mx-auto mb-4" />
           <h1 className="text-lg font-semibold mb-2">No Booking Found</h1>
           <p className="mb-4 text-sm text-gray-400">No active booking request found.</p>
-          <Button 
-            onClick={handleBackToBookings} 
-            className="bg-blue-600 hover:bg-blue-700 text-sm px-4 py-2 rounded-xl"
-          >
-            Back to Bookings
-          </Button>
+          <div className="mb-4 text-xs text-gray-500">
+            <p>Debug Info:</p>
+            <p>Booking ID from URL: {searchParams.get('id') || 'None'}</p>
+            <p>Stored booking: {localStorage.getItem('currentBooking') ? 'Found' : 'Not found'}</p>
+          </div>
+          <div className="space-y-2">
+            <Button 
+              onClick={handleBackToBookings} 
+              className="bg-blue-600 hover:bg-blue-700 text-sm px-4 py-2 rounded-xl w-full"
+            >
+              Back to Bookings
+            </Button>
+            <Button 
+              onClick={() => {
+                console.log('Retrying chat initialization...')
+                initializeChat()
+              }} 
+              className="bg-gray-600 hover:bg-gray-700 text-sm px-4 py-2 rounded-xl w-full"
+            >
+              Retry
+            </Button>
+          </div>
         </div>
       </div>
     )

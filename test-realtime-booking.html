@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Real-time Booking Creation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        .test-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 16px;
+        }
+        .test-button:hover {
+            background: #45a049;
+        }
+        .test-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .result {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .error {
+            background: rgba(255, 0, 0, 0.3);
+        }
+        .success {
+            background: rgba(0, 255, 0, 0.3);
+        }
+        .info {
+            background: rgba(0, 123, 255, 0.3);
+        }
+        .links {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .link-button {
+            background: #2196F3;
+            color: white;
+            text-decoration: none;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .link-button:hover {
+            background: #1976D2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Real-time Booking Test</h1>
+        <p>Test if bookings created from the client app appear in the operator dashboard in real-time.</p>
+
+        <div class="test-section">
+            <h3>📱 Create Test Booking</h3>
+            <p>This will create a booking similar to what the mobile app creates:</p>
+            <button class="test-button" onclick="createTestBooking()" id="createBtn">
+                🚀 Create Test Booking
+            </button>
+            <div id="create-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Check Operator Bookings</h3>
+            <p>Check what bookings are currently in the operator dashboard:</p>
+            <button class="test-button" onclick="checkOperatorBookings()" id="checkBtn">
+                📊 Check Operator Bookings
+            </button>
+            <div id="check-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔄 Full Test</h3>
+            <p>Run the complete test: check current bookings, create new one, wait, check again:</p>
+            <button class="test-button" onclick="runFullTest()" id="fullTestBtn">
+                🧪 Run Full Test
+            </button>
+            <div id="full-test-result" class="result"></div>
+        </div>
+
+        <div class="links">
+            <a href="http://192.168.1.142:3000/operator/demo" target="_blank" class="link-button">
+                🔧 Operator Dashboard
+            </a>
+            <a href="http://192.168.1.142:3000/app" target="_blank" class="link-button">
+                📱 Mobile App
+            </a>
+            <a href="http://192.168.1.142:3000/test-operator" target="_blank" class="link-button">
+                🧪 API Test Page
+            </a>
+            <a href="http://192.168.1.142:3000/mobile-access.html" target="_blank" class="link-button">
+                📲 Mobile Access
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://192.168.1.142:3000/api';
+        const DEMO_API_BASE = 'http://192.168.1.142:3000/api';
+        
+        function logResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            element.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+        }
+
+        function clearResult(elementId) {
+            document.getElementById(elementId).innerHTML = '';
+        }
+
+        async function createTestBooking() {
+            const btn = document.getElementById('createBtn');
+            const resultDiv = document.getElementById('create-result');
+            
+            btn.disabled = true;
+            btn.textContent = 'Creating...';
+            clearResult('create-result');
+            
+            logResult('create-result', '🚀 Creating test booking...');
+            
+            const bookingData = {
+                id: `TEST_REALTIME_${Date.now()}`,
+                serviceType: 'armed-protection',
+                protectionType: 'armed',
+                pickupDetails: {
+                    location: '15 ogushefumi street',
+                    date: '2025-02-22',
+                    time: '11:45',
+                    duration: '1 day',
+                    coordinates: { lat: 6.5244, lng: 3.3792 }
+                },
+                destinationDetails: {
+                    primary: 'Heyeh',
+                    coordinates: { lat: 6.4281, lng: 3.4216 }
+                },
+                personnel: {
+                    protectors: 1,
+                    protectee: 1,
+                    dressCode: 'Tactical Casual'
+                },
+                vehicles: {
+                    armoredSuv: 1
+                },
+                contact: {
+                    user: {
+                        firstName: 'Test',
+                        lastName: 'User'
+                    },
+                    phone: '08012345678'
+                }
+            };
+
+            try {
+                const response = await fetch(`${DEMO_API_BASE}/bookings-demo`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(bookingData)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    logResult('create-result', `✅ Booking created successfully!`, 'success');
+                    logResult('create-result', `Booking ID: ${result.data?.booking_code}`, 'success');
+                    logResult('create-result', `Database ID: ${result.data?.id}`, 'success');
+                    logResult('create-result', '📱 Check the operator dashboard to see if it appears!', 'info');
+                } else {
+                    logResult('create-result', `❌ Booking creation failed: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('create-result', `❌ Network error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🚀 Create Test Booking';
+            }
+        }
+
+        async function checkOperatorBookings() {
+            const btn = document.getElementById('checkBtn');
+            const resultDiv = document.getElementById('check-result');
+            
+            btn.disabled = true;
+            btn.textContent = 'Checking...';
+            clearResult('check-result');
+            
+            logResult('check-result', '🔍 Checking operator bookings...');
+            
+            try {
+                const response = await fetch(`${DEMO_API_BASE}/operator/bookings-demo`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    logResult('check-result', `✅ Found ${result.count || 0} bookings in operator dashboard`, 'success');
+                    logResult('check-result', 'Recent bookings:', 'info');
+                    result.data?.slice(0, 5).forEach((booking, index) => {
+                        logResult('check-result', `${index + 1}. ${booking.booking_code} - ${booking.client?.first_name} ${booking.client?.last_name} (${booking.status})`, 'info');
+                    });
+                } else {
+                    logResult('check-result', `❌ Failed to fetch operator bookings: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('check-result', `❌ Network error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '📊 Check Operator Bookings';
+            }
+        }
+
+        async function runFullTest() {
+            const btn = document.getElementById('fullTestBtn');
+            const resultDiv = document.getElementById('full-test-result');
+            
+            btn.disabled = true;
+            btn.textContent = 'Running...';
+            clearResult('full-test-result');
+            
+            logResult('full-test-result', '🧪 Starting Full Real-time Test...', 'info');
+            
+            // Step 1: Check current bookings
+            logResult('full-test-result', '1. Checking current operator bookings...', 'info');
+            try {
+                const response1 = await fetch(`${DEMO_API_BASE}/operator/bookings-demo`);
+                const result1 = await response1.json();
+                if (response1.ok) {
+                    logResult('full-test-result', `   Found ${result1.count || 0} current bookings`, 'success');
+                } else {
+                    logResult('full-test-result', `   Error: ${result1.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('full-test-result', `   Network error: ${error.message}`, 'error');
+            }
+            
+            // Step 2: Create new booking
+            logResult('full-test-result', '2. Creating new test booking...', 'info');
+            const bookingData = {
+                id: `FULL_TEST_${Date.now()}`,
+                serviceType: 'armed-protection',
+                protectionType: 'armed',
+                pickupDetails: {
+                    location: 'Test Location for Full Test',
+                    date: '2025-02-22',
+                    time: '12:00',
+                    duration: '4 hours',
+                    coordinates: { lat: 6.5244, lng: 3.3792 }
+                },
+                destinationDetails: {
+                    primary: 'Test Destination',
+                    coordinates: { lat: 6.4281, lng: 3.4216 }
+                },
+                personnel: {
+                    protectors: 1,
+                    protectee: 1,
+                    dressCode: 'Tactical Casual'
+                },
+                vehicles: {
+                    armoredSuv: 1
+                },
+                contact: {
+                    user: {
+                        firstName: 'Full',
+                        lastName: 'Test'
+                    },
+                    phone: '08012345678'
+                }
+            };
+            
+            let newBooking = null;
+            try {
+                const response2 = await fetch(`${DEMO_API_BASE}/bookings-demo`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(bookingData)
+                });
+                const result2 = await response2.json();
+                if (response2.ok) {
+                    logResult('full-test-result', `   ✅ Booking created: ${result2.data?.booking_code}`, 'success');
+                    newBooking = result2.data;
+                } else {
+                    logResult('full-test-result', `   ❌ Error: ${result2.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('full-test-result', `   ❌ Network error: ${error.message}`, 'error');
+            }
+            
+            // Step 3: Wait for real-time sync
+            logResult('full-test-result', '3. Waiting 5 seconds for real-time sync...', 'info');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            
+            // Step 4: Check again
+            logResult('full-test-result', '4. Checking operator bookings again...', 'info');
+            try {
+                const response3 = await fetch(`${DEMO_API_BASE}/operator/bookings-demo`);
+                const result3 = await response3.json();
+                if (response3.ok) {
+                    logResult('full-test-result', `   Found ${result3.count || 0} bookings after test`, 'success');
+                    
+                    // Check if our new booking is there
+                    const foundBooking = result3.data?.find(b => b.booking_code === newBooking?.booking_code);
+                    if (foundBooking) {
+                        logResult('full-test-result', `   ✅ SUCCESS! New booking found in operator dashboard!`, 'success');
+                        logResult('full-test-result', `   Real-time sync is working! 🎉`, 'success');
+                    } else {
+                        logResult('full-test-result', `   ⚠️ New booking not found in operator dashboard`, 'error');
+                        logResult('full-test-result', `   Real-time sync may not be working properly`, 'error');
+                    }
+                } else {
+                    logResult('full-test-result', `   Error: ${result3.error}`, 'error');
+                }
+            } catch (error) {
+                logResult('full-test-result', `   Network error: ${error.message}`, 'error');
+            }
+            
+            logResult('full-test-result', '✅ Full test completed!', 'info');
+            
+            btn.disabled = false;
+            btn.textContent = '🧪 Run Full Test';
+        }
+
+        // Auto-run check on page load
+        window.onload = function() {
+            setTimeout(() => {
+                checkOperatorBookings();
+            }, 1000);
+        };
+    </script>
+</body>
+</html>

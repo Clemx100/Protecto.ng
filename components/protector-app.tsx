@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
@@ -25,6 +26,7 @@ interface BookingDisplay {
 }
 
 export default function ProtectorApp() {
+  const router = useRouter()
   const supabase = createClient()
 
   const [activeTab, setActiveTab] = useState("protector")
@@ -2411,12 +2413,19 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
   const handleChatNavigation = (booking: any) => {
     console.log('Navigating to chat with booking:', booking)
     console.log('Booking ID:', booking.id)
+    
     // Store booking data in localStorage for the chat page
     localStorage.setItem('currentBooking', JSON.stringify(booking))
     console.log('Stored in localStorage:', localStorage.getItem('currentBooking'))
-    // Navigate to chat page
+    
+    // Use router.push for better navigation instead of window.location.href
+    // This prevents full page reload and maintains React state
     console.log('Navigating to:', `/chat?id=${booking.id}`)
-    window.location.href = `/chat?id=${booking.id}`
+    
+    // Add a small delay to ensure localStorage is set, then navigate
+    setTimeout(() => {
+      router.push(`/chat?id=${booking.id}`)
+    }, 100)
   }
 
 
