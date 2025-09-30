@@ -4388,10 +4388,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           )}
 
           <button
-            onClick={() => setActiveTab("account")}
-            className={`flex flex-col items-center justify-center gap-1 ${
-              activeTab === "account" ? "text-blue-500" : "text-gray-400"
-            }`}
+            onClick={() => router.push('/account')}
+            className="flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-blue-500"
           >
             <User className="h-5 w-5" />
             <span className="text-xs">Account</span>
