@@ -18,10 +18,9 @@ export function createClient() {
   console.log('Using Supabase URL:', finalUrl)
   console.log('Using Supabase Key:', finalKey ? 'Set' : 'Not set')
   
-  // Basic URL validation
-  if (!finalUrl || !finalUrl.startsWith('https://')) {
-    console.error('Invalid Supabase URL format. Expected: https://your-project-id.supabase.co')
-    console.error('Current URL:', finalUrl)
+  // Basic URL validation - simplified to avoid deployment issues
+  if (!finalUrl) {
+    console.error('Supabase URL is required')
     throw new Error('Invalid Supabase URL configuration')
   }
   
