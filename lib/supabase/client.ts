@@ -12,8 +12,8 @@ export function createClient() {
   console.log('SUPABASE_KEY:', supabaseAnonKey ? 'Set' : 'Not set')
   
   // Use environment variables if available, otherwise fallback to hardcoded values for development
-  const finalUrl = supabaseUrl || 'https://mjdbhusnplveeaveeovd.supabase.co'
-  const finalKey = supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDU5NTMsImV4cCI6MjA3MzUyMTk1M30.Jhsz_eRvmotyGgRzszwfKF8czxSnNE92q1SBupR9DB4'
+  const finalUrl = String(supabaseUrl || 'https://mjdbhusnplveeaveeovd.supabase.co').trim()
+  const finalKey = String(supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDU5NTMsImV4cCI6MjA3MzUyMTk1M30.Jhsz_eRvmotyGgRzszwfKF8czxSnNE92q1SBupR9DB4').trim()
   
   console.log('Using Supabase URL:', finalUrl)
   console.log('Using Supabase Key:', finalKey ? 'Set' : 'Not set')
