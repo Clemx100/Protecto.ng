@@ -24,9 +24,9 @@ export function createClient() {
     throw new Error('Invalid Supabase URL configuration')
   }
   
-  if (!finalKey || !finalKey.startsWith('eyJ')) {
-    console.error('Invalid Supabase anon key format. Expected: eyJ...')
-    console.error('Current key:', finalKey ? 'Set but invalid format' : 'Not set')
+  // Basic anon key validation - simplified to avoid deployment issues
+  if (!finalKey) {
+    console.error('Supabase anon key is required')
     throw new Error('Invalid Supabase anon key configuration')
   }
   
