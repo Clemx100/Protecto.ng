@@ -170,10 +170,16 @@ export default function ChatPage() {
           const messageBookingId = booking.database_id || booking.id
           console.log('Using booking ID for messages:', messageBookingId)
           
-          // Load existing messages
+          // Load existing messages with both booking code and database ID
           await loadMessages(messageBookingId)
           
-          // Subscribe to real-time messages
+          // Also try loading with booking code for backward compatibility
+          if (booking.database_id && booking.id !== booking.database_id) {
+            console.log('Also trying to load messages with booking code:', booking.id)
+            await loadMessages(booking.id)
+          }
+          
+          // Subscribe to real-time messages with both IDs
           const subscription = chatService.subscribeToMessages(messageBookingId, (newMessage) => {
             console.log('New message received:', newMessage)
             setChatMessages(prev => [...prev, newMessage])
@@ -205,6 +211,23 @@ export default function ChatPage() {
             // Try to find the database ID for this booking code
             const messageBookingId = bookingId // Use the booking code as fallback
             await loadMessages(messageBookingId)
+            
+            // Also try to find database ID from operator bookings
+            try {
+              const bookingsResponse = await fetch('/api/operator/bookings')
+              if (bookingsResponse.ok) {
+                const bookingsData = await bookingsResponse.json()
+                if (bookingsData.success) {
+                  const foundBooking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
+                  if (foundBooking && foundBooking.id) {
+                    console.log('Found database ID for booking code:', foundBooking.id)
+                    await loadMessages(foundBooking.id)
+                  }
+                }
+              }
+            } catch (error) {
+              console.log('Could not find database ID:', error)
+            }
           }
         }
       } else {
@@ -222,6 +245,23 @@ export default function ChatPage() {
           // Try to find the database ID for this booking code
           const messageBookingId = bookingId // Use the booking code as fallback
           await loadMessages(messageBookingId)
+          
+          // Also try to find database ID from operator bookings
+          try {
+            const bookingsResponse = await fetch('/api/operator/bookings')
+            if (bookingsResponse.ok) {
+              const bookingsData = await bookingsResponse.json()
+              if (bookingsData.success) {
+                const foundBooking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
+                if (foundBooking && foundBooking.id) {
+                  console.log('Found database ID for booking code:', foundBooking.id)
+                  await loadMessages(foundBooking.id)
+                }
+              }
+            }
+          } catch (error) {
+            console.log('Could not find database ID:', error)
+          }
         }
       }
     } catch (error) {
@@ -302,9 +342,12 @@ export default function ChatPage() {
         return
       }
       
+      // Use database_id if available, otherwise use booking.id
+      const messageBookingId = bookingPayload.database_id || bookingPayload.id
+      
       // Create client message
       const message = await chatService.createClientMessage(
-        bookingPayload.id,
+        messageBookingId,
         messageText,
         user.id
       )
@@ -320,10 +363,17 @@ export default function ChatPage() {
         return [...prev, message]
       })
       
-      // Save to localStorage - the chatService already handles this, but we'll update it here too
+      // Save to localStorage with both booking code and database ID
       const currentMessages = JSON.parse(localStorage.getItem(`chat_${bookingPayload.id}`) || '[]')
       const updatedMessages = [...currentMessages, message]
       localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessages))
+      
+      // Also store with database_id if different
+      if (bookingPayload.database_id && bookingPayload.database_id !== bookingPayload.id) {
+        const currentMessagesDb = JSON.parse(localStorage.getItem(`chat_${bookingPayload.database_id}`) || '[]')
+        const updatedMessagesDb = [...currentMessagesDb, message]
+        localStorage.setItem(`chat_${bookingPayload.database_id}`, JSON.stringify(updatedMessagesDb))
+      }
       
     } catch (error) {
       console.error("Error sending message:", error)
