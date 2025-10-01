@@ -54,7 +54,11 @@ export async function GET(request: NextRequest) {
       created_at: message.created_at,
       is_system_message: message.message_type === 'system',
       has_invoice: false,
-      invoice_data: null
+      invoice_data: null,
+      // Add fields for client compatibility
+      is_encrypted: message.is_encrypted || false,
+      message_type: message.message_type || 'text',
+      sender_name: message.sender ? `${message.sender.first_name} ${message.sender.last_name}` : 'Unknown'
     }))
 
     return NextResponse.json({

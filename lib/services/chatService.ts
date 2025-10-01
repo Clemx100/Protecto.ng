@@ -40,7 +40,10 @@ export class ChatService {
   async sendMessage(message: Omit<ChatMessage, 'id' | 'created_at' | 'updated_at'>) {
     // Try to send via API first
     try {
-      const response = await fetch('/api/messages', {
+      console.log('Sending message via API:', message)
+      
+      // Try client API first
+      let response = await fetch('/api/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -48,9 +51,25 @@ export class ChatService {
         body: JSON.stringify({
           bookingId: message.booking_id,
           content: message.message,
-          messageType: 'text'
+          messageType: message.is_system_message ? 'system' : 'text'
         }),
       })
+
+      // If client API fails, try operator API
+      if (!response.ok) {
+        console.log('Client API failed, trying operator API...')
+        response = await fetch('/api/operator/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            bookingId: message.booking_id,
+            content: message.message,
+            messageType: message.is_system_message ? 'system' : 'text'
+          }),
+        })
+      }
 
       if (response.ok) {
         const result = await response.json()
@@ -64,8 +83,9 @@ export class ChatService {
             message: message.message,
             created_at: result.data.created_at,
             updated_at: result.data.created_at,
-            has_invoice: false,
-            is_system_message: false
+            has_invoice: message.has_invoice || false,
+            is_system_message: message.is_system_message || false,
+            invoiceData: message.invoiceData
           }
 
           // Store in localStorage for immediate availability
@@ -101,13 +121,26 @@ export class ChatService {
   async getMessages(bookingId: string) {
     // Try to get from API first
     try {
-      // First try with the booking ID as-is
+      console.log('Getting messages for booking ID:', bookingId)
+      
+      // Try client API first
       let response = await fetch(`/api/messages?bookingId=${bookingId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
       })
+
+      // If client API fails, try operator API
+      if (!response.ok) {
+        console.log('Client API failed, trying operator API...')
+        response = await fetch(`/api/operator/messages?bookingId=${bookingId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+      }
 
       // If that fails and it looks like a booking code, try to find the database ID
       if (!response.ok && bookingId.startsWith('REQ')) {
@@ -173,13 +206,23 @@ export class ChatService {
       let lastMessageCount = 0
       const pollInterval = setInterval(async () => {
         try {
-          // Try to fetch from API first
-          const response = await fetch(`/api/messages?bookingId=${bookingId}`, {
+          // Try client API first
+          let response = await fetch(`/api/messages?bookingId=${bookingId}`, {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
             },
           })
+
+          // If client API fails, try operator API
+          if (!response.ok) {
+            response = await fetch(`/api/operator/messages?bookingId=${bookingId}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            })
+          }
 
           if (response.ok) {
             const result = await response.json()
@@ -196,8 +239,9 @@ export class ChatService {
                   message: msg.message,
                   created_at: msg.created_at,
                   updated_at: msg.created_at,
-                  has_invoice: false,
-                  is_system_message: msg.is_system_message
+                  has_invoice: msg.has_invoice || false,
+                  is_system_message: msg.is_system_message || false,
+                  invoiceData: msg.invoice_data || msg.invoiceData
                 }
                 callback(chatMessage)
               })

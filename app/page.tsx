@@ -319,7 +319,7 @@ export default function HomePage() {
                   <DollarSign className="h-6 w-6 text-green-400 mt-1 flex-shrink-0" />
                   <div>
                     <h4 className="text-lg font-semibold text-white mb-2">Premium Earnings</h4>
-                    <p className="text-gray-300">Earn ₦50,000 - ₦150,000 per mission depending on vehicle type and duration.</p>
+                    <p className="text-gray-300">Earn ₦250,000 - ₦700,000 and above per mission depending on vehicle type and duration.</p>
                   </div>
                 </div>
                 
@@ -417,7 +417,7 @@ export default function HomePage() {
                   <Car className="h-8 w-8 text-green-400 mx-auto mb-2" />
                   <h4 className="text-lg font-semibold text-white">Standard SUV</h4>
                 </div>
-                <p className="text-gray-300 mb-2">₦50,000 - ₦80,000</p>
+                <p className="text-gray-300 mb-2">₦250,000 - ₦400,000</p>
                 <p className="text-sm text-gray-400">Per 8-hour mission</p>
               </div>
               
@@ -426,7 +426,7 @@ export default function HomePage() {
                   <Truck className="h-8 w-8 text-blue-400 mx-auto mb-2" />
                   <h4 className="text-lg font-semibold text-white">Armored Sedan</h4>
                 </div>
-                <p className="text-gray-300 mb-2">₦80,000 - ₦120,000</p>
+                <p className="text-gray-300 mb-2">₦400,000 - ₦550,000</p>
                 <p className="text-sm text-gray-400">Per 8-hour mission</p>
               </div>
               
@@ -435,7 +435,7 @@ export default function HomePage() {
                   <Shield className="h-8 w-8 text-purple-400 mx-auto mb-2" />
                   <h4 className="text-lg font-semibold text-white">VIP Limousine</h4>
                 </div>
-                <p className="text-gray-300 mb-2">₦120,000 - ₦150,000</p>
+                <p className="text-gray-300 mb-2">₦550,000 - ₦700,000+</p>
                 <p className="text-sm text-gray-400">Per 8-hour mission</p>
               </div>
             </div>

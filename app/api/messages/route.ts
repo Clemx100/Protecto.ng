@@ -48,13 +48,18 @@ export async function GET(request: NextRequest) {
     const transformedMessages = (messages || []).map(message => ({
       id: message.id,
       booking_id: message.booking_id,
-      sender_type: message.sender?.role === 'operator' || message.sender?.role === 'admin' ? 'operator' : 'client',
+      sender_type: message.message_type === 'system' ? 'system' :
+                   message.sender?.role === 'operator' || message.sender?.role === 'admin' ? 'operator' : 'client',
       sender_id: message.sender_id,
       sender_name: message.sender ? `${message.sender.first_name} ${message.sender.last_name}` : 'Unknown',
       message: message.content,
       created_at: message.created_at,
       is_encrypted: message.is_encrypted || false,
-      message_type: message.message_type || 'text'
+      message_type: message.message_type || 'text',
+      // Add fields for operator compatibility
+      is_system_message: message.message_type === 'system',
+      has_invoice: false,
+      invoice_data: null
     }))
 
     return NextResponse.json({
