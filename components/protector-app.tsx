@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search } from "lucide-react"
+import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { chatService } from "@/lib/services/chatService"
@@ -932,9 +932,8 @@ export default function ProtectorApp() {
   }
 
   const handleBookCarOnly = () => {
-    setSelectedService("car-only")
-    setActiveTab("booking")
-    setBookingStep(1)
+    // Initiate phone call to +234 712 000 5328
+    window.location.href = 'tel:+2347120005328'
   }
 
   const storeBookingInSupabase = async (payload: any) => {
@@ -2558,7 +2557,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                     onClick={handleBookCarOnly}
                     className="w-full bg-transparent border-2 border-white !text-white hover:!bg-white hover:!text-black font-semibold px-6 py-3 rounded-full transition-colors"
                   >
-                    <Car className="h-4 w-4 mr-2" />
+                    <Phone className="h-4 w-4 mr-2" />
                     Call Instead
                   </Button>
                 </div>
