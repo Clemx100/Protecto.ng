@@ -1212,7 +1212,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                   </div>
                 </div>
 
-                {/* Operator Actions */}
+                {/* Operator Actions - Fixed Action Buttons */}
                 <div className="p-6 border-b border-white/10">
                   <h4 className="text-lg font-semibold text-white mb-4">Operator Actions</h4>
                   <div className="flex flex-wrap gap-3">
