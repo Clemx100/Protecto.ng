@@ -13,7 +13,11 @@ import {
   UserCheck,
   Globe,
   Menu,
-  X
+  X,
+  Truck,
+  DollarSign,
+  FileText,
+  Users
 } from "lucide-react"
 import { useState } from "react"
 
@@ -36,6 +40,7 @@ export default function HomePage() {
             <nav className="hidden md:flex items-center space-x-6">
               <a href="#services" className="text-gray-300 hover:text-white transition-colors">Services</a>
               <a href="#about" className="text-gray-300 hover:text-white transition-colors">About</a>
+              <a href="#vehicle-owners" className="text-gray-300 hover:text-white transition-colors">Vehicle Owners</a>
               <a href="#contact" className="text-gray-300 hover:text-white transition-colors">Contact</a>
             </nav>
 
@@ -64,6 +69,7 @@ export default function HomePage() {
               <nav className="flex flex-col space-y-4 px-4">
                 <a href="#services" className="text-gray-300 hover:text-white transition-colors py-2">Services</a>
                 <a href="#about" className="text-gray-300 hover:text-white transition-colors py-2">About</a>
+                <a href="#vehicle-owners" className="text-gray-300 hover:text-white transition-colors py-2">Vehicle Owners</a>
                 <a href="#contact" className="text-gray-300 hover:text-white transition-colors py-2">Contact</a>
                 <Link 
                   href="/client"
@@ -290,6 +296,152 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Vehicle Owner Onboarding Section */}
+      <section id="vehicle-owners" className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 py-16 md:py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+              Own a Bulletproof Vehicle?
+            </h2>
+            <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+              Partner with Protector.Ng and earn money by providing your armored vehicle for our premium protection services. 
+              Join our network of trusted vehicle owners and start earning today.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            {/* Benefits */}
+            <div>
+              <h3 className="text-2xl font-bold text-white mb-6">Why Partner With Us?</h3>
+              
+              <div className="space-y-6">
+                <div className="flex items-start space-x-4">
+                  <DollarSign className="h-6 w-6 text-green-400 mt-1 flex-shrink-0" />
+                  <div>
+                    <h4 className="text-lg font-semibold text-white mb-2">Premium Earnings</h4>
+                    <p className="text-gray-300">Earn ₦50,000 - ₦150,000 per mission depending on vehicle type and duration.</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-4">
+                  <Users className="h-6 w-6 text-blue-400 mt-1 flex-shrink-0" />
+                  <div>
+                    <h4 className="text-lg font-semibold text-white mb-2">Elite Clientele</h4>
+                    <p className="text-gray-300">Serve high-profile clients including executives, celebrities, and VIPs.</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-4">
+                  <Shield className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" />
+                  <div>
+                    <h4 className="text-lg font-semibold text-white mb-2">Insurance Coverage</h4>
+                    <p className="text-gray-300">Full insurance coverage and liability protection for all missions.</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-start space-x-4">
+                  <Clock className="h-6 w-6 text-yellow-400 mt-1 flex-shrink-0" />
+                  <div>
+                    <h4 className="text-lg font-semibold text-white mb-2">Flexible Schedule</h4>
+                    <p className="text-gray-300">Choose your availability and work around your schedule.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Requirements & CTA */}
+            <div className="bg-white/10 rounded-xl p-8 border border-white/20">
+              <h3 className="text-2xl font-bold text-white mb-6 text-center">Vehicle Requirements</h3>
+              
+              <div className="space-y-4 mb-8">
+                <div className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300">B6/B7 Level bulletproof protection</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300">Valid insurance and registration</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300">Professional driver with security training</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300">GPS tracking system</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300">Communication equipment</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300">Regular maintenance records</span>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <button className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold py-4 px-6 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-blue-500/25">
+                  <div className="flex items-center justify-center space-x-2">
+                    <Truck className="h-5 w-5" />
+                    <span>Register Your Vehicle</span>
+                  </div>
+                </button>
+                
+                <button className="w-full bg-transparent border-2 border-white/30 hover:border-white text-white font-semibold py-3 px-6 rounded-lg transition-colors">
+                  <div className="flex items-center justify-center space-x-2">
+                    <FileText className="h-5 w-5" />
+                    <span>Download Requirements PDF</span>
+                  </div>
+                </button>
+              </div>
+
+              <div className="mt-6 text-center">
+                <p className="text-sm text-gray-400">
+                  Have questions? Call us at{" "}
+                  <a href="tel:+2347120005328" className="text-blue-400 hover:text-blue-300 font-medium">
+                    +234 712 000 5328
+                  </a>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Earnings Calculator */}
+          <div className="mt-16 bg-white/5 rounded-xl p-8 border border-white/20">
+            <h3 className="text-2xl font-bold text-white mb-6 text-center">Earnings Calculator</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center">
+                <div className="bg-green-500/20 rounded-lg p-4 mb-4">
+                  <Car className="h-8 w-8 text-green-400 mx-auto mb-2" />
+                  <h4 className="text-lg font-semibold text-white">Standard SUV</h4>
+                </div>
+                <p className="text-gray-300 mb-2">₦50,000 - ₦80,000</p>
+                <p className="text-sm text-gray-400">Per 8-hour mission</p>
+              </div>
+              
+              <div className="text-center">
+                <div className="bg-blue-500/20 rounded-lg p-4 mb-4">
+                  <Truck className="h-8 w-8 text-blue-400 mx-auto mb-2" />
+                  <h4 className="text-lg font-semibold text-white">Armored Sedan</h4>
+                </div>
+                <p className="text-gray-300 mb-2">₦80,000 - ₦120,000</p>
+                <p className="text-sm text-gray-400">Per 8-hour mission</p>
+              </div>
+              
+              <div className="text-center">
+                <div className="bg-purple-500/20 rounded-lg p-4 mb-4">
+                  <Shield className="h-8 w-8 text-purple-400 mx-auto mb-2" />
+                  <h4 className="text-lg font-semibold text-white">VIP Limousine</h4>
+                </div>
+                <p className="text-gray-300 mb-2">₦120,000 - ₦150,000</p>
+                <p className="text-sm text-gray-400">Per 8-hour mission</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* Contact Section */}
       <section id="contact" className="py-16 md:py-24">
