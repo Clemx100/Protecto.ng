@@ -1856,7 +1856,7 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <span className="text-sm text-gray-400">
-                {selectedService === "car-only" ? "Book Car Only" : "Book Protection"}
+                {selectedService === "car-only" ? "Call Instead" : "Book Protection"}
               </span>
             </div>
           ) : (
@@ -1921,7 +1921,7 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
                     className="w-full bg-transparent border-2 border-white !text-white hover:!bg-white hover:!text-black font-semibold px-6 py-3 rounded-full transition-colors"
                   >
                     <Car className="h-4 w-4 mr-2" />
-                    Book Car Only
+                    Call Instead
                   </Button>
                 </div>
               </div>
