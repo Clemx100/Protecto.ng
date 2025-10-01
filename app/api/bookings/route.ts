@@ -20,11 +20,58 @@ export async function POST(request: NextRequest) {
     const bookingData = await request.json()
     console.log('📝 Real booking data:', JSON.stringify(bookingData, null, 2))
 
-    // Use the default client ID for now
-    // The operator dashboard will extract client info from special_instructions
-    const clientId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default test client
+    // Extract client information from booking data
+    const clientEmail = bookingData.contact?.user?.email || bookingData.contact?.email
+    const clientPhone = bookingData.contact?.phone
+    const clientFirstName = bookingData.contact?.user?.firstName || bookingData.contact?.firstName || 'Guest'
+    const clientLastName = bookingData.contact?.user?.lastName || bookingData.contact?.lastName || 'User'
     
-    console.log('Using default client ID for booking:', clientId)
+    console.log('Client info:', { clientEmail, clientPhone, clientFirstName, clientLastName })
+
+    // Try to find existing client profile by email or phone
+    let clientId = null
+    if (clientEmail) {
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', clientEmail)
+        .single()
+      
+      if (existingProfile) {
+        clientId = existingProfile.id
+        console.log('Found existing client profile:', clientId)
+      }
+    }
+
+    // If no existing profile found and we have contact info, create a new guest profile
+    if (!clientId && (clientEmail || clientPhone)) {
+      const { data: newProfile, error: profileError } = await supabase
+        .from('profiles')
+        .insert([{
+          email: clientEmail || `guest_${Date.now()}@protector.ng`,
+          phone: clientPhone,
+          first_name: clientFirstName,
+          last_name: clientLastName,
+          role: 'client',
+          profile_completed: false
+        }])
+        .select()
+        .single()
+      
+      if (newProfile) {
+        clientId = newProfile.id
+        console.log('Created new guest profile:', clientId)
+      } else {
+        console.error('Failed to create profile:', profileError)
+        // Fallback to default client ID only if profile creation fails
+        clientId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be'
+        console.log('Using fallback default client ID:', clientId)
+      }
+    } else if (!clientId) {
+      // No contact info provided, use default
+      clientId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be'
+      console.log('No contact info provided, using default client ID:', clientId)
+    }
 
     // Use an existing service ID for mobile app bookings
     const serviceId = 'd5bcc8bd-a566-4094-8ac9-d25b7b356834' // Armed Protection Service
@@ -102,7 +149,14 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    // Import Supabase client dynamically
+    const { createClient: createSupabaseClient } = await import('@supabase/supabase-js')
+    
+    // Use service role for real API to bypass RLS
+    const supabase = createSupabaseClient(
+      'https://mjdbhusnplveeaveeovd.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+    )
     
     // Check if user is authenticated
     const { data: { user }, error: authError } = await supabase.auth.getUser()

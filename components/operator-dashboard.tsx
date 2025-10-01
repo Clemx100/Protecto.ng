@@ -608,13 +608,43 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       // Update booking status using the new API
       if (newStatus !== selectedBooking.status) {
         try {
-          // Ensure we have the correct database ID
-          const databaseId = selectedBooking.database_id || selectedBooking.id
+          // Ensure we have the correct database ID (UUID from Supabase, not booking_code)
+          // database_id should be the actual UUID from the bookings table
+          let databaseId = selectedBooking.database_id
           
-          console.log('Updating booking status:', {
+          console.log('🔍 DEBUG - Selected booking details:', {
+            id: selectedBooking.id,
+            database_id: selectedBooking.database_id,
+            status: selectedBooking.status
+          })
+          
+          // If database_id is not set or looks like a booking code (starts with REQ), 
+          // try to find the actual UUID
+          if (!databaseId || databaseId.startsWith('REQ')) {
+            console.warn('❌ database_id missing or invalid, attempting to find by booking_code:', selectedBooking.id)
+            
+            // Try to fetch the booking by booking_code to get the real UUID
+            const { data: bookingData, error: fetchError } = await supabase
+              .from('bookings')
+              .select('id')
+              .eq('booking_code', selectedBooking.id)
+              .single()
+            
+            if (bookingData && !fetchError) {
+              databaseId = bookingData.id
+              console.log('Found database ID:', databaseId)
+            } else {
+              console.error('Failed to find booking by code:', fetchError)
+              throw new Error('Could not find booking in database')
+            }
+          }
+          
+          console.log('🚀 Sending status update request:', {
             bookingId: databaseId,
+            bookingCode: selectedBooking.id,
             status: newStatus.toLowerCase().replace(/\s+/g, '_'),
-            notes: systemMessage
+            notes: systemMessage,
+            requestUrl: '/api/bookings/status'
           })
 
           const response = await fetch('/api/bookings/status', {
@@ -694,7 +724,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           }
         } catch (error) {
           console.error('Failed to update booking status:', error)
-          setError(`Failed to update booking status: ${error.message}. Please try again.`)
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+          setError(`Failed to update booking status: ${errorMessage}. Please try again.`)
           return
         }
       }
@@ -777,7 +808,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       scrollToBottom()
     } catch (error) {
       console.error(`Failed to ${action} booking:`, error)
-      setError(`Failed to ${action} booking: ${error.message || error}`)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      setError(`Failed to ${action} booking: ${errorMessage}`)
     } finally {
       setActionLoading(null)
     }
@@ -1102,7 +1134,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                       <span className="text-gray-300">Service:</span>
                       <span className="text-white font-medium">
                         {selectedBooking.serviceType ? 
-                          selectedBooking.serviceType.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase()) + ' Service' : 
+                          selectedBooking.serviceType.replace('-', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()) + ' Service' : 
                           'Armed Protection Service'
                         }
                       </span>
@@ -1164,8 +1196,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                             } else if (typeof selectedBooking.vehicles === 'object') {
                               // Handle object format: {vehicleId: count}
                               return Object.entries(selectedBooking.vehicles)
-                                .filter(([_, count]) => count > 0)
+                                .filter(([_, count]) => (count as number) > 0)
                                 .map(([vehicleId, count]) => {
+                                  const vehicleCount = count as number
                                   // Map vehicle IDs to readable names
                                   const vehicleNames: { [key: string]: string } = {
                                     'armoredSedan': 'Armored Sedan',
@@ -1174,7 +1207,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                                     'van': 'Van'
                                   }
                                   const vehicleName = vehicleNames[vehicleId] || vehicleId
-                                  return count > 1 ? `${vehicleName} (${count})` : vehicleName
+                                  return vehicleCount > 1 ? `${vehicleName} (${vehicleCount})` : vehicleName
                                 })
                                 .join(', ')
                             } else {

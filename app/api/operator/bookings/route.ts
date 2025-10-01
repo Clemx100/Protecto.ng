@@ -56,17 +56,39 @@ export async function GET(request: NextRequest) {
         email: booking.client?.email || 'N/A'
       }
       
-      // Try to extract client info from special_instructions JSON
+      // Additional booking data from special_instructions
+      let vehicles = {}
+      let protectionType = 'N/A'
+      let destinationDetails = {}
+      let contact = null
+      
+      // Try to extract all data from special_instructions JSON
       try {
         if (booking.special_instructions) {
           const specialInstructions = JSON.parse(booking.special_instructions)
-          if (specialInstructions.contact?.user) {
-            clientInfo = {
-              first_name: specialInstructions.contact.user.firstName || clientInfo.first_name,
-              last_name: specialInstructions.contact.user.lastName || clientInfo.last_name,
-              phone: specialInstructions.contact.phone || clientInfo.phone,
-              email: specialInstructions.contact.user.email || clientInfo.email
+          
+          // Extract contact info
+          if (specialInstructions.contact) {
+            contact = specialInstructions.contact
+            if (specialInstructions.contact.user) {
+              clientInfo = {
+                first_name: specialInstructions.contact.user.firstName || clientInfo.first_name,
+                last_name: specialInstructions.contact.user.lastName || clientInfo.last_name,
+                phone: specialInstructions.contact.phone || clientInfo.phone,
+                email: specialInstructions.contact.user.email || clientInfo.email
+              }
             }
+          }
+          
+          // Extract other booking details
+          if (specialInstructions.vehicles) {
+            vehicles = specialInstructions.vehicles
+          }
+          if (specialInstructions.protectionType) {
+            protectionType = specialInstructions.protectionType
+          }
+          if (specialInstructions.destinationDetails) {
+            destinationDetails = specialInstructions.destinationDetails
           }
         }
       } catch (error) {
@@ -78,6 +100,7 @@ export async function GET(request: NextRequest) {
         booking_code: booking.booking_code,
         database_id: booking.id, // Keep database ID for internal operations
         client: clientInfo,
+        contact: contact, // Include full contact object
         pickup_address: booking.pickup_address || 'N/A',
         destination_address: booking.destination_address || 'N/A',
         status: booking.status || 'pending',
@@ -89,18 +112,30 @@ export async function GET(request: NextRequest) {
           type: booking.service_type,
           description: booking.service?.description || ''
         },
+        serviceType: booking.service_type === 'armed_protection' ? 'armed-protection' : 'vehicle-only',
         duration: `${booking.duration_hours || 1} hour(s)`,
         total_price: booking.total_price || 0,
         personnel: {
           protectors: booking.protector_count || 0,
-          protectee: booking.protectee_count || 1
+          protectee: booking.protectee_count || 1,
+          dressCode: booking.dress_code?.replace(/_/g, ' ') || 'N/A'
         },
         dress_code: booking.dress_code || 'N/A',
+        vehicles: vehicles,
+        protectionType: protectionType,
+        destinationDetails: destinationDetails,
         special_instructions: booking.special_instructions || 'N/A',
         emergency_contact: booking.emergency_contact || 'N/A',
-        emergency_phone: booking.emergency_phone || 'N/A'
+        emergency_phone: booking.emergency_phone || 'N/A',
+        // Additional fields for compatibility
+        pickupDetails: {
+          location: booking.pickup_address,
+          date: booking.scheduled_date,
+          time: booking.scheduled_time
+        },
+        timestamp: booking.created_at
       }
-    }); // Added semicolon
+    });
 
     return NextResponse.json({
       success: true,

@@ -53,7 +53,12 @@ export default function ChatPage() {
       if (storedBookings) {
         try {
           const bookings = JSON.parse(storedBookings)
-          const currentBooking = bookings.find((b: any) => b.id === bookingPayload.id)
+          // Check both booking code and database_id
+          let currentBooking = bookings.find((b: any) => b.id === bookingPayload.id)
+          if (!currentBooking && bookingPayload.database_id) {
+            currentBooking = bookings.find((b: any) => b.id === bookingPayload.database_id)
+          }
+          
           if (currentBooking && currentBooking.status !== requestStatus) {
             const newStatus = currentBooking.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
             setRequestStatus(newStatus)
@@ -68,7 +73,12 @@ export default function ChatPage() {
       if (operatorBookings) {
         try {
           const bookings = JSON.parse(operatorBookings)
-          const currentBooking = bookings.find((b: any) => b.id === bookingPayload.id)
+          // Check both booking code and database_id
+          let currentBooking = bookings.find((b: any) => b.id === bookingPayload.id)
+          if (!currentBooking && bookingPayload.database_id) {
+            currentBooking = bookings.find((b: any) => b.id === bookingPayload.database_id)
+          }
+          
           if (currentBooking && currentBooking.status !== requestStatus) {
             const newStatus = currentBooking.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
             setRequestStatus(newStatus)
@@ -99,7 +109,15 @@ export default function ChatPage() {
     if (!bookingPayload) return
 
     const checkForNewMessages = () => {
-      const storedMessages = localStorage.getItem(`chat_${bookingPayload.id}`)
+      // Use database_id if available, otherwise use booking.id
+      const messageBookingId = bookingPayload.database_id || bookingPayload.id
+      
+      // Check both localStorage keys for messages
+      let storedMessages = localStorage.getItem(`chat_${messageBookingId}`)
+      if (!storedMessages && bookingPayload.database_id && bookingPayload.database_id !== bookingPayload.id) {
+        storedMessages = localStorage.getItem(`chat_${bookingPayload.id}`)
+      }
+      
       if (storedMessages) {
         try {
           const messages = JSON.parse(storedMessages)
@@ -327,8 +345,9 @@ export default function ChatPage() {
       
       const messageText = newMessage.trim()
       
-      // Check for duplicates before sending
-      const existingMessages = JSON.parse(localStorage.getItem(`chat_${bookingPayload.id}`) || '[]')
+      // Check for duplicates before sending - use database_id if available
+      const messageBookingId = bookingPayload.database_id || bookingPayload.id
+      const existingMessages = JSON.parse(localStorage.getItem(`chat_${messageBookingId}`) || '[]')
       const isDuplicate = existingMessages.some((msg: any) => 
         msg.message === messageText && 
         msg.sender_type === 'client' && 
@@ -364,15 +383,15 @@ export default function ChatPage() {
       })
       
       // Save to localStorage with both booking code and database ID
-      const currentMessages = JSON.parse(localStorage.getItem(`chat_${bookingPayload.id}`) || '[]')
+      const currentMessages = JSON.parse(localStorage.getItem(`chat_${messageBookingId}`) || '[]')
       const updatedMessages = [...currentMessages, message]
-      localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessages))
+      localStorage.setItem(`chat_${messageBookingId}`, JSON.stringify(updatedMessages))
       
-      // Also store with database_id if different
+      // Also store with booking code if different from database_id
       if (bookingPayload.database_id && bookingPayload.database_id !== bookingPayload.id) {
-        const currentMessagesDb = JSON.parse(localStorage.getItem(`chat_${bookingPayload.database_id}`) || '[]')
-        const updatedMessagesDb = [...currentMessagesDb, message]
-        localStorage.setItem(`chat_${bookingPayload.database_id}`, JSON.stringify(updatedMessagesDb))
+        const currentMessagesCode = JSON.parse(localStorage.getItem(`chat_${bookingPayload.id}`) || '[]')
+        const updatedMessagesCode = [...currentMessagesCode, message]
+        localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessagesCode))
       }
       
     } catch (error) {
@@ -394,10 +413,13 @@ export default function ChatPage() {
     try {
       setIsSending(true)
       
+      // Use database_id if available, otherwise use booking.id
+      const messageBookingId = bookingPayload.database_id || bookingPayload.id
+      
       // Create payment approval message
       const approvalMessage = {
         id: `approval_${Date.now()}`,
-        booking_id: bookingPayload.id,
+        booking_id: messageBookingId,
         sender_type: 'client',
         message: "✅ Payment approved! Please proceed with the service.",
         created_at: new Date().toISOString()
@@ -406,7 +428,7 @@ export default function ChatPage() {
       // Create status update message for operator
       const statusMessage = {
         id: `status_${Date.now()}`,
-        booking_id: bookingPayload.id,
+        booking_id: messageBookingId,
         sender_type: 'system',
         message: "🔄 Status updated: Payment approved → Ready for deployment",
         created_at: new Date().toISOString()
@@ -415,9 +437,14 @@ export default function ChatPage() {
       // Add to local state immediately
       setChatMessages(prev => [...prev, approvalMessage, statusMessage])
       
-      // Save to localStorage
+      // Save to localStorage with both booking code and database ID
       const updatedMessages = [...chatMessages, approvalMessage, statusMessage]
-      localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessages))
+      localStorage.setItem(`chat_${messageBookingId}`, JSON.stringify(updatedMessages))
+      
+      // Also store with booking code if different from database_id
+      if (bookingPayload.database_id && bookingPayload.database_id !== bookingPayload.id) {
+        localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessages))
+      }
       
       // Update booking status to accepted and add payment approval flag
       const storedBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')

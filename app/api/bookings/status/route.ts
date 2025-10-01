@@ -18,7 +18,8 @@ export async function PATCH(request: NextRequest) {
 
     const { bookingId, status, notes } = await request.json()
 
-    console.log('Status update request:', { bookingId, status, notes })
+    console.log('🔍 API received status update request:', { bookingId, status, notes })
+    console.log('🔍 Booking ID type:', typeof bookingId, 'Length:', bookingId?.length)
 
     if (!bookingId || !status) {
       return NextResponse.json({ error: 'Booking ID and status are required' }, { status: 400 })
@@ -38,7 +39,13 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     if (fetchError || !existingBooking) {
-      console.error('Booking not found:', fetchError)
+      console.error('❌ Booking not found:', { 
+        bookingId, 
+        error: fetchError,
+        searchedFor: bookingId,
+        errorCode: fetchError?.code,
+        errorMessage: fetchError?.message
+      })
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
     }
 
