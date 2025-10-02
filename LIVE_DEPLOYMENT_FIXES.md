@@ -133,3 +133,7 @@ No new environment variables required. The fixes use existing Supabase credentia
 
 The live domain (www.protector.ng) should now work correctly with real client data and functional operator actions.
 
+
+
+
+

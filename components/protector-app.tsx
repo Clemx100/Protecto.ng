@@ -39,7 +39,11 @@ export default function ProtectorApp() {
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([])
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false)
   const [isLoadingLocation, setIsLoadingLocation] = useState(false)
-  const [pickupDate, setPickupDate] = useState("Feb 22, 2025")
+  const [pickupDate, setPickupDate] = useState(() => {
+    const today = new Date()
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    return `${months[today.getMonth()]} ${today.getDate()}, ${today.getFullYear()}`
+  })
   const [pickupTime, setPickupTime] = useState("11:45am")
   const [duration, setDuration] = useState("1 day")
   const [selectedDressCode, setSelectedDressCode] = useState("tactical-casual")
@@ -50,7 +54,34 @@ export default function ProtectorApp() {
   const [showCalendar, setShowCalendar] = useState(false)
   const [showTimePicker, setShowTimePicker] = useState(false)
   const [showDurationPicker, setShowDurationPicker] = useState(false)
+  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth())
+  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear())
   const [selectedHour, setSelectedHour] = useState(11)
+  
+  // Sync calendar with pickup date when calendar opens or pickup date changes
+  useEffect(() => {
+    if (showCalendar) {
+      // Try to parse pickup date first
+      try {
+        const pickupDateObj = new Date(pickupDate)
+        if (!isNaN(pickupDateObj.getTime())) {
+          setCalendarMonth(pickupDateObj.getMonth())
+          setCalendarYear(pickupDateObj.getFullYear())
+        } else {
+          // If pickup date is invalid, fall back to current month/year
+          const today = new Date()
+          setCalendarMonth(today.getMonth())
+          setCalendarYear(today.getFullYear())
+        }
+      } catch (error) {
+        // If parsing fails, fall back to current month/year
+        console.warn('Failed to parse pickupDate for calendar sync:', pickupDate)
+        const today = new Date()
+        setCalendarMonth(today.getMonth())
+        setCalendarYear(today.getFullYear())
+      }
+    }
+  }, [showCalendar, pickupDate])
   const [selectedMinute, setSelectedMinute] = useState(45)
   const [selectedPeriod, setSelectedPeriod] = useState("AM")
   const [phoneNumber, setPhoneNumber] = useState("")
@@ -182,7 +213,9 @@ export default function ProtectorApp() {
     
     setIsLoadingBookings(true)
     try {
-      // Get active bookings
+      console.log('📥 Loading bookings for user:', user.id)
+      
+      // Get active bookings (including pending!)
       const { data: activeData, error: activeError } = await supabase
         .from('bookings')
         .select(`
@@ -193,8 +226,10 @@ export default function ProtectorApp() {
           service:services(name, description)
         `)
         .eq('client_id', user.id)
-        .in('status', ['accepted', 'en_route', 'arrived', 'in_service'])
+        .in('status', ['pending', 'accepted', 'en_route', 'arrived', 'in_service'])
         .order('created_at', { ascending: false })
+      
+      console.log('📊 Active bookings query result:', { count: activeData?.length, error: activeError })
 
       if (activeError) {
         console.error('Error fetching active bookings:', activeError)
@@ -214,6 +249,8 @@ export default function ProtectorApp() {
         .eq('client_id', user.id)
         .in('status', ['completed', 'cancelled'])
         .order('created_at', { ascending: false })
+      
+      console.log('📊 History bookings query result:', { count: historyData?.length, error: historyError })
 
       if (historyError) {
         console.error('Error fetching booking history:', historyError)
@@ -222,6 +259,8 @@ export default function ProtectorApp() {
 
       const active = transformBookings(activeData || [])
       const history = transformBookings(historyData || [])
+      
+      console.log('✅ Bookings loaded:', { active: active.length, history: history.length })
       
       setActiveBookings(active)
       setBookingHistory(history)
@@ -354,9 +393,18 @@ export default function ProtectorApp() {
   // Load bookings when user is available
   useEffect(() => {
     if (user?.id) {
+      console.log('👤 User authenticated, loading bookings...')
       loadBookings()
     }
   }, [user?.id])
+  
+  // Refresh bookings when switching to bookings tab
+  useEffect(() => {
+    if (activeTab === 'bookings' && user?.id) {
+      console.log('📑 Bookings tab opened, refreshing...')
+      loadBookings()
+    }
+  }, [activeTab, user?.id])
 
   // Listen for auth state changes
   useEffect(() => {
@@ -939,19 +987,41 @@ export default function ProtectorApp() {
   const storeBookingInSupabase = async (payload: any) => {
     try {
       console.log('🚀 Starting booking storage process...')
-      console.log('Payload:', payload)
+      console.log('📋 Booking Payload:', {
+        bookingCode: payload.id,
+        serviceType: payload.serviceType,
+        pickup: payload.pickupDetails?.location,
+        date: payload.pickupDetails?.date
+      })
       
       // Ensure user is authenticated
       if (!user) {
+        console.error('❌ User not authenticated!')
         throw new Error('User not authenticated')
       }
 
+      console.log('👤 Creating booking for user:', {
+        userId: user.id,
+        email: user.email
+      })
+
+      // Get the user's session to include in the request
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        console.error('❌ No active session found!')
+        throw new Error('No active session. Please log in again.')
+      }
+      
+      console.log('🔐 Session found, token available:', !!session.access_token)
+      
       // Use the API endpoint instead of direct Supabase calls
-      console.log('📤 Submitting booking via API...')
+      console.log('📤 Submitting booking via API with user:', user.id)
       const response = await fetch('/api/bookings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': session?.access_token ? `Bearer ${session.access_token}` : '',
         },
         body: JSON.stringify(payload)
       })
@@ -959,10 +1029,25 @@ export default function ProtectorApp() {
       const result = await response.json()
       
       if (!response.ok) {
+        console.error('❌ API returned error:', result)
         throw new Error(result.error || 'Failed to create booking')
       }
 
-      console.log('✅ Booking created successfully via API:', result)
+      console.log('✅ Booking created successfully via API:', {
+        bookingId: result.data?.id,
+        bookingCode: result.data?.booking_code,
+        clientId: result.data?.client_id,
+        status: result.data?.status
+      })
+      
+      // Verify the booking was created with the correct user
+      if (result.data?.client_id !== user.id) {
+        console.warn('⚠️ WARNING: Booking created with different user ID!', {
+          expected: user.id,
+          actual: result.data?.client_id
+        })
+      }
+      
       return result.data
     } catch (error) {
       console.error('❌ Failed to store booking via API:', error)
@@ -1026,12 +1111,17 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     try {
       // PRIMARY: Store booking in Supabase first
       console.log('🚀 Starting booking storage process...')
-      await storeBookingInSupabase(payload)
-      console.log('✅ Booking stored in Supabase successfully')
+      const createdBooking = await storeBookingInSupabase(payload)
+      console.log('✅ Booking stored in Supabase successfully:', createdBooking)
 
       // Store system message in Supabase
       await chatService.createSystemMessage(payload.id, bookingSummary, userId)
       console.log('System message stored in Supabase successfully')
+      
+      // IMPORTANT: Refresh bookings list to include the new booking
+      console.log('🔄 Refreshing bookings list...')
+      await loadBookings()
+      console.log('✅ Bookings list refreshed')
 
       // FALLBACK: Store in localStorage as backup
       const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
@@ -2215,12 +2305,30 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
 
   const renderCalendar = () => {
-    //  Implemented functional calendar component instead of placeholder
     const today = new Date()
-    const currentMonth = today.getMonth()
-    const currentYear = today.getFullYear()
-    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
-    const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay()
+    const displayMonth = calendarMonth
+    const displayYear = calendarYear
+    
+    const daysInMonth = new Date(displayYear, displayMonth + 1, 0).getDate()
+    const firstDayOfMonth = new Date(displayYear, displayMonth, 1).getDay()
+    
+    const navigateMonth = (direction: 'prev' | 'next') => {
+      if (direction === 'prev') {
+        if (calendarMonth === 0) {
+          setCalendarMonth(11)
+          setCalendarYear(calendarYear - 1)
+        } else {
+          setCalendarMonth(calendarMonth - 1)
+        }
+      } else {
+        if (calendarMonth === 11) {
+          setCalendarMonth(0)
+          setCalendarYear(calendarYear + 1)
+        } else {
+          setCalendarMonth(calendarMonth + 1)
+        }
+      }
+    }
 
     const days = []
 
@@ -2231,9 +2339,15 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
     // Add days of the month
     for (let day = 1; day <= daysInMonth; day++) {
-      const date = new Date(currentYear, currentMonth, day)
-      const isToday = date.toDateString() === today.toDateString()
+      const date = new Date(displayYear, displayMonth, day)
       const isPast = date < today
+      
+      // Check if this day is the selected pickup date
+      const selectedDate = new Date(pickupDate)
+      const isSelected = !isNaN(selectedDate.getTime()) && 
+                        selectedDate.getDate() === day &&
+                        selectedDate.getMonth() === displayMonth &&
+                        selectedDate.getFullYear() === displayYear
 
       days.push(
         <button
@@ -2241,14 +2355,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           onClick={() => {
             if (!isPast) {
               const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-              setPickupDate(`${months[currentMonth]} ${day}, ${currentYear}`)
+              setPickupDate(`${months[displayMonth]} ${day}, ${displayYear}`)
               setShowCalendar(false)
             }
           }}
           disabled={isPast}
           className={`p-2 text-sm rounded ${
-            isToday
-              ? "bg-blue-600 text-white"
+            isSelected
+              ? "bg-blue-600 text-white font-semibold"
               : isPast
                 ? "text-gray-600 cursor-not-allowed"
                 : "text-white hover:bg-gray-700"
@@ -2262,9 +2376,23 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     return (
       <div className="bg-gray-800 rounded-lg p-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-white font-medium">
-            {today.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-          </h3>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => navigateMonth('prev')}
+              className="p-1 text-gray-400 hover:text-white transition-colors"
+            >
+              ←
+            </button>
+            <h3 className="text-white font-medium">
+              {new Date(displayYear, displayMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+            </h3>
+            <button 
+              onClick={() => navigateMonth('next')}
+              className="p-1 text-gray-400 hover:text-white transition-colors"
+            >
+              →
+            </button>
+          </div>
           <button onClick={() => setShowCalendar(false)} className="text-gray-400 hover:text-white">
             ✕
           </button>

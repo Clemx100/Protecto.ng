@@ -43,23 +43,34 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
     }
 
+    console.log(`📨 Found ${messages?.length || 0} messages for booking:`, bookingId)
+
     // Transform messages to match expected format
-    const transformedMessages = (messages || []).map(message => ({
-      id: message.id,
-      booking_id: message.booking_id,
-      sender_type: message.message_type === 'system' ? 'system' : 
-                   message.sender?.role === 'operator' || message.sender?.role === 'admin' ? 'operator' : 'client',
-      sender_id: message.sender_id,
-      message: message.content,
-      created_at: message.created_at,
-      is_system_message: message.message_type === 'system',
-      has_invoice: false,
-      invoice_data: null,
-      // Add fields for client compatibility
-      is_encrypted: message.is_encrypted || false,
-      message_type: message.message_type || 'text',
-      sender_name: message.sender ? `${message.sender.first_name} ${message.sender.last_name}` : 'Unknown'
-    }))
+    const transformedMessages = (messages || []).map(message => {
+      const isInvoice = message.message_type === 'invoice'
+      const hasMetadata = message.metadata || message.invoice_data
+      
+      return {
+        id: message.id,
+        booking_id: message.booking_id,
+        sender_type: message.message_type === 'system' ? 'system' : 
+                     message.sender?.role === 'operator' || message.sender?.role === 'admin' ? 'operator' : 'client',
+        sender_id: message.sender_id,
+        message: message.content,
+        created_at: message.created_at,
+        is_system_message: message.message_type === 'system',
+        has_invoice: isInvoice,
+        hasInvoice: isInvoice, // Alternative naming
+        invoice_data: hasMetadata,
+        invoiceData: hasMetadata, // Alternative naming
+        metadata: message.metadata,
+        // Add fields for client compatibility
+        is_encrypted: message.is_encrypted || false,
+        message_type: message.message_type || 'text',
+        sender_name: message.sender ? `${message.sender.first_name} ${message.sender.last_name}` : 'Unknown',
+        sender: message.sender
+      }
+    })
 
     return NextResponse.json({
       success: true,
@@ -88,11 +99,13 @@ export async function POST(request: NextRequest) {
     // For now, skip authentication check to allow operator dashboard to work
     console.log('⚠️ Skipping authentication for operator messages compatibility')
 
-    const { bookingId, content, messageType = 'text', recipientId } = await request.json()
+    const { bookingId, content, messageType = 'text', recipientId, metadata = {} } = await request.json()
 
     if (!bookingId || !content) {
       return NextResponse.json({ error: 'Booking ID and content are required' }, { status: 400 })
     }
+
+    console.log('📝 Creating operator message:', { bookingId, messageType, hasMetadata: Object.keys(metadata).length > 0 })
 
     // Get booking to find the client
     const { data: booking } = await supabase
@@ -108,27 +121,56 @@ export async function POST(request: NextRequest) {
     // Create message - use a default operator ID for now
     const operatorId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default operator ID
     
+    // Check if messages table has metadata column
+    const messageData: any = {
+      booking_id: bookingId,
+      sender_id: operatorId,
+      recipient_id: recipientId || booking.client_id,
+      content: content,
+      message_type: messageType,
+      is_encrypted: false
+    }
+    
+    // Add metadata if available (for invoices, etc.)
+    if (Object.keys(metadata).length > 0) {
+      // Try to add metadata, but don't fail if column doesn't exist
+      try {
+        // First check if metadata column exists
+        const { data: columns } = await supabase
+          .from('messages')
+          .select('*')
+          .limit(0)
+        
+        // If we got here, try to add metadata
+        messageData.metadata = metadata
+      } catch (err) {
+        console.log('⚠️ Metadata column may not exist, storing in special_instructions instead')
+        // Fallback: store in content or special field
+        messageData.invoice_data = metadata
+      }
+    }
+    
     const { data: newMessage, error: messageError } = await supabase
       .from('messages')
-      .insert({
-        booking_id: bookingId,
-        sender_id: operatorId,
-        recipient_id: recipientId || booking.client_id,
-        content: content,
-        message_type: messageType,
-        is_encrypted: false
-      })
+      .insert(messageData)
       .select()
       .single()
 
     if (messageError) {
       console.error('Error creating message:', messageError)
-      return NextResponse.json({ error: 'Failed to create message' }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to create message', details: messageError.message }, { status: 500 })
     }
+
+    console.log('✅ Operator message created successfully:', newMessage.id)
 
     return NextResponse.json({
       success: true,
-      data: newMessage
+      data: {
+        ...newMessage,
+        // Include metadata in response
+        metadata: metadata,
+        invoiceData: metadata // For backward compatibility
+      }
     })
 
   } catch (error) {

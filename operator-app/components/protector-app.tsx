@@ -19,7 +19,11 @@ export default function ProtectorApp() {
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([])
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false)
   const [isLoadingLocation, setIsLoadingLocation] = useState(false)
-  const [pickupDate, setPickupDate] = useState("Feb 22, 2025")
+  const [pickupDate, setPickupDate] = useState(new Date().toLocaleDateString('en-US', { 
+    year: 'numeric', 
+    month: 'short', 
+    day: 'numeric' 
+  }))
   const [pickupTime, setPickupTime] = useState("11:45am")
   const [duration, setDuration] = useState("1 day")
   const [selectedDressCode, setSelectedDressCode] = useState("tactical-casual")
@@ -1548,6 +1552,13 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
       const date = new Date(currentYear, currentMonth, day)
       const isToday = date.toDateString() === today.toDateString()
       const isPast = date < today
+      
+      // Check if this day is the selected pickup date
+      const selectedDate = new Date(pickupDate)
+      const isSelected = !isNaN(selectedDate.getTime()) && 
+                        selectedDate.getDate() === day &&
+                        selectedDate.getMonth() === currentMonth &&
+                        selectedDate.getFullYear() === currentYear
 
       days.push(
         <button
@@ -1561,11 +1572,13 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
           }}
           disabled={isPast}
           className={`p-2 text-sm rounded ${
-            isToday
-              ? "bg-blue-600 text-white"
-              : isPast
-                ? "text-gray-600 cursor-not-allowed"
-                : "text-white hover:bg-gray-700"
+            isSelected
+              ? "bg-blue-600 text-white font-semibold"
+              : isToday
+                ? "bg-gray-600 text-white"
+                : isPast
+                  ? "text-gray-600 cursor-not-allowed"
+                  : "text-white hover:bg-gray-700"
           }`}
         >
           {day}
@@ -1752,7 +1765,11 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
       pickupDetails: {
         location: "Test Location",
         destination: "Test Destination",
-        date: "Feb 22, 2025",
+        date: new Date().toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'short', 
+          day: 'numeric' 
+        }),
         time: "2:00 PM",
         duration: "1 day"
       },

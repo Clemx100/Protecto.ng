@@ -69,34 +69,46 @@ export async function PATCH(request: NextRequest) {
 
     console.log('Successfully updated booking:', updatedBooking)
 
-    // Create a system message about the status change
-    if (status !== 'pending') {
-      const statusMessages = {
-        'accepted': '✅ Your booking has been accepted by our team. We will contact you shortly.',
-        'en_route': '🚗 Your security team is now en route to your location.',
-        'arrived': '📍 Your security team has arrived at your location.',
-        'in_service': '🛡️ Security service is now active. Your protection team is on duty.',
-        'completed': '✅ Security service completed successfully. Thank you for choosing Protector.Ng!',
-        'cancelled': '❌ Your booking has been cancelled. Please contact support if you have any questions.'
-      }
+    // ALWAYS create a system message about the status change (including for pending)
+    const statusMessages = {
+      'pending': '⏳ Your booking request has been received and is pending review.',
+      'accepted': '✅ Your booking has been accepted by our team. We will contact you shortly.',
+      'en_route': '🚗 Your security team is now en route to your location.',
+      'arrived': '📍 Your security team has arrived at your location.',
+      'in_service': '🛡️ Security service is now active. Your protection team is on duty.',
+      'completed': '✅ Security service completed successfully. Thank you for choosing Protector.Ng!',
+      'cancelled': '❌ Your booking has been cancelled. Please contact support if you have any questions.',
+      'deployed': '🚀 Security team has been deployed and is preparing for departure.'
+    }
 
-      const messageContent = statusMessages[status as keyof typeof statusMessages] || `Status updated to: ${status}`
-      
-      // Add notes if provided
-      const fullMessage = notes ? `${messageContent}\n\nNotes: ${notes}` : messageContent
+    const messageContent = statusMessages[status as keyof typeof statusMessages] || `Status updated to: ${status}`
+    
+    // Add notes if provided
+    const fullMessage = notes ? `${messageContent}\n\nNotes: ${notes}` : messageContent
 
-      // Create system message - use a valid operator ID for system messages
-      const operatorId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default operator ID
-      await supabase
-        .from('messages')
-        .insert({
-          booking_id: bookingId,
-          sender_id: operatorId,
-          recipient_id: updatedBooking.client_id,
-          content: fullMessage,
-          message_type: 'system',
-          is_encrypted: false
-        })
+    // Create system message - use a valid operator ID for system messages
+    const operatorId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default operator ID
+    
+    console.log('📨 Creating system message for status update:', { bookingId, status, message: fullMessage })
+    
+    const { data: systemMessage, error: messageError } = await supabase
+      .from('messages')
+      .insert({
+        booking_id: bookingId,
+        sender_id: operatorId,
+        recipient_id: updatedBooking.client_id,
+        content: fullMessage,
+        message_type: 'system',
+        is_encrypted: false
+      })
+      .select()
+      .single()
+
+    if (messageError) {
+      console.error('⚠️ Failed to create system message:', messageError)
+      // Don't fail the whole request
+    } else {
+      console.log('✅ System message created:', systemMessage?.id)
     }
 
     return NextResponse.json({
@@ -151,32 +163,51 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to update booking status' }, { status: 500 })
     }
 
-    // Create a system message about the status update
-    if (message) {
-      // Get the booking to find the client_id
-      const { data: booking } = await supabase
-        .from('bookings')
-        .select('client_id')
-        .eq('id', booking_id)
+    // ALWAYS create a system message about the status update
+    const statusMessages = {
+      'pending': '⏳ Your booking request has been received and is pending review.',
+      'accepted': '✅ Your booking has been accepted by our team. We will contact you shortly.',
+      'en_route': '🚗 Your security team is now en route to your location.',
+      'arrived': '📍 Your security team has arrived at your location.',
+      'in_service': '🛡️ Security service is now active. Your protection team is on duty.',
+      'completed': '✅ Security service completed successfully. Thank you for choosing Protector.Ng!',
+      'cancelled': '❌ Your booking has been cancelled. Please contact support if you have any questions.',
+      'deployed': '🚀 Security team has been deployed and is preparing for departure.'
+    }
+
+    const systemMessageContent = statusMessages[status as keyof typeof statusMessages] || `Status updated to: ${status}`
+    const fullMessage = message ? `${systemMessageContent}\n\nNotes: ${message}` : systemMessageContent
+
+    // Get the booking to find the client_id
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('client_id')
+      .eq('id', booking_id)
+      .single()
+
+    if (booking) {
+      const operatorId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default operator ID
+      
+      console.log('📨 Creating system message:', fullMessage)
+      
+      const { data: createdMessage, error: messageError } = await supabase
+        .from('messages')
+        .insert([{
+          booking_id: booking_id,
+          sender_id: operatorId,
+          recipient_id: booking.client_id,
+          content: fullMessage,
+          message_type: 'system',
+          is_encrypted: false
+        }])
+        .select()
         .single()
 
-      if (booking) {
-        const operatorId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default operator ID
-        const { error: messageError } = await supabase
-          .from('messages')
-          .insert([{
-            booking_id: booking_id,
-            sender_id: operatorId,
-            recipient_id: booking.client_id,
-            content: message,
-            message_type: 'system',
-            is_encrypted: false
-          }])
-
-        if (messageError) {
-          console.error('Error creating status message:', messageError)
-          // Don't fail the request if message creation fails
-        }
+      if (messageError) {
+        console.error('⚠️ Error creating status message:', messageError)
+        // Don't fail the request if message creation fails
+      } else {
+        console.log('✅ System message created:', createdMessage?.id)
       }
     }
 

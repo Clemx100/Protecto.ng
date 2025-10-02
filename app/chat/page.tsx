@@ -23,6 +23,45 @@ export default function ChatPage() {
   const [statusSubscription, setStatusSubscription] = useState<any>(null)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   const [invoiceData, setInvoiceData] = useState<any>(null)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const currentBookingIdRef = useRef<string | null>(null)
+  
+  // Helper function to setup message polling
+  const setupMessagePolling = (bookingId: string) => {
+    console.log('⏰ Setting up message polling for:', bookingId)
+    
+    // Clear any existing interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current)
+    }
+    
+    // Store the booking ID
+    currentBookingIdRef.current = bookingId
+    
+    // Set up polling interval
+    pollingIntervalRef.current = setInterval(async () => {
+      console.log('🔄 Polling for new messages...')
+      try {
+        const bookingIdForPoll = currentBookingIdRef.current
+        if (!bookingIdForPoll) return
+        
+        const messages = await chatService.getMessages(bookingIdForPoll)
+        if (messages && messages.length > 0) {
+          setChatMessages(currentMessages => {
+            if (messages.length > currentMessages.length) {
+              console.log(`📬 Found ${messages.length - currentMessages.length} new messages via polling`)
+              return messages
+            }
+            return currentMessages
+          })
+        }
+      } catch (error) {
+        console.error('Polling error:', error)
+      }
+    }, 3000)
+    
+    console.log('✅ Message polling started')
+  }
 
   useEffect(() => {
     initializeChat()
@@ -32,11 +71,16 @@ export default function ChatPage() {
     scrollToBottom()
   }, [chatMessages])
 
-  // Cleanup subscription on unmount
+  // Cleanup subscription and polling on unmount
   useEffect(() => {
     return () => {
       if (statusSubscription) {
+        console.log('🔴 Cleaning up real-time subscription')
         chatService.unsubscribe(statusSubscription)
+      }
+      if (pollingIntervalRef.current) {
+        console.log('🔴 Cleaning up polling interval')
+        clearInterval(pollingIntervalRef.current)
       }
     }
   }, [statusSubscription])
@@ -197,10 +241,21 @@ export default function ChatPage() {
             await loadMessages(booking.id)
           }
           
-          // Subscribe to real-time messages with both IDs
+          // Subscribe to real-time messages with the database UUID
+          console.log('🔴 Setting up real-time subscription for booking:', messageBookingId)
           const subscription = chatService.subscribeToMessages(messageBookingId, (newMessage) => {
-            console.log('New message received:', newMessage)
-            setChatMessages(prev => [...prev, newMessage])
+            console.log('📨 New message received via real-time:', newMessage)
+            
+            // Add message to state if not already present
+            setChatMessages(prev => {
+              const exists = prev.some(msg => msg.id === newMessage.id)
+              if (exists) {
+                console.log('Message already exists, skipping')
+                return prev
+              }
+              console.log('Adding new message to chat')
+              return [...prev, newMessage]
+            })
             
             // Check if this is a status update message
             if (newMessage.sender_type === 'system' && newMessage.message.includes('Status updated to:')) {
@@ -214,6 +269,9 @@ export default function ChatPage() {
           })
           
           setStatusSubscription(subscription)
+          
+          // CRITICAL: Add polling to ensure messages are always synced
+          setupMessagePolling(messageBookingId)
         } catch (error) {
           console.error("Error parsing stored booking:", error)
           // If parsing fails, try to get booking from URL params
@@ -237,14 +295,21 @@ export default function ChatPage() {
                 const bookingsData = await bookingsResponse.json()
                 if (bookingsData.success) {
                   const foundBooking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
-                  if (foundBooking && foundBooking.id) {
-                    console.log('Found database ID for booking code:', foundBooking.id)
-                    await loadMessages(foundBooking.id)
+                  if (foundBooking && foundBooking.database_id) {
+                    console.log('Found database ID for booking code:', foundBooking.database_id)
+                    await loadMessages(foundBooking.database_id)
+                    // Setup polling with the database ID
+                    setupMessagePolling(foundBooking.database_id)
                   }
                 }
               }
             } catch (error) {
               console.log('Could not find database ID:', error)
+            }
+            
+            // Setup polling even with booking code (as fallback)
+            if (!pollingIntervalRef.current) {
+              setupMessagePolling(messageBookingId)
             }
           }
         }
@@ -271,14 +336,21 @@ export default function ChatPage() {
               const bookingsData = await bookingsResponse.json()
               if (bookingsData.success) {
                 const foundBooking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
-                if (foundBooking && foundBooking.id) {
-                  console.log('Found database ID for booking code:', foundBooking.id)
-                  await loadMessages(foundBooking.id)
+                if (foundBooking && foundBooking.database_id) {
+                  console.log('Found database ID for booking code:', foundBooking.database_id)
+                  await loadMessages(foundBooking.database_id)
+                  // Setup polling with database ID
+                  setupMessagePolling(foundBooking.database_id)
                 }
               }
             }
           } catch (error) {
             console.log('Could not find database ID:', error)
+          }
+          
+          // Setup polling even with booking code (as fallback)
+          if (!pollingIntervalRef.current) {
+            setupMessagePolling(messageBookingId)
           }
         }
       }
@@ -361,15 +433,18 @@ export default function ChatPage() {
         return
       }
       
-      // Use database_id if available, otherwise use booking.id
-      const messageBookingId = bookingPayload.database_id || bookingPayload.id
+      // Create client message (messageBookingId already defined above)
+      console.log('📤 Sending message with booking ID:', messageBookingId)
+      console.log('📤 Booking payload database_id:', bookingPayload.database_id)
+      console.log('📤 Booking payload id:', bookingPayload.id)
       
-      // Create client message
       const message = await chatService.createClientMessage(
         messageBookingId,
         messageText,
         user.id
       )
+      
+      console.log('✅ Message sent successfully:', message.id)
       
       // Clear input immediately to prevent double sending
       setNewMessage("")

@@ -55,7 +55,11 @@
                 protectionType: 'Armed',
                 pickupDetails: {
                     location: '123 Victoria Island, Lagos',
-                    date: 'Feb 22, 2025',
+                    date: new Date().toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'short', 
+                      day: 'numeric' 
+                    }),
                     time: '11:45am',
                     duration: '1 day',
                 },

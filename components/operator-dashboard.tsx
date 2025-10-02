@@ -143,7 +143,17 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           const newMessage = payload.new as any
           
           // Check if this message is for the currently selected booking
-          if (selectedBooking && newMessage.booking_id === selectedBooking.database_id) {
+          // Match by database_id OR booking_code for compatibility
+          const matchesBooking = selectedBooking && (
+            newMessage.booking_id === selectedBooking.database_id ||
+            newMessage.booking_id === selectedBooking.id ||
+            newMessage.booking_id === selectedBooking.booking_code
+          )
+          
+          if (matchesBooking) {
+            const isInvoice = newMessage.message_type === 'invoice'
+            const invoiceData = newMessage.metadata || newMessage.invoice_data || null
+            
             const chatMessage = {
               id: newMessage.id,
               booking_id: newMessage.booking_id,
@@ -152,9 +162,12 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
               message: newMessage.content,
               created_at: newMessage.created_at,
               is_system_message: newMessage.message_type === 'system',
-              hasInvoice: newMessage.has_invoice || false,
-              invoiceData: newMessage.invoice_data || null
+              hasInvoice: isInvoice,
+              invoiceData: invoiceData,
+              message_type: newMessage.message_type
             }
+            
+            console.log('📨 Processing message:', { type: newMessage.message_type, hasInvoice: isInvoice, hasMetadata: !!invoiceData })
             
             // Add to local state
             setMessages(prev => [...prev, chatMessage])
@@ -182,7 +195,10 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       console.log('Refreshing bookings...')
       loadBookings()
       if (selectedBooking) {
-        loadMessages(selectedBooking.id)
+        // Use database_id if available, otherwise use the booking code
+        const bookingIdToLoad = selectedBooking.database_id || selectedBooking.id
+        console.log('Refreshing messages for booking:', bookingIdToLoad)
+        loadMessages(bookingIdToLoad)
       }
     }, 3000)
 
@@ -227,10 +243,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       if (result.success) {
         const transformedBookings = result.data.map((booking: any) => ({
           ...booking,
-          // Use booking_code as the main ID for consistency
-          id: booking.booking_code,
-          // Store the database ID for API calls
-          database_id: booking.id,
+          // The API already provides id (booking_code) and database_id (UUID)
+          // Don't overwrite database_id!
           // Add additional fields for compatibility
           payment_approved: booking.payment_approved || false,
           vehicles: booking.vehicles || {},
@@ -330,17 +344,64 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     }
   }
 
-  const loadMessages = async (bookingId: string) => {
-    // Check if bookingId is already a database ID (UUID format) or a booking code
-    let actualBookingId = bookingId
+  // Helper function to validate and get UUID
+  const getBookingUUID = async (bookingIdOrCode: string): Promise<string | null> => {
+    // UUID regex pattern
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     
-    // If it's a booking code (starts with REQ), find the database ID
-    if (bookingId.startsWith('REQ')) {
-      const booking = bookings.find(b => b.id === bookingId)
-      actualBookingId = booking?.database_id || bookingId
+    // If it's already a UUID, return it
+    if (uuidPattern.test(bookingIdOrCode)) {
+      console.log('✅ Already a valid UUID:', bookingIdOrCode)
+      return bookingIdOrCode
     }
     
-    console.log('Loading messages for booking:', bookingId, 'Database ID:', actualBookingId)
+    // If it's a booking code, try to find it in local bookings first
+    if (bookingIdOrCode.startsWith('REQ')) {
+      const booking = bookings.find(b => b.id === bookingIdOrCode)
+      if (booking?.database_id && uuidPattern.test(booking.database_id)) {
+        console.log('✅ Found UUID in local bookings:', booking.database_id)
+        return booking.database_id
+      }
+      
+      // Query the database as fallback
+      console.log('⚠️ Querying database for UUID of booking code:', bookingIdOrCode)
+      try {
+        const { data: bookingData, error: fetchError } = await supabase
+          .from('bookings')
+          .select('id')
+          .eq('booking_code', bookingIdOrCode)
+          .single()
+        
+        if (bookingData && !fetchError) {
+          console.log('✅ Found UUID from database:', bookingData.id)
+          return bookingData.id
+        } else {
+          console.error('❌ Failed to find booking by code:', fetchError)
+          return null
+        }
+      } catch (err) {
+        console.error('❌ Error fetching booking UUID:', err)
+        return null
+      }
+    }
+    
+    console.error('❌ Invalid booking identifier:', bookingIdOrCode)
+    return null
+  }
+
+  const loadMessages = async (bookingId: string) => {
+    console.log('📥 Loading messages for booking:', bookingId)
+    
+    // Get the actual UUID
+    const actualBookingId = await getBookingUUID(bookingId)
+    
+    if (!actualBookingId) {
+      console.error('❌ Could not resolve booking UUID for:', bookingId)
+      setError('Failed to load messages: Invalid booking ID')
+      return
+    }
+    
+    console.log('📤 Using UUID for messages query:', actualBookingId)
     
     try {
       
@@ -381,15 +442,23 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
         if (dbMessages && dbMessages.length > 0) {
           // Convert messages table format to expected format
-          const convertedMessages = dbMessages.map(msg => ({
-            id: msg.id,
-            booking_id: msg.booking_id,
-            sender_type: msg.sender_type || 'client',
-            sender_id: msg.sender_id,
-            message: msg.content,
-            created_at: msg.created_at,
-            is_system_message: msg.sender_type === 'system' || msg.is_system_message
-          }))
+          const convertedMessages = dbMessages.map(msg => {
+            const isInvoice = msg.message_type === 'invoice'
+            const invoiceData = msg.metadata || msg.invoice_data || null
+            
+            return {
+              id: msg.id,
+              booking_id: msg.booking_id,
+              sender_type: msg.sender_type || 'client',
+              sender_id: msg.sender_id,
+              message: msg.content,
+              created_at: msg.created_at,
+              is_system_message: msg.sender_type === 'system' || msg.is_system_message,
+              message_type: msg.message_type,
+              hasInvoice: isInvoice,
+              invoiceData: invoiceData
+            }
+          })
           setMessages(convertedMessages)
         } else {
           // If no messages in database, check localStorage
@@ -416,11 +485,20 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     const messageText = newMessage.trim()
     setNewMessage("") // Clear input immediately for better UX
 
-    console.log('Sending message:', messageText, 'to booking:', selectedBooking.id)
+    console.log('📤 Sending message:', messageText, 'to booking:', selectedBooking.id)
 
     try {
-      // Ensure we have the correct database ID
-      const databaseId = selectedBooking.database_id || selectedBooking.id
+      // Ensure we have the correct database UUID
+      const databaseId = await getBookingUUID(selectedBooking.database_id || selectedBooking.id)
+      
+      if (!databaseId) {
+        console.error('❌ Could not resolve booking UUID for sending message')
+        setError('Failed to send message: Invalid booking ID')
+        setNewMessage(messageText) // Restore message
+        return
+      }
+      
+      console.log('✅ Using UUID for sending message:', databaseId)
       
       // Use the operator messages API to send message
       const response = await fetch('/api/operator/messages', {
@@ -608,36 +686,21 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       // Update booking status using the new API
       if (newStatus !== selectedBooking.status) {
         try {
-          // Ensure we have the correct database ID (UUID from Supabase, not booking_code)
-          // database_id should be the actual UUID from the bookings table
-          let databaseId = selectedBooking.database_id
+          // Ensure we have the correct database UUID
+          const databaseId = await getBookingUUID(selectedBooking.database_id || selectedBooking.id)
           
-          console.log('🔍 DEBUG - Selected booking details:', {
-            id: selectedBooking.id,
-            database_id: selectedBooking.database_id,
-            status: selectedBooking.status
-          })
-          
-          // If database_id is not set or looks like a booking code (starts with REQ), 
-          // try to find the actual UUID
-          if (!databaseId || databaseId.startsWith('REQ')) {
-            console.warn('❌ database_id missing or invalid, attempting to find by booking_code:', selectedBooking.id)
-            
-            // Try to fetch the booking by booking_code to get the real UUID
-            const { data: bookingData, error: fetchError } = await supabase
-              .from('bookings')
-              .select('id')
-              .eq('booking_code', selectedBooking.id)
-              .single()
-            
-            if (bookingData && !fetchError) {
-              databaseId = bookingData.id
-              console.log('Found database ID:', databaseId)
-            } else {
-              console.error('Failed to find booking by code:', fetchError)
-              throw new Error('Could not find booking in database')
-            }
+          if (!databaseId) {
+            console.error('❌ Could not resolve booking UUID for status update')
+            setError('Failed to update status: Invalid booking ID')
+            return
           }
+          
+          console.log('🔍 Updating booking status:', {
+            bookingCode: selectedBooking.id,
+            databaseId: databaseId,
+            currentStatus: selectedBooking.status,
+            newStatus: newStatus
+          })
           
           console.log('🚀 Sending status update request:', {
             bookingId: databaseId,
@@ -815,39 +878,98 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     }
   }
 
-  const sendInvoice = () => {
+  const sendInvoice = async () => {
     if (!selectedBooking) return
 
-    const invoiceMessage = {
-      id: `invoice_${Date.now()}`,
-      booking_id: selectedBooking.id,
-      sender_type: 'operator',
-      message: `📄 Invoice sent. Please review and approve payment to proceed.`,
-      created_at: new Date().toISOString(),
-      has_invoice: true,
-      invoiceData: invoiceData
-    }
+    try {
+      setActionLoading('invoice')
+      
+      // Get the database UUID
+      const databaseId = await getBookingUUID(selectedBooking.database_id || selectedBooking.id)
+      
+      if (!databaseId) {
+        setError('Failed to send invoice: Invalid booking ID')
+        return
+      }
 
-    const systemMessage = {
-      id: `system_${Date.now()}`,
-      booking_id: selectedBooking.id,
-      sender_type: 'system',
-      message: "Invoice sent to client",
-      created_at: new Date().toISOString(),
-      is_system_message: true
-    }
+      // Prepare invoice data with currency
+      const invoiceWithCurrency = {
+        ...invoiceData,
+        currency: currency,
+        totalAmount: invoiceData.basePrice + (invoiceData.hourlyRate * invoiceData.duration) + invoiceData.vehicleFee + invoiceData.personnelFee
+      }
 
-    // Add to local state
-    setMessages(prev => [...prev, systemMessage, invoiceMessage])
-    
-    // Store in localStorage for real-time updates
-    const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
-    const allMessages = [...currentStoredMessages, systemMessage, invoiceMessage]
-    localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(allMessages))
-    
-    setShowInvoiceModal(false)
-    setSuccess("Invoice sent successfully!")
-    scrollToBottom()
+      // Create invoice message content
+      const invoiceContent = `📄 **Invoice for Your Protection Service**
+
+**Service Details:**
+• Base Price: ${formatCurrency(invoiceWithCurrency.basePrice, currency)}
+• Hourly Rate (${invoiceWithCurrency.duration}h): ${formatCurrency(invoiceWithCurrency.hourlyRate * invoiceWithCurrency.duration, currency)}
+• Vehicle Fee: ${formatCurrency(invoiceWithCurrency.vehicleFee, currency)}
+• Personnel Fee: ${formatCurrency(invoiceWithCurrency.personnelFee, currency)}
+
+**Total Amount: ${formatCurrency(invoiceWithCurrency.totalAmount, currency)}**
+
+${currency === 'USD' ? `(Equivalent: ₦${(invoiceWithCurrency.totalAmount * exchangeRate).toLocaleString()} NGN)` : ''}
+
+Please review and approve the payment to proceed with your service.`
+
+      console.log('📤 Sending invoice message to database...')
+
+      // Send invoice message via API to persist it
+      const response = await fetch('/api/operator/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bookingId: databaseId,
+          content: invoiceContent,
+          messageType: 'invoice',
+          metadata: invoiceWithCurrency // Store invoice data in metadata
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to send invoice: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      
+      if (result.success) {
+        console.log('✅ Invoice message saved to database:', result.data.id)
+        
+        // Add to local state with full invoice data
+        const invoiceMessage = {
+          id: result.data.id,
+          booking_id: databaseId,
+          sender_type: 'operator',
+          message: invoiceContent,
+          created_at: result.data.created_at,
+          hasInvoice: true,
+          invoiceData: invoiceWithCurrency
+        }
+        
+        setMessages(prev => [...prev, invoiceMessage])
+        
+        setShowInvoiceModal(false)
+        setSuccess("Invoice sent successfully!")
+        scrollToBottom()
+        
+        // Refresh messages to ensure sync
+        setTimeout(() => {
+          loadMessages(selectedBooking.id)
+        }, 500)
+      } else {
+        throw new Error(result.error || 'Failed to send invoice')
+      }
+    } catch (error) {
+      console.error('❌ Failed to send invoice:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to send invoice'
+      setError(`Failed to send invoice: ${errorMessage}`)
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   const scrollToBottom = () => {
@@ -1424,11 +1546,15 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
       {/* Invoice Modal */}
       {showInvoiceModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 max-w-lg w-full mx-4">
-            <h3 className="text-xl font-semibold text-white mb-4">Create Invoice</h3>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl border border-white/20 max-w-lg w-full max-h-[90vh] flex flex-col">
+            {/* Header - Fixed */}
+            <div className="p-6 pb-4 border-b border-white/10">
+              <h3 className="text-xl font-semibold text-white">Create Invoice</h3>
+            </div>
             
-            <div className="space-y-4">
+            {/* Scrollable Content */}
+            <div className="overflow-y-auto flex-1 p-6 space-y-4 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent hover:scrollbar-thumb-white/30">
               {/* Currency Selection */}
               <div className="flex items-center space-x-4 mb-4">
                 <label className="text-sm text-gray-300">Currency:</label>
@@ -1581,7 +1707,10 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                   )}
                 </div>
               </div>
+            </div>
 
+            {/* Footer - Fixed */}
+            <div className="p-6 pt-4 border-t border-white/10">
               <div className="flex gap-3">
                 <Button
                   onClick={() => setShowInvoiceModal(false)}

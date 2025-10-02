@@ -4,73 +4,115 @@ export async function POST(request: NextRequest) {
   try {
     console.log('📱 Real booking creation API called')
     
-    // Import Supabase client dynamically
+    // Import Supabase clients
     const { createClient } = await import('@supabase/supabase-js')
+    const { createServerClient } = await import('@supabase/ssr')
+    const { cookies } = await import('next/headers')
     
-    // Use service role for real API to bypass RLS
+    // Use service role for database operations (bypass RLS)
     const supabase = createClient(
       'https://mjdbhusnplveeaveeovd.supabase.co',
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
     )
-    
-    // For now, skip authentication check to allow mobile app to work
-    // TODO: Implement proper mobile authentication later
-    console.log('⚠️ Skipping authentication for mobile app compatibility')
 
     const bookingData = await request.json()
     console.log('📝 Real booking data:', JSON.stringify(bookingData, null, 2))
 
-    // Extract client information from booking data
-    const clientEmail = bookingData.contact?.user?.email || bookingData.contact?.email
-    const clientPhone = bookingData.contact?.phone
-    const clientFirstName = bookingData.contact?.user?.firstName || bookingData.contact?.firstName || 'Guest'
-    const clientLastName = bookingData.contact?.user?.lastName || bookingData.contact?.lastName || 'User'
-    
-    console.log('Client info:', { clientEmail, clientPhone, clientFirstName, clientLastName })
-
-    // Try to find existing client profile by email or phone
+    // Check for authenticated user using Next.js server client
     let clientId = null
-    if (clientEmail) {
-      const { data: existingProfile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('email', clientEmail)
-        .single()
+    
+    try {
+      console.log('🔐 Checking for authenticated user via session cookies')
+      const cookieStore = await cookies()
       
-      if (existingProfile) {
-        clientId = existingProfile.id
-        console.log('Found existing client profile:', clientId)
+      // Create proper server-side Supabase client
+      const userSupabase = createServerClient(
+        'https://mjdbhusnplveeaveeovd.supabase.co',
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDU5NTMsImV4cCI6MjA3MzUyMTk1M30.C1eS4c3MJxh4GTnBMUmvnbmfVwLVHPmxGhX5wg0Mev0',
+        {
+          cookies: {
+            getAll() {
+              return cookieStore.getAll()
+            },
+            setAll(cookiesToSet) {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              )
+            },
+          },
+        }
+      )
+      
+      const { data: { user }, error: authError } = await userSupabase.auth.getUser()
+      
+      if (user && !authError) {
+        clientId = user.id
+        console.log('✅ Using authenticated user ID from session:', clientId)
+      } else {
+        console.log('⚠️ No authenticated user found in session:', authError?.message)
       }
+    } catch (authCheckError) {
+      console.log('⚠️ Error checking authentication from session:', authCheckError)
     }
 
-    // If no existing profile found and we have contact info, create a new guest profile
-    if (!clientId && (clientEmail || clientPhone)) {
-      const { data: newProfile, error: profileError } = await supabase
-        .from('profiles')
-        .insert([{
-          email: clientEmail || `guest_${Date.now()}@protector.ng`,
-          phone: clientPhone,
-          first_name: clientFirstName,
-          last_name: clientLastName,
-          role: 'client',
-          profile_completed: false
-        }])
-        .select()
-        .single()
+    // If no authenticated user, try to find/create based on contact info
+    if (!clientId) {
+      console.log('👤 No authenticated user, using contact information')
       
-      if (newProfile) {
-        clientId = newProfile.id
-        console.log('Created new guest profile:', clientId)
-      } else {
-        console.error('Failed to create profile:', profileError)
-        // Fallback to default client ID only if profile creation fails
-        clientId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be'
-        console.log('Using fallback default client ID:', clientId)
+      const clientEmail = bookingData.contact?.user?.email || bookingData.contact?.email
+      const clientPhone = bookingData.contact?.phone
+      const clientFirstName = bookingData.contact?.user?.firstName || bookingData.contact?.firstName || 'Guest'
+      const clientLastName = bookingData.contact?.user?.lastName || bookingData.contact?.lastName || 'User'
+      
+      console.log('Client info:', { clientEmail, clientPhone, clientFirstName, clientLastName })
+
+      // Try to find existing client profile by email or phone
+      if (clientEmail) {
+        const { data: existingProfile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('email', clientEmail)
+          .single()
+        
+        if (existingProfile) {
+          clientId = existingProfile.id
+          console.log('✅ Found existing client profile:', clientId)
+        }
       }
-    } else if (!clientId) {
-      // No contact info provided, use default
-      clientId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be'
-      console.log('No contact info provided, using default client ID:', clientId)
+
+      // If no existing profile found and we have contact info, create a new guest profile
+      if (!clientId && (clientEmail || clientPhone)) {
+        const { data: newProfile, error: profileError } = await supabase
+          .from('profiles')
+          .insert([{
+            email: clientEmail || `guest_${Date.now()}@protector.ng`,
+            phone: clientPhone,
+            first_name: clientFirstName,
+            last_name: clientLastName,
+            role: 'client',
+            profile_completed: false
+          }])
+          .select()
+          .single()
+        
+        if (newProfile) {
+          clientId = newProfile.id
+          console.log('✅ Created new guest profile:', clientId)
+        } else {
+          console.error('❌ Failed to create profile:', profileError)
+          return NextResponse.json({ 
+            error: 'Failed to create user profile. Please ensure you are logged in or provide valid contact information.' 
+          }, { status: 400 })
+        }
+      }
+      
+      // If still no clientId, require authentication or contact info
+      if (!clientId) {
+        console.error('❌ No client ID found and no contact info provided')
+        return NextResponse.json({ 
+          error: 'Authentication required or contact information must be provided' 
+        }, { status: 401 })
+      }
     }
 
     // Use an existing service ID for mobile app bookings

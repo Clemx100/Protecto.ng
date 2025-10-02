@@ -1,35 +1,83 @@
-import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
+// Service role client (bypasses RLS for admin operations)
+const getServiceClient = () => {
+  return createClient(
+    'https://mjdbhusnplveeaveeovd.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+  )
+}
+
+// User client (respects RLS)
+const getUserClient = async () => {
+  const cookieStore = await cookies()
+  return createServerClient(
+    'https://mjdbhusnplveeaveeovd.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDU5NTMsImV4cCI6MjA3MzUyMTk1M30.C1eS4c3MJxh4GTnBMUmvnbmfVwLVHPmxGhX5wg0Mev0',
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+}
+
+// GET /api/messages?bookingId=xxx
+// Fetch all messages for a booking
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    
-    // Check if user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const { searchParams } = new URL(request.url)
     const bookingId = searchParams.get('bookingId')
 
     if (!bookingId) {
-      return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'bookingId is required' },
+        { status: 400 }
+      )
     }
 
-    // Get messages for the booking
-    const { data: messages, error: messagesError } = await supabase
+    console.log('📥 Fetching messages for booking:', bookingId)
+
+    // Get authenticated user
+    const userClient = await getUserClient()
+    const { data: { user }, error: authError } = await userClient.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Use service client to fetch messages (bypass RLS)
+    const serviceClient = getServiceClient()
+    
+    const { data: messages, error: messagesError } = await serviceClient
       .from('messages')
       .select(`
-        *,
+        id,
+        booking_id,
+        content,
+        message_type,
+        sender_id,
+        sender_role,
+        recipient_id,
+        metadata,
+        is_edited,
+        is_deleted,
+        created_at,
+        updated_at,
         sender:profiles!messages_sender_id_fkey(
-          id,
-          first_name,
-          last_name,
-          role
-        ),
-        recipient:profiles!messages_recipient_id_fkey(
           id,
           first_name,
           last_name,
@@ -37,115 +85,196 @@ export async function GET(request: NextRequest) {
         )
       `)
       .eq('booking_id', bookingId)
+      .eq('is_deleted', false)
       .order('created_at', { ascending: true })
 
     if (messagesError) {
-      console.error('Error fetching messages:', messagesError)
-      return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
+      console.error('❌ Error fetching messages:', messagesError)
+      return NextResponse.json(
+        { error: 'Failed to fetch messages', details: messagesError },
+        { status: 500 }
+      )
     }
 
-    // Transform messages to match expected format
-    const transformedMessages = (messages || []).map(message => ({
-      id: message.id,
-      booking_id: message.booking_id,
-      sender_type: message.message_type === 'system' ? 'system' :
-                   message.sender?.role === 'operator' || message.sender?.role === 'admin' ? 'operator' : 'client',
-      sender_id: message.sender_id,
-      sender_name: message.sender ? `${message.sender.first_name} ${message.sender.last_name}` : 'Unknown',
-      message: message.content,
-      created_at: message.created_at,
-      is_encrypted: message.is_encrypted || false,
-      message_type: message.message_type || 'text',
-      // Add fields for operator compatibility
-      is_system_message: message.message_type === 'system',
-      has_invoice: false,
-      invoice_data: null
-    }))
+    console.log(`✅ Fetched ${messages?.length || 0} messages`)
 
     return NextResponse.json({
       success: true,
-      data: transformedMessages
+      data: messages || [],
+      count: messages?.length || 0
     })
 
   } catch (error) {
-    console.error('Client messages API error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('❌ Messages API error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error', details: String(error) },
+      { status: 500 }
+    )
   }
 }
 
+// POST /api/messages
+// Send a new message
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient()
-    
-    // Check if user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { bookingId, content, messageType = 'text', recipientId } = await request.json()
+    const body = await request.json()
+    const { bookingId, content, messageType = 'text', metadata = {} } = body
 
     if (!bookingId || !content) {
-      return NextResponse.json({ error: 'Booking ID and content are required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'bookingId and content are required' },
+        { status: 400 }
+      )
     }
 
-    // Get booking to find the client and operator
-    const { data: booking } = await supabase
-      .from('bookings')
-      .select('client_id')
-      .eq('id', bookingId)
+    console.log('📤 Sending message to booking:', bookingId)
+
+    // Get authenticated user
+    const userClient = await getUserClient()
+    const { data: { user }, error: authError } = await userClient.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Get user's role
+    const serviceClient = getServiceClient()
+    const { data: profile } = await serviceClient
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
       .single()
 
-    if (!booking) {
-      return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'User profile not found' },
+        { status: 404 }
+      )
     }
 
-    // Determine recipient - if user is client, send to operator, and vice versa
-    let actualRecipientId = recipientId
-    if (!actualRecipientId) {
-      // Find an operator to send the message to
-      const { data: operators } = await supabase
-        .from('profiles')
-        .select('id')
-        .in('role', ['operator', 'admin'])
-        .limit(1)
-        .single()
-      
-      actualRecipientId = operators?.id || booking.client_id
+    // Get or create conversation
+    const { data: conversationData, error: convError } = await serviceClient
+      .rpc('get_or_create_conversation', { p_booking_id: bookingId })
+
+    if (convError) {
+      console.error('❌ Error getting/creating conversation:', convError)
+      return NextResponse.json(
+        { error: 'Failed to create conversation', details: convError },
+        { status: 500 }
+      )
     }
 
-    // Create message
-    const { data: newMessage, error: messageError } = await supabase
+    // Create the message
+    const { data: message, error: messageError } = await serviceClient
       .from('messages')
       .insert({
         booking_id: bookingId,
-        sender_id: user.id,
-        recipient_id: actualRecipientId,
+        conversation_id: conversationData,
         content: content,
         message_type: messageType,
-        is_encrypted: false
+        sender_id: user.id,
+        sender_role: profile.role,
+        metadata: metadata
       })
-      .select()
+      .select(`
+        id,
+        booking_id,
+        content,
+        message_type,
+        sender_id,
+        sender_role,
+        metadata,
+        created_at,
+        sender:profiles!messages_sender_id_fkey(
+          id,
+          first_name,
+          last_name,
+          role
+        )
+      `)
       .single()
 
     if (messageError) {
-      console.error('Error creating message:', messageError)
-      return NextResponse.json({ error: 'Failed to create message' }, { status: 500 })
+      console.error('❌ Error creating message:', messageError)
+      return NextResponse.json(
+        { error: 'Failed to create message', details: messageError },
+        { status: 500 }
+      )
+    }
+
+    console.log('✅ Message created:', message.id)
+
+    return NextResponse.json({
+      success: true,
+      data: message
+    })
+
+  } catch (error) {
+    console.error('❌ Send message API error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error', details: String(error) },
+      { status: 500 }
+    )
+  }
+}
+
+// DELETE /api/messages?messageId=xxx
+// Soft delete a message (mark as deleted)
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const messageId = searchParams.get('messageId')
+
+    if (!messageId) {
+      return NextResponse.json(
+        { error: 'messageId is required' },
+        { status: 400 }
+      )
+    }
+
+    // Get authenticated user
+    const userClient = await getUserClient()
+    const { data: { user }, error: authError } = await userClient.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Soft delete the message (only sender can delete)
+    const serviceClient = getServiceClient()
+    const { error: deleteError } = await serviceClient
+      .from('messages')
+      .update({
+        is_deleted: true,
+        deleted_at: new Date().toISOString()
+      })
+      .eq('id', messageId)
+      .eq('sender_id', user.id)
+
+    if (deleteError) {
+      console.error('❌ Error deleting message:', deleteError)
+      return NextResponse.json(
+        { error: 'Failed to delete message', details: deleteError },
+        { status: 500 }
+      )
     }
 
     return NextResponse.json({
       success: true,
-      data: newMessage
+      message: 'Message deleted successfully'
     })
 
   } catch (error) {
-    console.error('Create message API error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('❌ Delete message API error:', error)
+    return NextResponse.json(
+      { error: 'Internal server error', details: String(error) },
+      { status: 500 }
+    )
   }
 }
-
-
-
-
-
-
