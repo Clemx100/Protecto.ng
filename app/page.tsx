@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect } from "react"
+import { useEffect, Suspense } from "react"
 import { 
   Shield, 
   Settings, 
@@ -23,9 +23,7 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 
-export default function HomePage() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const router = useRouter()
+function SearchParamsHandler() {
   const searchParams = useSearchParams()
 
   // Handle redirect after authentication
@@ -41,7 +39,18 @@ export default function HomePage() {
     }
   }, [searchParams])
 
+  return null
+}
+
+export default function HomePage() {
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const router = useRouter()
+
   return (
+    <>
+      <Suspense fallback={null}>
+        <SearchParamsHandler />
+      </Suspense>
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
       {/* Header */}
       <header className="bg-black/20 backdrop-blur-lg border-b border-white/10 sticky top-0 z-50">
@@ -551,5 +560,6 @@ export default function HomePage() {
         </div>
       </footer>
     </div>
+    </>
   )
 }
