@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
-import { chatService, ChatMessage } from "@/lib/services/chatService"
+import { unifiedChatService, ChatMessage } from "@/lib/services/unifiedChatService"
 
 export default function OperatorDashboard() {
   const supabase = createClient()
@@ -70,16 +70,16 @@ export default function OperatorDashboard() {
   useEffect(() => {
     if (!user) return
 
-    const subscription = chatService.subscribeToAllMessages((newMessage) => {
+    const subscription = unifiedChatService.subscribeToAllMessages((newMessage) => {
       // Update messages for the currently selected booking
       if (selectedBooking && newMessage.booking_id === selectedBooking.id) {
         setMessages(prev => [...prev, newMessage])
-        scrollToBottom()
+        // Don't auto-scroll - let operator control their view
       }
     })
 
     return () => {
-      chatService.unsubscribe(subscription)
+      unifiedChatService.unsubscribe(subscription)
     }
   }, [user, selectedBooking])
 
@@ -192,9 +192,9 @@ export default function OperatorDashboard() {
 
   const loadMessages = async (bookingId: string) => {
     try {
-      const messages = await chatService.getMessages(bookingId)
+      const messages = await unifiedChatService.getMessages(bookingId)
       setMessages(messages)
-      scrollToBottom()
+      // Don't auto-scroll - let operator control their view
     } catch (error) {
       console.error('Failed to load messages:', error)
     }
@@ -204,7 +204,7 @@ export default function OperatorDashboard() {
     if (!newMessage.trim() || !selectedBooking || !user) return
 
     try {
-      await chatService.createOperatorMessage(
+      await unifiedChatService.createOperatorMessage(
         selectedBooking.id,
         newMessage.trim(),
         user.id
@@ -733,7 +733,7 @@ export default function OperatorDashboard() {
                                   created_at: new Date().toISOString()
                                 }
                                 setMessages(prev => [...prev, paymentMsg])
-                                scrollToBottom()
+                                // Don't auto-scroll - let operator control their view
                               }}
                               size="sm"
                               className="mt-3 bg-green-600 hover:bg-green-700 text-white w-full"

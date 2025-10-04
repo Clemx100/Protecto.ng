@@ -23,6 +23,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 })
     }
 
+    // First, try to find the booking by booking_code if bookingId is not a UUID
+    let actualBookingId = bookingId
+    
+    // Check if bookingId is a booking code (starts with REQ) or a UUID
+    if (bookingId.startsWith('REQ')) {
+      console.log('🔍 Looking up booking by code:', bookingId)
+      const { data: booking, error: bookingError } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('booking_code', bookingId)
+        .single()
+      
+      if (bookingError || !booking) {
+        console.error('❌ Booking not found:', bookingError)
+        return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+      }
+      
+      actualBookingId = booking.id
+      console.log('✅ Found booking UUID:', actualBookingId)
+    }
+
     // Get messages for the booking
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
@@ -35,7 +56,7 @@ export async function GET(request: NextRequest) {
           role
         )
       `)
-      .eq('booking_id', bookingId)
+      .eq('booking_id', actualBookingId)
       .order('created_at', { ascending: true })
 
     if (messagesError) {
@@ -53,8 +74,7 @@ export async function GET(request: NextRequest) {
       return {
         id: message.id,
         booking_id: message.booking_id,
-        sender_type: message.message_type === 'system' ? 'system' : 
-                     message.sender?.role === 'operator' || message.sender?.role === 'admin' ? 'operator' : 'client',
+        sender_type: message.sender_type || (message.message_type === 'system' ? 'system' : 'client'),
         sender_id: message.sender_id,
         message: message.content,
         created_at: message.created_at,
@@ -105,25 +125,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Booking ID and content are required' }, { status: 400 })
     }
 
-    console.log('📝 Creating operator message:', { bookingId, messageType, hasMetadata: Object.keys(metadata).length > 0 })
+    // First, try to find the booking by booking_code if bookingId is not a UUID
+    let actualBookingId = bookingId
+    
+    // Check if bookingId is a booking code (starts with REQ) or a UUID
+    if (bookingId.startsWith('REQ')) {
+      console.log('🔍 Looking up booking by code:', bookingId)
+      const { data: booking, error: bookingError } = await supabase
+        .from('bookings')
+        .select('id, client_id')
+        .eq('booking_code', bookingId)
+        .single()
+      
+      if (bookingError || !booking) {
+        console.error('❌ Booking not found:', bookingError)
+        return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+      }
+      
+      actualBookingId = booking.id
+      console.log('✅ Found booking UUID:', actualBookingId)
+    }
+
+    console.log('📝 Creating operator message:', { bookingId: actualBookingId, messageType, hasMetadata: Object.keys(metadata).length > 0 })
 
     // Get booking to find the client
     const { data: booking } = await supabase
       .from('bookings')
       .select('client_id')
-      .eq('id', bookingId)
+      .eq('id', actualBookingId)
       .single()
 
     if (!booking) {
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
     }
 
-    // Create message - use a default operator ID for now
-    const operatorId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default operator ID
+    // Create message - use a valid user ID that exists in the profiles table
+    const operatorId = '9882762d-93e4-484c-b055-a14737f76cba' // Valid user ID from database
     
     // Check if messages table has metadata column
     const messageData: any = {
-      booking_id: bookingId,
+      booking_id: actualBookingId,
       sender_id: operatorId,
       recipient_id: recipientId || booking.client_id,
       content: content,

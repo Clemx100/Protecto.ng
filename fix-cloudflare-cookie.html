@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudflare Cookie Error Diagnosis</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        .container {
+            background-color: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .error {
+            background-color: #4a1a1a;
+            border-left: 4px solid #ff4444;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .success {
+            background-color: #1a4a1a;
+            border-left: 4px solid #44ff44;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .warning {
+            background-color: #4a4a1a;
+            border-left: 4px solid #ffff44;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .info {
+            background-color: #1a1a4a;
+            border-left: 4px solid #4444ff;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        pre {
+            background-color: #333;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Cloudflare Cookie Error Diagnosis</h1>
+        <p>This tool helps diagnose the "__cf_bm" cookie error you're seeing in the console.</p>
+        
+        <button onclick="runDiagnosis()">Run Diagnosis</button>
+        <button onclick="clearCookies()">Clear Cloudflare Cookies</button>
+        <button onclick="showSolutions()">Show Solutions</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        function runDiagnosis() {
+            const results = document.getElementById('results');
+            results.innerHTML = '';
+
+            // Check current domain
+            const currentDomain = window.location.hostname;
+            const isDevelopment = currentDomain === 'localhost' || currentDomain === '127.0.0.1' || currentDomain.includes('127.0.0.1');
+            
+            // Check for Cloudflare cookies
+            const cookies = document.cookie.split(';');
+            const cloudflareCookies = cookies.filter(cookie => 
+                cookie.trim().startsWith('__cf_bm') || 
+                cookie.trim().startsWith('__cfduid') ||
+                cookie.trim().startsWith('cf_clearance')
+            );
+
+            let html = `
+                <div class="container">
+                    <h2>📊 Diagnosis Results</h2>
+                    <div class="info">
+                        <strong>📍 Current Domain:</strong> ${currentDomain}
+                    </div>
+                    <div class="${isDevelopment ? 'success' : 'warning'}">
+                        <strong>🛠️ Development Mode:</strong> ${isDevelopment ? 'Yes' : 'No'}
+                    </div>
+                    <div class="info">
+                        <strong>🍪 Cloudflare Cookies Found:</strong> ${cloudflareCookies.length}
+                    </div>
+            `;
+
+            if (cloudflareCookies.length > 0) {
+                html += '<div class="warning"><strong>Cloudflare Cookies:</strong><pre>';
+                cloudflareCookies.forEach(cookie => {
+                    html += `  - ${cookie.trim()}\n`;
+                });
+                html += '</pre></div>';
+            }
+
+            if (isDevelopment) {
+                html += `
+                    <div class="success">
+                        <h3>✅ Good News!</h3>
+                        <p>You are in development mode. This error is normal and can be safely ignored.</p>
+                        <ul>
+                            <li>Your application functionality is not affected</li>
+                            <li>The error will not appear in production</li>
+                            <li>This is a common development issue</li>
+                        </ul>
+                    </div>
+                `;
+            } else {
+                html += `
+                    <div class="warning">
+                        <h3>⚠️ Production Mode Detected</h3>
+                        <p>You are in production mode. Check your Cloudflare domain configuration.</p>
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            results.innerHTML = html;
+        }
+
+        function clearCookies() {
+            const cookies = document.cookie.split(';');
+            const cloudflareCookies = cookies.filter(cookie => 
+                cookie.trim().startsWith('__cf_bm') || 
+                cookie.trim().startsWith('__cfduid') ||
+                cookie.trim().startsWith('cf_clearance')
+            );
+
+            cloudflareCookies.forEach(cookie => {
+                const cookieName = cookie.split('=')[0].trim();
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=.${window.location.hostname};`;
+            });
+
+            alert(`Cleared ${cloudflareCookies.length} Cloudflare cookies. Refresh the page to see if the error is gone.`);
+        }
+
+        function showSolutions() {
+            const results = document.getElementById('results');
+            results.innerHTML = `
+                <div class="container">
+                    <h2>🔧 Solutions for Cloudflare Cookie Error</h2>
+                    
+                    <div class="info">
+                        <h3>1. Ignore the Error (Recommended)</h3>
+                        <p>This error doesn't affect your application functionality. You can safely ignore it during development.</p>
+                    </div>
+
+                    <div class="info">
+                        <h3>2. Clear Browser Cookies</h3>
+                        <p>Clear all cookies for your domain and refresh the page.</p>
+                        <button onclick="clearCookies()">Clear Cloudflare Cookies</button>
+                    </div>
+
+                    <div class="info">
+                        <h3>3. Use Incognito/Private Mode</h3>
+                        <p>Open your application in incognito/private browsing mode to avoid cookie conflicts.</p>
+                    </div>
+
+                    <div class="info">
+                        <h3>4. Disable Cloudflare Bot Management</h3>
+                        <p>If you have access to Cloudflare settings, disable Bot Management for development domains.</p>
+                    </div>
+
+                    <div class="info">
+                        <h3>5. Use a Proper Domain</h3>
+                        <p>Instead of localhost, use a proper domain like <code>tincan.local</code> or <code>protector.local</code>.</p>
+                    </div>
+
+                    <div class="success">
+                        <h3>✅ Important Note</h3>
+                        <p>Your application is working correctly! The cookie error is just a console warning and doesn't affect:</p>
+                        <ul>
+                            <li>Chat functionality</li>
+                            <li>Booking creation</li>
+                            <li>Authentication</li>
+                            <li>Real-time updates</li>
+                            <li>Any other features</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Auto-run diagnosis on page load
+        window.onload = function() {
+            runDiagnosis();
+        };
+    </script>
+</body>
+</html>

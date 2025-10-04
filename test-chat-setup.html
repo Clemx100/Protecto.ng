@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Room Setup Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Protector.Ng Chat Room Setup</h1>
+        <p>This page will help you set up the chat room system for operator-client communication.</p>
+        
+        <div id="status" class="status info">
+            Ready to setup chat room tables...
+        </div>
+        
+        <div>
+            <button onclick="setupChatRooms()" id="setupBtn">Setup Chat Room Tables</button>
+            <button onclick="testChatRooms()" id="testBtn" disabled>Test Chat Rooms</button>
+            <button onclick="testMessages()" id="messagesBtn" disabled>Test Messages</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        async function setupChatRooms() {
+            const statusDiv = document.getElementById('status');
+            const setupBtn = document.getElementById('setupBtn');
+            const testBtn = document.getElementById('testBtn');
+            const resultsDiv = document.getElementById('results');
+            
+            statusDiv.className = 'status info';
+            statusDiv.textContent = 'Setting up chat room tables...';
+            setupBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/setup-chat-rooms', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = '✅ Chat room tables created successfully!';
+                    testBtn.disabled = false;
+                    resultsDiv.innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = '❌ Setup failed: ' + (result.error || 'Unknown error');
+                    resultsDiv.innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '❌ Setup failed: ' + error.message;
+                resultsDiv.innerHTML = '<pre>Error: ' + error.message + '</pre>';
+            } finally {
+                setupBtn.disabled = false;
+            }
+        }
+        
+        async function testChatRooms() {
+            const statusDiv = document.getElementById('status');
+            const messagesBtn = document.getElementById('messagesBtn');
+            const resultsDiv = document.getElementById('results');
+            
+            statusDiv.className = 'status info';
+            statusDiv.textContent = 'Testing chat rooms...';
+            
+            try {
+                const response = await fetch('/api/chat-rooms');
+                const result = await response.json();
+                
+                if (result.success) {
+                    statusDiv.className = 'status success';
+                    statusDiv.textContent = `✅ Found ${result.data.length} chat rooms`;
+                    messagesBtn.disabled = false;
+                    resultsDiv.innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = '❌ Test failed: ' + (result.error || 'Unknown error');
+                    resultsDiv.innerHTML = '<pre>' + JSON.stringify(result, null, 2) + '</pre>';
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '❌ Test failed: ' + error.message;
+                resultsDiv.innerHTML = '<pre>Error: ' + error.message + '</pre>';
+            }
+        }
+        
+        async function testMessages() {
+            const statusDiv = document.getElementById('status');
+            const resultsDiv = document.getElementById('results');
+            
+            statusDiv.className = 'status info';
+            statusDiv.textContent = 'Testing messages...';
+            
+            try {
+                // First get chat rooms
+                const roomsResponse = await fetch('/api/chat-rooms');
+                const roomsResult = await roomsResponse.json();
+                
+                if (roomsResult.success && roomsResult.data.length > 0) {
+                    const roomId = roomsResult.data[0].id;
+                    
+                    // Test getting messages
+                    const messagesResponse = await fetch(`/api/chat-rooms/${roomId}/messages`);
+                    const messagesResult = await messagesResponse.json();
+                    
+                    if (messagesResult.success) {
+                        statusDiv.className = 'status success';
+                        statusDiv.textContent = `✅ Found ${messagesResult.data.length} messages in chat room`;
+                        resultsDiv.innerHTML = '<pre>' + JSON.stringify(messagesResult, null, 2) + '</pre>';
+                    } else {
+                        statusDiv.className = 'status error';
+                        statusDiv.textContent = '❌ Messages test failed: ' + (messagesResult.error || 'Unknown error');
+                        resultsDiv.innerHTML = '<pre>' + JSON.stringify(messagesResult, null, 2) + '</pre>';
+                    }
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.textContent = '❌ No chat rooms found to test messages';
+                    resultsDiv.innerHTML = '<pre>No chat rooms available for testing</pre>';
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.textContent = '❌ Messages test failed: ' + error.message;
+                resultsDiv.innerHTML = '<pre>Error: ' + error.message + '</pre>';
+            }
+        }
+    </script>
+</body>
+</html>
+
+
+
+
+

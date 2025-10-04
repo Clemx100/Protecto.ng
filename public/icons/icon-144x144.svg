@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="144" height="144" viewBox="0 0 144 144" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="72" cy="72" r="72" fill="#1e40af"/>
+  
+  <!-- Shield Icon -->
+  <path d="M43.199999999999996 28.8 L72 21.599999999999998 L100.8 28.8 L100.8 57.6 C100.8 86.39999999999999 72 115.2 72 115.2 C72 115.2 43.199999999999996 86.39999999999999 43.199999999999996 57.6 Z" fill="white"/>
+  
+  <!-- Security Symbol -->
+  <circle cx="72" cy="64.8" r="11.52" fill="#1e40af"/>
+  <path d="M60.48 64.8 L66.24000000000001 70.56 L83.52 53.28" stroke="white" stroke-width="2.88" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Text -->
+  <text x="72" y="108" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="17.28" font-weight="bold">P.NG</text>
+</svg>

@@ -1,6 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useEffect } from "react"
 import { 
   Shield, 
   Settings, 
@@ -23,6 +25,21 @@ import { useState } from "react"
 
 export default function HomePage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  // Handle redirect after authentication
+  useEffect(() => {
+    const redirectPath = searchParams.get('redirect')
+    if (redirectPath) {
+      // Store the redirect path in sessionStorage for after authentication
+      sessionStorage.setItem('redirectAfterAuth', redirectPath)
+      // Remove the redirect parameter from URL to clean it up
+      const url = new URL(window.location.href)
+      url.searchParams.delete('redirect')
+      window.history.replaceState({}, '', url.toString())
+    }
+  }, [searchParams])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">

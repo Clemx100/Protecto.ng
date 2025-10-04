@@ -40,13 +40,40 @@ export default function AccountPage() {
   useEffect(() => {
     const getUser = async () => {
       try {
+        // Check for cached user data first
+        const cachedUser = localStorage.getItem('user')
+        if (cachedUser) {
+          const userData = JSON.parse(cachedUser)
+          console.log('Using cached user data:', userData)
+          setUser(userData)
+          
+          // Set profile from cached data immediately
+          const cachedProfile = {
+            id: userData.id,
+            first_name: userData.user_metadata?.first_name || userData.user_metadata?.firstName || 'User',
+            last_name: userData.user_metadata?.last_name || userData.user_metadata?.lastName || '',
+            phone: userData.user_metadata?.phone || '',
+            email: userData.email
+          }
+          console.log('Setting cached profile:', cachedProfile)
+          setProfile(cachedProfile)
+          setLoading(false)
+        }
+        
+        // Then verify with server in background
         const { data: { user }, error } = await supabase.auth.getUser()
         if (error || !user) {
           router.push('/client') // Redirect to login if not authenticated
           return
         }
         
+        console.log('Fresh user data from server:', user)
+        console.log('User metadata:', user.user_metadata)
+        console.log('User email:', user.email)
+        
+        // Update with fresh data
         setUser(user)
+        localStorage.setItem('user', JSON.stringify(user))
         
         // Get user profile from profiles table
         const { data: profile, error: profileError } = await supabase
@@ -58,15 +85,63 @@ export default function AccountPage() {
         if (profileError) {
           console.log('Profile not found, using user data:', profileError.message)
           // If no profile exists, create a basic one from user data
-          setProfile({
+          const fallbackProfile = {
             id: user.id,
-            first_name: user.user_metadata?.first_name || 'User',
-            last_name: user.user_metadata?.last_name || '',
+            first_name: user.user_metadata?.first_name || user.user_metadata?.firstName || 'User',
+            last_name: user.user_metadata?.last_name || user.user_metadata?.lastName || '',
             phone: user.user_metadata?.phone || '',
             email: user.email
-          })
+          }
+          console.log('Setting fallback profile:', fallbackProfile)
+          setProfile(fallbackProfile)
         } else {
-          setProfile(profile)
+          console.log('Profile found:', profile)
+          // Ensure profile has name data, fallback to user metadata if needed
+          const enhancedProfile = {
+            ...profile,
+            first_name: profile.first_name || user.user_metadata?.first_name || user.user_metadata?.firstName || 'User',
+            last_name: profile.last_name || user.user_metadata?.last_name || user.user_metadata?.lastName || '',
+            phone: profile.phone || user.user_metadata?.phone || '',
+            email: profile.email || user.email
+          }
+          console.log('Enhanced profile:', enhancedProfile)
+          setProfile(enhancedProfile)
+        }
+        
+        // If we still don't have a proper name, try to get it from the bookings table
+        const currentProfile = profile || {
+          id: user.id,
+          first_name: user.user_metadata?.first_name || user.user_metadata?.firstName || 'User',
+          last_name: user.user_metadata?.last_name || user.user_metadata?.lastName || '',
+          phone: user.user_metadata?.phone || '',
+          email: user.email
+        }
+        
+        if (!currentProfile.first_name || currentProfile.first_name === 'User') {
+          console.log('No proper name found, checking bookings table...')
+          try {
+            const { data: bookingData } = await supabase
+              .from('bookings')
+              .select('client:profiles!bookings_client_id_fkey(first_name, last_name)')
+              .eq('client_id', user.id)
+              .limit(1)
+              .single()
+            
+            if (bookingData?.client) {
+              console.log('Found client data in bookings:', bookingData.client)
+              const clientProfile = {
+                id: user.id,
+                first_name: bookingData.client.first_name || 'User',
+                last_name: bookingData.client.last_name || '',
+                phone: user.user_metadata?.phone || '',
+                email: user.email
+              }
+              console.log('Setting client profile from bookings:', clientProfile)
+              setProfile(clientProfile)
+            }
+          } catch (bookingError) {
+            console.log('No booking data found:', bookingError)
+          }
         }
       } catch (error) {
         console.error('Error getting user:', error)
@@ -195,16 +270,7 @@ export default function AccountPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="w-full max-w-md mx-auto bg-black min-h-screen flex items-center justify-center text-white">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400">Loading account...</p>
-        </div>
-      </div>
-    )
-  }
+  // Remove the separate loading screen - show content immediately
 
   return (
     <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
@@ -227,18 +293,30 @@ export default function AccountPage() {
       {/* Main Content */}
       <main className="flex-1 p-4 space-y-4 overflow-y-auto pb-20">
         {/* User Profile Section */}
-        {profile && (
-          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-base font-semibold text-white">Profile</h2>
+        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-white">Profile</h2>
+            {profile && (
               <button 
                 onClick={handleEditProfile}
                 className="p-1 hover:bg-gray-700 rounded-lg transition-colors"
               >
                 <Edit className="h-4 w-4 text-gray-400" />
               </button>
+            )}
+          </div>
+          
+          {loading ? (
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center">
+                <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+              <div className="flex-1">
+                <div className="h-4 bg-gray-700 rounded animate-pulse mb-2" />
+                <div className="h-3 bg-gray-700 rounded animate-pulse w-16" />
+              </div>
             </div>
-            
+          ) : profile ? (
             <div className="space-y-3">
               <div className="flex items-center space-x-3">
                 <div className="w-12 h-12 bg-blue-600 rounded-full flex items-center justify-center">
@@ -246,7 +324,10 @@ export default function AccountPage() {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-white font-medium">
-                    {profile.first_name} {profile.last_name}
+                    {profile.first_name && profile.last_name 
+                      ? `${profile.first_name} ${profile.last_name}`
+                      : profile.first_name || profile.last_name || 'User'
+                    }
                   </h3>
                   <p className="text-gray-400 text-sm">Client</p>
                 </div>
@@ -265,8 +346,12 @@ export default function AccountPage() {
                 )}
               </div>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="text-center py-4">
+              <p className="text-gray-400 text-sm">Unable to load profile</p>
+            </div>
+          )}
+        </div>
         {/* Account Settings Section */}
         <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
           <h2 className="text-base font-semibold mb-3 text-white">Account Settings</h2>

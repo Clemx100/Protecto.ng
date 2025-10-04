@@ -54,9 +54,11 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/operator") &&
     !request.nextUrl.pathname.startsWith("/chat")
   ) {
-    // no user, redirect to home page where authentication is handled
+    // Store the current location before redirecting for later restoration
+    const currentPath = request.nextUrl.pathname + request.nextUrl.search
     const url = request.nextUrl.clone()
     url.pathname = "/"
+    url.searchParams.set('redirect', currentPath)
     return NextResponse.redirect(url)
   }
 

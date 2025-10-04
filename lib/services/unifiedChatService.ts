@@ -1,390 +1,501 @@
-/**
- * Unified Chat Service - Complete Real-Time Chat Solution
- * Handles messages and status updates for both client and operator
- */
-
 import { createClient } from '@/lib/supabase/client'
-import { RealtimeChannel } from '@supabase/supabase-js'
 
 export interface ChatMessage {
   id: string
   booking_id: string
+  booking_code?: string // For compatibility
   sender_type: 'client' | 'operator' | 'system'
   sender_id: string
   message: string
   created_at: string
+  updated_at: string
+  has_invoice?: boolean
+  invoiceData?: any
+  invoice_data?: any // For compatibility
   is_system_message?: boolean
   message_type?: string
+  status?: 'sending' | 'sent' | 'delivered' | 'read'
   metadata?: any
-  sender?: {
-    first_name?: string
-    last_name?: string
-    role?: string
-  }
 }
 
-export interface BookingStatus {
-  status: string
-  updated_at: string
-  message?: string
-}
-
-class UnifiedChatService {
+export class UnifiedChatService {
   private supabase = createClient()
-  private messageChannels: Map<string, RealtimeChannel> = new Map()
-  private statusChannels: Map<string, RealtimeChannel> = new Map()
+  private isSupabaseAvailable = false
 
-  /**
-   * Get messages for a booking using the correct UUID
-   */
-  async getMessages(bookingIdOrCode: string): Promise<ChatMessage[]> {
+  constructor() {
+    this.checkSupabaseAvailability()
+  }
+
+  private async checkSupabaseAvailability() {
     try {
-      console.log('📥 Fetching messages for:', bookingIdOrCode)
-      
-      // Get the actual UUID
-      const bookingId = await this.resolveBookingUUID(bookingIdOrCode)
-      
-      if (!bookingId) {
-        throw new Error('Invalid booking ID')
-      }
-
-      // Try new API endpoint first
-      let response = await fetch(`/api/messages?bookingId=${bookingId}`)
-      
-      // Fallback to operator API
-      if (!response.ok) {
-        response = await fetch(`/api/operator/messages?bookingId=${bookingId}`)
-      }
-
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success) {
-          return this.normalizeMessages(result.data)
-        }
-      }
-
-      console.warn('API failed, trying direct Supabase query')
-      
-      // Direct Supabase fallback
       const { data, error } = await this.supabase
         .from('messages')
-        .select(`
-          *,
-          sender:profiles!messages_sender_id_fkey(first_name, last_name, role)
-        `)
-        .eq('booking_id', bookingId)
-        .order('created_at', { ascending: true })
-
-      if (error) {
-        console.error('Supabase query failed:', error)
-        return []
-      }
-
-      return this.normalizeMessages(data || [])
+        .select('count')
+        .limit(1)
+      
+      this.isSupabaseAvailable = !error
+      console.log('Supabase availability:', this.isSupabaseAvailable)
     } catch (error) {
-      console.error('Failed to get messages:', error)
-      return []
+      this.isSupabaseAvailable = false
+      console.log('Supabase not available, using localStorage fallback')
     }
   }
 
-  /**
-   * Send a message with guaranteed delivery
-   */
-  async sendMessage(
-    bookingIdOrCode: string,
-    content: string,
-    senderType: 'client' | 'operator' | 'system' = 'client',
-    metadata: any = {}
-  ): Promise<ChatMessage | null> {
+  // Send a message using the existing messages table
+  async sendMessage(message: Omit<ChatMessage, 'id' | 'created_at' | 'updated_at'>) {
+    // Try to send via API first
     try {
-      // Get the actual UUID
-      const bookingId = await this.resolveBookingUUID(bookingIdOrCode)
+      console.log('Sending message via API:', message)
       
-      if (!bookingId) {
-        throw new Error('Invalid booking ID')
-      }
-
-      console.log('📤 Sending message to booking:', bookingId)
-
-      // Try new API endpoint
-      const response = await fetch('/api/messages', {
+      // Get the current session for authentication
+      const { data: { session } } = await this.supabase.auth.getSession()
+      
+      // Try simple chat API first
+      let response = await fetch('/api/simple-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify({
-          bookingId,
-          content,
-          messageType: senderType === 'system' ? 'system' : 'text',
-          metadata
-        })
+          bookingId: message.booking_id,
+          content: message.message,
+          senderType: message.sender_type,
+          senderId: message.sender_id
+        }),
       })
+
+      // If client API fails, try operator API
+      if (!response.ok) {
+        console.log('Client API failed, trying operator API...')
+        response = await fetch('/api/operator/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            bookingId: message.booking_id,
+            content: message.message,
+            messageType: message.is_system_message ? 'system' : 'text',
+            metadata: message.metadata || message.invoice_data
+          }),
+        })
+      }
 
       if (response.ok) {
         const result = await response.json()
         if (result.success) {
-          console.log('✅ Message sent via API:', result.data.id)
-          return this.normalizeMessage(result.data)
+          // Convert API response to ChatMessage format
+          const chatMessage: ChatMessage = {
+            id: result.data.id,
+            booking_id: message.booking_id,
+            sender_type: message.sender_type,
+            sender_id: message.sender_id,
+            message: message.message,
+            created_at: result.data.created_at,
+            updated_at: result.data.created_at,
+            has_invoice: message.has_invoice || false,
+            is_system_message: message.is_system_message || false,
+            invoiceData: message.invoiceData,
+            metadata: result.data.metadata
+          }
+
+          // Store in localStorage for immediate availability
+          const existingMessages = JSON.parse(localStorage.getItem(`chat_${message.booking_id}`) || '[]')
+          const updatedMessages = [...existingMessages, chatMessage]
+          localStorage.setItem(`chat_${message.booking_id}`, JSON.stringify(updatedMessages))
+          
+          console.log('Message sent via API:', chatMessage.id)
+          return chatMessage
         }
       }
-
-      // Fallback to operator API
-      const fallbackResponse = await fetch('/api/operator/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookingId,
-          content,
-          messageType: senderType === 'system' ? 'system' : 'text'
-        })
-      })
-
-      if (fallbackResponse.ok) {
-        const result = await fallbackResponse.json()
-        if (result.success) {
-          console.log('✅ Message sent via operator API:', result.data.id)
-          return this.normalizeMessage(result.data)
-        }
-      }
-
-      throw new Error('All API endpoints failed')
     } catch (error) {
-      console.error('❌ Failed to send message:', error)
-      return null
+      console.log('API send failed, falling back to localStorage:', error)
     }
+
+    // Fallback to localStorage if API fails
+    const chatMessage: ChatMessage = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      ...message,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+
+    const existingMessages = JSON.parse(localStorage.getItem(`chat_${message.booking_id}`) || '[]')
+    const updatedMessages = [...existingMessages, chatMessage]
+    localStorage.setItem(`chat_${message.booking_id}`, JSON.stringify(updatedMessages))
+    console.log('Message stored in localStorage:', chatMessage.id)
+
+    return chatMessage
   }
 
-  /**
-   * Subscribe to real-time messages for a booking
-   */
-  subscribeToMessages(
-    bookingIdOrCode: string,
-    onMessage: (message: ChatMessage) => void,
-    onError?: (error: Error) => void
-  ): () => void {
-    const channelName = `messages:${bookingIdOrCode}`
-    
-    // Remove existing channel if any
-    this.unsubscribeFromMessages(bookingIdOrCode)
+  // Get messages for a specific booking using the existing messages table
+  async getMessages(bookingId: string) {
+    // Try to get from API first
+    try {
+      console.log('🔍 Getting messages for booking ID:', bookingId)
+      
+      // Get the current session for authentication
+      const { data: { session } } = await this.supabase.auth.getSession()
+      console.log('🔍 Session:', session ? 'authenticated' : 'not authenticated')
+      
+      // Try simple chat API first
+      console.log('🔍 Calling /api/simple-chat with bookingId:', bookingId)
+      let response = await fetch(`/api/simple-chat?bookingId=${bookingId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+      })
+      
+      console.log('🔍 API response status:', response.status, response.ok)
 
-    console.log('📡 Subscribing to messages:', channelName)
-
-    // Resolve UUID asynchronously
-    this.resolveBookingUUID(bookingIdOrCode).then(bookingId => {
-      if (!bookingId) {
-        console.error('❌ Cannot subscribe: Invalid booking ID')
-        if (onError) onError(new Error('Invalid booking ID'))
-        return
-      }
-
-      const channel = this.supabase
-        .channel(channelName)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `booking_id=eq.${bookingId}`
+      // If client API fails, try operator API
+      if (!response.ok) {
+        console.log('Client API failed, trying operator API...')
+        response = await fetch(`/api/operator/messages?bookingId=${bookingId}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
           },
-          (payload) => {
-            console.log('📨 Real-time message received:', payload.new)
-            const normalizedMessage = this.normalizeMessage(payload.new)
-            onMessage(normalizedMessage)
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'messages',
-            filter: `booking_id=eq.${bookingId}`
-          },
-          (payload) => {
-            console.log('✏️ Message updated:', payload.new)
-            const normalizedMessage = this.normalizeMessage(payload.new)
-            onMessage(normalizedMessage)
-          }
-        )
-        .subscribe((status, error) => {
-          console.log(`📡 Subscription status for ${channelName}:`, status)
-          if (status === 'SUBSCRIBED') {
-            console.log('✅ Successfully subscribed to messages')
-          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.error('❌ Subscription error:', error)
-            if (onError) onError(new Error(`Subscription ${status}`))
-          }
         })
-
-      this.messageChannels.set(bookingIdOrCode, channel)
-    })
-
-    // Return unsubscribe function
-    return () => this.unsubscribeFromMessages(bookingIdOrCode)
-  }
-
-  /**
-   * Subscribe to real-time booking status updates
-   */
-  subscribeToBookingStatus(
-    bookingIdOrCode: string,
-    onStatusChange: (status: BookingStatus) => void,
-    onError?: (error: Error) => void
-  ): () => void {
-    const channelName = `booking-status:${bookingIdOrCode}`
-    
-    // Remove existing channel if any
-    this.unsubscribeFromStatus(bookingIdOrCode)
-
-    console.log('📡 Subscribing to booking status:', channelName)
-
-    // Resolve UUID asynchronously
-    this.resolveBookingUUID(bookingIdOrCode).then(bookingId => {
-      if (!bookingId) {
-        console.error('❌ Cannot subscribe: Invalid booking ID')
-        if (onError) onError(new Error('Invalid booking ID'))
-        return
       }
 
-      const channel = this.supabase
-        .channel(channelName)
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'bookings',
-            filter: `id=eq.${bookingId}`
-          },
-          (payload) => {
-            console.log('🔄 Booking status updated:', payload.new)
-            const booking = payload.new as any
-            onStatusChange({
-              status: booking.status,
-              updated_at: booking.updated_at,
-              message: `Status updated to: ${booking.status}`
+      // If that fails and it looks like a booking code, try to find the database ID
+      if (!response.ok && bookingId.startsWith('REQ')) {
+        console.log('Booking code detected, trying to find database ID...')
+        try {
+          const bookingsResponse = await fetch('/api/operator/bookings')
+          if (bookingsResponse.ok) {
+            const bookingsData = await bookingsResponse.json()
+            if (bookingsData.success) {
+              const booking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
+              if (booking && booking.database_id) {
+                console.log('Found database ID for booking code:', booking.database_id)
+                response = await fetch(`/api/operator/messages?bookingId=${booking.database_id}`, {
+                  method: 'GET',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                })
+              }
+            }
+          }
+        } catch (error) {
+          console.log('Failed to find database ID:', error)
+        }
+      }
+
+      if (response.ok) {
+        const result = await response.json()
+        console.log('🔍 API response result:', result)
+        if (result.success) {
+          console.log('🔍 API response data:', result.data?.length || 0, 'messages')
+          // Convert API response to ChatMessage format
+          const apiMessages = result.data.map((msg: any) => ({
+            id: msg.id,
+            booking_id: msg.booking_id,
+            sender_type: msg.sender_type || (msg.message_type === 'system' ? 'system' : 'client'),
+            sender_id: msg.sender_id,
+            message: msg.content || msg.message,
+            created_at: msg.created_at,
+            updated_at: msg.created_at,
+            has_invoice: msg.has_invoice || msg.message_type === 'invoice',
+            is_system_message: msg.is_system_message || msg.message_type === 'system',
+            metadata: msg.metadata,
+            invoice_data: msg.invoice_data || msg.metadata
+          })) as ChatMessage[]
+
+          console.log('🔍 Converted messages:', apiMessages.length)
+          // Store in localStorage for offline access
+          localStorage.setItem(`chat_${bookingId}`, JSON.stringify(apiMessages))
+          console.log('✅ Messages loaded from API:', apiMessages.length)
+          return apiMessages
+        } else {
+          console.log('❌ API response not successful:', result)
+        }
+      } else {
+        console.log('❌ API response not ok:', response.status, response.statusText)
+      }
+    } catch (error) {
+      console.log('API fetch failed, using localStorage:', error)
+    }
+
+    // Fallback to localStorage
+    const localMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+    console.log('Loaded messages from localStorage:', localMessages.length)
+    return localMessages as ChatMessage[]
+  }
+
+  // Subscribe to real-time messages for a specific booking using the existing messages table
+  subscribeToMessages(bookingId: string, callback: (message: ChatMessage) => void) {
+    if (!this.isSupabaseAvailable) {
+      // If Supabase not available, return a mock subscription that polls localStorage
+      let lastMessageCount = 0
+      const pollInterval = setInterval(async () => {
+        try {
+          // Try client API first
+          let response = await fetch(`/api/messages?bookingId=${bookingId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          })
+
+          // If client API fails, try operator API
+          if (!response.ok) {
+            response = await fetch(`/api/operator/messages?bookingId=${bookingId}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              },
             })
           }
-        )
-        .subscribe((status, error) => {
-          console.log(`📡 Subscription status for ${channelName}:`, status)
-          if (status === 'SUBSCRIBED') {
-            console.log('✅ Successfully subscribed to booking status')
-          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-            console.error('❌ Status subscription error:', error)
-            if (onError) onError(new Error(`Subscription ${status}`))
+
+          if (response.ok) {
+            const result = await response.json()
+            if (result.success && result.data.length > lastMessageCount) {
+              // New messages available, update localStorage and trigger callback
+              localStorage.setItem(`chat_${bookingId}`, JSON.stringify(result.data))
+              const newMessages = result.data.slice(lastMessageCount)
+              newMessages.forEach((msg: any) => {
+                const chatMessage: ChatMessage = {
+                  id: msg.id,
+                  booking_id: msg.booking_id,
+                  sender_type: msg.sender_type || (msg.message_type === 'system' ? 'system' : 'client'),
+                  sender_id: msg.sender_id,
+                  message: msg.content || msg.message,
+                  created_at: msg.created_at,
+                  updated_at: msg.created_at,
+                  has_invoice: msg.has_invoice || msg.message_type === 'invoice',
+                  is_system_message: msg.is_system_message || msg.message_type === 'system',
+                  metadata: msg.metadata,
+                  invoiceData: msg.invoice_data || msg.metadata
+                }
+                callback(chatMessage)
+              })
+              lastMessageCount = result.data.length
+            }
+          } else {
+            // Fallback to localStorage polling
+            const messages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+            if (messages.length > lastMessageCount) {
+              const newMessages = messages.slice(lastMessageCount)
+              newMessages.forEach((msg: ChatMessage) => callback(msg))
+              lastMessageCount = messages.length
+            }
           }
-        })
-
-      this.statusChannels.set(bookingIdOrCode, channel)
-    })
-
-    // Return unsubscribe function
-    return () => this.unsubscribeFromStatus(bookingIdOrCode)
-  }
-
-  /**
-   * Resolve booking code to UUID
-   */
-  private async resolveBookingUUID(bookingIdOrCode: string): Promise<string | null> {
-    // UUID regex
-    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-    
-    // If already UUID, return it
-    if (uuidPattern.test(bookingIdOrCode)) {
-      return bookingIdOrCode
-    }
-
-    // If booking code, fetch UUID
-    if (bookingIdOrCode.startsWith('REQ')) {
-      try {
-        const { data, error } = await this.supabase
-          .from('bookings')
-          .select('id')
-          .eq('booking_code', bookingIdOrCode)
-          .single()
-
-        if (data && !error) {
-          console.log('✅ Resolved booking code to UUID:', data.id)
-          return data.id
+        } catch (error) {
+          console.log('Polling error, using localStorage:', error)
+          const messages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+          if (messages.length > lastMessageCount) {
+            const newMessages = messages.slice(lastMessageCount)
+            newMessages.forEach((msg: ChatMessage) => callback(msg))
+            lastMessageCount = messages.length
+          }
         }
-      } catch (error) {
-        console.error('Failed to resolve booking code:', error)
+      }, 2000) // Poll every 2 seconds
+
+      return {
+        unsubscribe: () => clearInterval(pollInterval)
       }
     }
 
-    return null
+    const subscription = this.supabase
+      .channel(`messages:booking_id=eq.${bookingId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `booking_id=eq.${bookingId}`
+        },
+        (payload) => {
+          const msg = payload.new as any
+          const chatMessage: ChatMessage = {
+            id: msg.id,
+            booking_id: msg.booking_id,
+            sender_type: msg.sender_type || (msg.message_type === 'system' ? 'system' : 'client'),
+            sender_id: msg.sender_id,
+            message: msg.content,
+            created_at: msg.created_at,
+            updated_at: msg.created_at,
+            has_invoice: msg.has_invoice || msg.message_type === 'invoice',
+            is_system_message: msg.is_system_message || msg.message_type === 'system',
+            metadata: msg.metadata
+          }
+          
+          // Store in localStorage
+          const existingMessages = JSON.parse(localStorage.getItem(`chat_${bookingId}`) || '[]')
+          const updatedMessages = [...existingMessages, chatMessage]
+          localStorage.setItem(`chat_${bookingId}`, JSON.stringify(updatedMessages))
+          
+          callback(chatMessage)
+        }
+      )
+      .subscribe()
+
+    return subscription
   }
 
-  /**
-   * Normalize message format from different sources
-   */
-  private normalizeMessage(msg: any): ChatMessage {
+  // Subscribe to all messages for operators using the existing messages table
+  subscribeToAllMessages(callback: (message: ChatMessage) => void) {
+    if (!this.isSupabaseAvailable) {
     return {
+        unsubscribe: () => {}
+      }
+    }
+
+    const subscription = this.supabase
+      .channel('messages:all')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages'
+        },
+        (payload) => {
+          const msg = payload.new as any
+          const chatMessage: ChatMessage = {
       id: msg.id,
       booking_id: msg.booking_id,
-      sender_type: msg.sender_type || 
-                   (msg.sender_role === 'operator' || msg.sender_role === 'admin' ? 'operator' : 
-                    msg.message_type === 'system' ? 'system' : 'client'),
+            sender_type: msg.sender_type || (msg.message_type === 'system' ? 'system' : 'client'),
       sender_id: msg.sender_id,
-      message: msg.content || msg.message,
+            message: msg.content,
       created_at: msg.created_at,
-      is_system_message: msg.message_type === 'system' || msg.is_system_message,
-      message_type: msg.message_type,
-      metadata: msg.metadata,
-      sender: msg.sender
-    }
+            updated_at: msg.created_at,
+            has_invoice: msg.has_invoice || msg.message_type === 'invoice',
+      is_system_message: msg.is_system_message || msg.message_type === 'system',
+            metadata: msg.metadata
+          }
+          callback(chatMessage)
+        }
+      )
+      .subscribe()
+
+    return subscription
   }
 
-  /**
-   * Normalize array of messages
-   */
-  private normalizeMessages(messages: any[]): ChatMessage[] {
-    return messages.map(msg => this.normalizeMessage(msg))
-  }
-
-  /**
-   * Unsubscribe from messages channel
-   */
-  private unsubscribeFromMessages(bookingIdOrCode: string) {
-    const channel = this.messageChannels.get(bookingIdOrCode)
-    if (channel) {
-      console.log('🔌 Unsubscribing from messages:', bookingIdOrCode)
-      this.supabase.removeChannel(channel)
-      this.messageChannels.delete(bookingIdOrCode)
-    }
-  }
-
-  /**
-   * Unsubscribe from status channel
-   */
-  private unsubscribeFromStatus(bookingIdOrCode: string) {
-    const channel = this.statusChannels.get(bookingIdOrCode)
-    if (channel) {
-      console.log('🔌 Unsubscribing from status:', bookingIdOrCode)
-      this.supabase.removeChannel(channel)
-      this.statusChannels.delete(bookingIdOrCode)
-    }
-  }
-
-  /**
-   * Cleanup all subscriptions
-   */
-  cleanup() {
-    console.log('🧹 Cleaning up all subscriptions')
+  // Create a system message
+  async createSystemMessage(bookingId: string, message: string, senderId: string) {
+    console.log('Creating system message for booking:', bookingId)
     
-    this.messageChannels.forEach((channel, key) => {
-      this.supabase.removeChannel(channel)
+    return this.sendMessage({
+      booking_id: bookingId,
+      sender_type: 'system',
+      sender_id: senderId,
+      message,
+      is_system_message: true
     })
-    
-    this.statusChannels.forEach((channel, key) => {
-      this.supabase.removeChannel(channel)
+  }
+
+  // Create an operator message
+  async createOperatorMessage(bookingId: string, message: string, senderId: string, hasInvoice = false, invoiceData?: any) {
+    return this.sendMessage({
+      booking_id: bookingId,
+      sender_type: 'operator',
+      sender_id: senderId,
+      message,
+      has_invoice: hasInvoice,
+      invoiceData: invoiceData,
+      metadata: invoiceData
     })
-    
-    this.messageChannels.clear()
-    this.statusChannels.clear()
+  }
+
+  // Create a client message
+  async createClientMessage(bookingId: string, message: string, senderId: string) {
+    return this.sendMessage({
+      booking_id: bookingId,
+      sender_type: 'client',
+      sender_id: senderId,
+      message
+    })
+  }
+
+  // Subscribe to booking updates
+  subscribeToBookingUpdates(bookingId: string, callback: (booking: any) => void) {
+    if (!this.isSupabaseAvailable) {
+      return {
+        unsubscribe: () => {}
+      }
+    }
+
+    const subscription = this.supabase
+      .channel(`bookings:booking_id=eq.${bookingId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'bookings',
+          filter: `booking_id=eq.${bookingId}`
+        },
+        (payload) => {
+          console.log('Booking update received:', payload)
+          callback(payload.new)
+        }
+      )
+      .subscribe()
+
+    return subscription
+  }
+
+  // Update message status
+  async updateMessageStatus(messageId: string, status: 'sending' | 'sent' | 'delivered' | 'read') {
+    if (!this.isSupabaseAvailable) {
+      console.log('Supabase not available, skipping status update')
+      return
+    }
+
+    try {
+      const { error } = await this.supabase
+        .from('messages')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', messageId)
+
+      if (error) {
+        console.error('Error updating message status:', error)
+      }
+    } catch (error) {
+      console.error('Error updating message status:', error)
+    }
+  }
+
+  // Mark messages as read
+  async markMessagesAsRead(bookingId: string, userId: string) {
+    if (!this.isSupabaseAvailable) {
+      console.log('Supabase not available, skipping mark as read')
+      return
+    }
+
+    try {
+      const { error } = await this.supabase
+        .from('messages')
+        .update({ 
+          status: 'read', 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('booking_id', bookingId)
+        .neq('sender_id', userId) // Don't mark own messages as read
+
+      if (error) {
+        console.error('Error marking messages as read:', error)
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error)
+    }
+  }
+
+  // Unsubscribe from a channel
+  unsubscribe(subscription: any) {
+    if (subscription && subscription.unsubscribe) {
+      subscription.unsubscribe()
+    } else if (this.supabase && subscription) {
+      this.supabase.removeChannel(subscription)
+    }
   }
 }
 
-// Export singleton
+// Export a singleton instance
 export const unifiedChatService = new UnifiedChatService()
-

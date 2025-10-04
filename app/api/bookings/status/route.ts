@@ -31,12 +31,30 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid status value' }, { status: 400 })
     }
 
-    // First, check if booking exists
-    const { data: existingBooking, error: fetchError } = await supabase
-      .from('bookings')
-      .select('id, booking_code, status')
-      .eq('id', bookingId)
-      .single()
+    // First, check if booking exists - handle both UUID and booking code
+    let existingBooking, fetchError
+    
+    if (bookingId.startsWith('REQ')) {
+      // It's a booking code, search by booking_code
+      console.log('🔍 Searching by booking code:', bookingId)
+      const result = await supabase
+        .from('bookings')
+        .select('id, booking_code, status')
+        .eq('booking_code', bookingId)
+        .single()
+      existingBooking = result.data
+      fetchError = result.error
+    } else {
+      // It's a UUID, search by id
+      console.log('🔍 Searching by UUID:', bookingId)
+      const result = await supabase
+        .from('bookings')
+        .select('id, booking_code, status')
+        .eq('id', bookingId)
+        .single()
+      existingBooking = result.data
+      fetchError = result.error
+    }
 
     if (fetchError || !existingBooking) {
       console.error('❌ Booking not found:', { 
@@ -51,14 +69,14 @@ export async function PATCH(request: NextRequest) {
 
     console.log('Found booking:', existingBooking)
 
-    // Update booking status
+    // Update booking status using the actual UUID from the database
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
       .update({
         status: status,
         updated_at: new Date().toISOString()
       })
-      .eq('id', bookingId)
+      .eq('id', existingBooking.id) // Use the UUID from the database, not the input bookingId
       .select()
       .single()
 
@@ -69,7 +87,7 @@ export async function PATCH(request: NextRequest) {
 
     console.log('Successfully updated booking:', updatedBooking)
 
-    // ALWAYS create a system message about the status change (including for pending)
+    // Create a new system message about the status change
     const statusMessages = {
       'pending': '⏳ Your booking request has been received and is pending review.',
       'accepted': '✅ Your booking has been accepted by our team. We will contact you shortly.',
@@ -87,18 +105,19 @@ export async function PATCH(request: NextRequest) {
     const fullMessage = notes ? `${messageContent}\n\nNotes: ${notes}` : messageContent
 
     // Create system message - use a valid operator ID for system messages
-    const operatorId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default operator ID
+    const operatorId = '9882762d-93e4-484c-b055-a14737f76cba' // Use the same valid user ID as other APIs
     
     console.log('📨 Creating system message for status update:', { bookingId, status, message: fullMessage })
     
     const { data: systemMessage, error: messageError } = await supabase
       .from('messages')
       .insert({
-        booking_id: bookingId,
+        booking_id: existingBooking.id, // Use the UUID from the database
         sender_id: operatorId,
         recipient_id: updatedBooking.client_id,
         content: fullMessage,
         message_type: 'system',
+        sender_type: 'system',
         is_encrypted: false
       })
       .select()

@@ -5,6 +5,7 @@ import { Suspense } from "react"
 import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/toaster"
 import { Toaster as Sonner } from "@/components/ui/sonner"
+import LocationPreservationWrapper from "@/components/location-preservation-wrapper"
 import "./globals.css"
 
 const inter = Inter({
@@ -40,9 +41,11 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
-          <Toaster />
-          <Sonner />
+          <LocationPreservationWrapper>
+            <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
+            <Toaster />
+            <Sonner />
+          </LocationPreservationWrapper>
         </ThemeProvider>
       </body>
     </html>

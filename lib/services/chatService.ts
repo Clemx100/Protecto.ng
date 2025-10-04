@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/client'
 export interface ChatMessage {
   id: string
   booking_id: string
+  booking_code?: string // For compatibility
   sender_type: 'client' | 'operator' | 'system'
   sender_id: string
   message: string
@@ -10,7 +11,9 @@ export interface ChatMessage {
   updated_at: string
   has_invoice?: boolean
   invoiceData?: any
+  invoice_data?: any // For compatibility
   is_system_message?: boolean
+  status?: 'sending' | 'sent' | 'delivered' | 'read'
 }
 
 export class ChatService {
@@ -380,6 +383,81 @@ export class ChatService {
       sender_id: senderId,
       message
     })
+  }
+
+  // Subscribe to booking updates
+  subscribeToBookingUpdates(bookingId: string, callback: (booking: any) => void) {
+    if (!this.isSupabaseAvailable) {
+      // If Supabase not available, return a mock subscription
+      return {
+        unsubscribe: () => {}
+      }
+    }
+
+    const subscription = this.supabase
+      .channel(`bookings:booking_id=eq.${bookingId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'bookings',
+          filter: `booking_id=eq.${bookingId}`
+        },
+        (payload) => {
+          console.log('Booking update received:', payload)
+          callback(payload.new)
+        }
+      )
+      .subscribe()
+
+    return subscription
+  }
+
+  // Update message status
+  async updateMessageStatus(messageId: string, status: 'sending' | 'sent' | 'delivered' | 'read') {
+    if (!this.isSupabaseAvailable) {
+      console.log('Supabase not available, skipping status update')
+      return
+    }
+
+    try {
+      const { error } = await this.supabase
+        .from('messages')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', messageId)
+
+      if (error) {
+        console.error('Error updating message status:', error)
+      }
+    } catch (error) {
+      console.error('Error updating message status:', error)
+    }
+  }
+
+  // Mark messages as read
+  async markMessagesAsRead(bookingId: string, userId: string) {
+    if (!this.isSupabaseAvailable) {
+      console.log('Supabase not available, skipping mark as read')
+      return
+    }
+
+    try {
+      const { error } = await this.supabase
+        .from('messages')
+        .update({ 
+          status: 'read', 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('booking_id', bookingId)
+        .neq('sender_id', userId) // Don't mark own messages as read
+
+      if (error) {
+        console.error('Error marking messages as read:', error)
+      }
+    } catch (error) {
+      console.error('Error marking messages as read:', error)
+    }
   }
 
   // Unsubscribe from a channel

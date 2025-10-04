@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
-import { chatService, ChatMessage } from "@/lib/services/chatService"
+import { unifiedChatService, ChatMessage } from "@/lib/services/unifiedChatService"
 import { ArrowLeft, Send, Shield, Clock, MapPin, User, Phone, Calendar, Car } from "lucide-react"
 
 export default function ChatPage() {
@@ -15,7 +15,7 @@ export default function ChatPage() {
   
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [newMessage, setNewMessage] = useState("")
-  const [requestStatus, setRequestStatus] = useState("Pending Deployment")
+  const [requestStatus, setRequestStatus] = useState("pending")
   const [bookingPayload, setBookingPayload] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [user, setUser] = useState<any>(null)
@@ -23,176 +23,105 @@ export default function ChatPage() {
   const [statusSubscription, setStatusSubscription] = useState<any>(null)
   const [showInvoiceModal, setShowInvoiceModal] = useState(false)
   const [invoiceData, setInvoiceData] = useState<any>(null)
+  const [isStatusUpdating, setIsStatusUpdating] = useState(false)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const currentBookingIdRef = useRef<string | null>(null)
   
-  // Helper function to setup message polling
-  const setupMessagePolling = (bookingId: string) => {
-    console.log('⏰ Setting up message polling for:', bookingId)
+  // Setup real-time message subscription
+  const setupMessageSubscription = (bookingId: string) => {
+    console.log('🔴 Setting up real-time subscription for:', bookingId)
     
-    // Clear any existing interval
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current)
-    }
-    
-    // Store the booking ID
-    currentBookingIdRef.current = bookingId
-    
-    // Set up polling interval
-    pollingIntervalRef.current = setInterval(async () => {
-      console.log('🔄 Polling for new messages...')
-      try {
-        const bookingIdForPoll = currentBookingIdRef.current
-        if (!bookingIdForPoll) return
+    const subscription = unifiedChatService.subscribeToMessages(bookingId, (newMessage) => {
+      console.log('📨 New message received:', newMessage)
+      
+      setChatMessages(prev => {
+        const exists = prev.some(msg => msg.id === newMessage.id)
+        if (exists) return prev
         
-        const messages = await chatService.getMessages(bookingIdForPoll)
-        if (messages && messages.length > 0) {
-          setChatMessages(currentMessages => {
-            if (messages.length > currentMessages.length) {
-              console.log(`📬 Found ${messages.length - currentMessages.length} new messages via polling`)
-              return messages
-            }
-            return currentMessages
-          })
+        return [...prev, newMessage]
+      })
+      
+      // Check for status updates
+      if (newMessage.sender_type === 'system' && newMessage.message.includes('Status updated to:')) {
+        const statusMatch = newMessage.message.match(/Status updated to: (\w+)/)
+        if (statusMatch) {
+          const newStatus = statusMatch[1]
+          setRequestStatus(newStatus)
         }
-      } catch (error) {
-        console.error('Polling error:', error)
       }
-    }, 3000)
+    })
     
-    console.log('✅ Message polling started')
+    setStatusSubscription(subscription)
+    return subscription
   }
 
   useEffect(() => {
     initializeChat()
   }, [searchParams])
 
-  useEffect(() => {
-    scrollToBottom()
-  }, [chatMessages])
+  // Don't auto-scroll - let user control their view
+  // useEffect(() => {
+  //   scrollToBottom()
+  // }, [chatMessages])
 
-  // Cleanup subscription and polling on unmount
+  // Cleanup subscription on unmount
   useEffect(() => {
     return () => {
       if (statusSubscription) {
         console.log('🔴 Cleaning up real-time subscription')
-        chatService.unsubscribe(statusSubscription)
-      }
-      if (pollingIntervalRef.current) {
-        console.log('🔴 Cleaning up polling interval')
-        clearInterval(pollingIntervalRef.current)
+        unifiedChatService.unsubscribe(bookingPayload?.id || '')
       }
     }
-  }, [statusSubscription])
+  }, [statusSubscription, bookingPayload])
 
-  // Poll for status updates
+  // Simple status polling (reduced frequency)
   useEffect(() => {
     if (!bookingPayload) return
 
-    const checkForStatusUpdates = () => {
-      // Check if booking status has changed in localStorage
-      const storedBookings = localStorage.getItem('user_bookings')
-      const operatorBookings = localStorage.getItem('operator_bookings')
+    const checkStatus = async () => {
+      setIsStatusUpdating(true)
       
+      // First check localStorage
+      const storedBookings = localStorage.getItem('user_bookings')
       if (storedBookings) {
         try {
           const bookings = JSON.parse(storedBookings)
-          // Check both booking code and database_id
-          let currentBooking = bookings.find((b: any) => b.id === bookingPayload.id)
-          if (!currentBooking && bookingPayload.database_id) {
-            currentBooking = bookings.find((b: any) => b.id === bookingPayload.database_id)
-          }
+          const currentBooking = bookings.find((b: any) => 
+            b.id === bookingPayload.id || b.id === bookingPayload.database_id
+          )
           
           if (currentBooking && currentBooking.status !== requestStatus) {
-            const newStatus = currentBooking.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
-            setRequestStatus(newStatus)
-            console.log('Status updated from user_bookings:', newStatus)
+            console.log('📊 Status changed from', requestStatus, 'to', currentBooking.status)
+            setRequestStatus(currentBooking.status)
           }
         } catch (error) {
-          console.error('Error checking status updates:', error)
+          console.error('Error checking status from localStorage:', error)
         }
       }
-      
-      // Also check operator bookings for real-time sync
-      if (operatorBookings) {
-        try {
-          const bookings = JSON.parse(operatorBookings)
-          // Check both booking code and database_id
-          let currentBooking = bookings.find((b: any) => b.id === bookingPayload.id)
-          if (!currentBooking && bookingPayload.database_id) {
-            currentBooking = bookings.find((b: any) => b.id === bookingPayload.database_id)
+
+      // Also check API for real-time status
+      try {
+        const response = await fetch(`/api/bookings/${bookingPayload.id}`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.data && data.data.status !== requestStatus) {
+            console.log('📊 API Status changed from', requestStatus, 'to', data.data.status)
+            setRequestStatus(data.data.status)
           }
-          
-          if (currentBooking && currentBooking.status !== requestStatus) {
-            const newStatus = currentBooking.status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
-            setRequestStatus(newStatus)
-            console.log('Status updated from operator_bookings:', newStatus)
-            
-            // Update current booking status
-            const updatedCurrentBooking = { ...bookingPayload, status: currentBooking.status }
-            setBookingPayload(updatedCurrentBooking)
-            localStorage.setItem('currentBooking', JSON.stringify(updatedCurrentBooking))
-          }
-        } catch (error) {
-          console.error('Error checking operator status updates:', error)
         }
+      } catch (error) {
+        console.error('Error checking status from API:', error)
+      } finally {
+        setIsStatusUpdating(false)
       }
     }
 
-    // Check immediately
-    checkForStatusUpdates()
-
-    // Set up polling every 2 seconds
-    const interval = setInterval(checkForStatusUpdates, 2000)
+    // Check every 30 seconds instead of 5 to reduce API calls
+    const interval = setInterval(checkStatus, 30000)
+    checkStatus() // Check immediately
 
     return () => clearInterval(interval)
-  }, [bookingPayload, requestStatus])
-
-  // Poll for new messages
-  useEffect(() => {
-    if (!bookingPayload) return
-
-    const checkForNewMessages = () => {
-      // Use database_id if available, otherwise use booking.id
-      const messageBookingId = bookingPayload.database_id || bookingPayload.id
-      
-      // Check both localStorage keys for messages
-      let storedMessages = localStorage.getItem(`chat_${messageBookingId}`)
-      if (!storedMessages && bookingPayload.database_id && bookingPayload.database_id !== bookingPayload.id) {
-        storedMessages = localStorage.getItem(`chat_${bookingPayload.id}`)
-      }
-      
-      if (storedMessages) {
-        try {
-          const messages = JSON.parse(storedMessages)
-          
-          // Check if there are actually new messages by comparing IDs
-          const currentMessageIds = new Set(chatMessages.map(msg => msg.id))
-          const newMessages = messages.filter(msg => !currentMessageIds.has(msg.id))
-          
-          if (newMessages.length > 0) {
-            console.log('New messages found, updating chat:', newMessages.length)
-            
-            // Check for invoice messages in new messages
-            const invoiceMessage = newMessages.find((msg: any) => msg.has_invoice && msg.invoiceData)
-            if (invoiceMessage) {
-              setInvoiceData(invoiceMessage.invoiceData)
-            }
-            
-            // Update with all messages (existing + new)
-            setChatMessages(messages)
-          }
-        } catch (error) {
-          console.error('Error checking for new messages:', error)
-        }
-      }
-    }
-
-    // Check for new messages every 3 seconds
-    const messageInterval = setInterval(checkForNewMessages, 3000)
-
-    return () => clearInterval(messageInterval)
-  }, [bookingPayload, chatMessages])
+  }, [bookingPayload]) // Removed requestStatus from dependencies to prevent infinite loop
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -205,10 +134,7 @@ export default function ChatPage() {
       
       // Get current user
       const { data: { user: currentUser } } = await supabase.auth.getUser()
-      console.log('Current user from auth:', currentUser)
-      
       if (!currentUser) {
-        console.log('No user found, redirecting to home')
         router.push('/')
         return
       }
@@ -218,142 +144,133 @@ export default function ChatPage() {
       const bookingId = searchParams.get('id')
       const storedBooking = localStorage.getItem('currentBooking')
       
-      console.log('Chat page loaded with bookingId:', bookingId)
-      console.log('Stored booking:', storedBooking)
-      console.log('All localStorage keys:', Object.keys(localStorage))
-      
+      let booking = null
       if (storedBooking) {
         try {
-          const booking = JSON.parse(storedBooking)
-          console.log('Parsed booking:', booking)
-          setBookingPayload(booking)
-          
-          // Use database_id if available, otherwise use booking.id
-          const messageBookingId = booking.database_id || booking.id
-          console.log('Using booking ID for messages:', messageBookingId)
-          
-          // Load existing messages with both booking code and database ID
-          await loadMessages(messageBookingId)
-          
-          // Also try loading with booking code for backward compatibility
-          if (booking.database_id && booking.id !== booking.database_id) {
-            console.log('Also trying to load messages with booking code:', booking.id)
-            await loadMessages(booking.id)
-          }
-          
-          // Subscribe to real-time messages with the database UUID
-          console.log('🔴 Setting up real-time subscription for booking:', messageBookingId)
-          const subscription = chatService.subscribeToMessages(messageBookingId, (newMessage) => {
-            console.log('📨 New message received via real-time:', newMessage)
-            
-            // Add message to state if not already present
-            setChatMessages(prev => {
-              const exists = prev.some(msg => msg.id === newMessage.id)
-              if (exists) {
-                console.log('Message already exists, skipping')
-                return prev
-              }
-              console.log('Adding new message to chat')
-              return [...prev, newMessage]
-            })
-            
-            // Check if this is a status update message
-            if (newMessage.sender_type === 'system' && newMessage.message.includes('Status updated to:')) {
-              const statusMatch = newMessage.message.match(/Status updated to: (\w+)/)
-              if (statusMatch) {
-                const newStatus = statusMatch[1].replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
-                setRequestStatus(newStatus)
-                console.log('Status updated to:', newStatus)
-              }
-            }
-          })
-          
-          setStatusSubscription(subscription)
-          
-          // CRITICAL: Add polling to ensure messages are always synced
-          setupMessagePolling(messageBookingId)
+          booking = JSON.parse(storedBooking)
         } catch (error) {
           console.error("Error parsing stored booking:", error)
-          // If parsing fails, try to get booking from URL params
-          if (bookingId) {
-            console.log('Trying to find booking by ID:', bookingId)
-            // Create a minimal booking object from the ID
-            const fallbackBooking = {
-              id: bookingId,
-              status: 'pending',
-              created_at: new Date().toISOString()
-            }
-            setBookingPayload(fallbackBooking)
-            // Try to find the database ID for this booking code
-            const messageBookingId = bookingId // Use the booking code as fallback
-            await loadMessages(messageBookingId)
-            
-            // Also try to find database ID from operator bookings
-            try {
-              const bookingsResponse = await fetch('/api/operator/bookings')
-              if (bookingsResponse.ok) {
-                const bookingsData = await bookingsResponse.json()
-                if (bookingsData.success) {
-                  const foundBooking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
-                  if (foundBooking && foundBooking.database_id) {
-                    console.log('Found database ID for booking code:', foundBooking.database_id)
-                    await loadMessages(foundBooking.database_id)
-                    // Setup polling with the database ID
-                    setupMessagePolling(foundBooking.database_id)
-                  }
-                }
-              }
-            } catch (error) {
-              console.log('Could not find database ID:', error)
-            }
-            
-            // Setup polling even with booking code (as fallback)
-            if (!pollingIntervalRef.current) {
-              setupMessagePolling(messageBookingId)
-            }
-          }
-        }
-      } else {
-        console.log('No stored booking found in localStorage')
-        // If no stored booking but we have a booking ID, try to find it
-        if (bookingId) {
-          console.log('Trying to find booking by ID:', bookingId)
-          // Create a minimal booking object from the ID
-          const fallbackBooking = {
-            id: bookingId,
-            status: 'pending',
-            created_at: new Date().toISOString()
-          }
-          setBookingPayload(fallbackBooking)
-          // Try to find the database ID for this booking code
-          const messageBookingId = bookingId // Use the booking code as fallback
-          await loadMessages(messageBookingId)
-          
-          // Also try to find database ID from operator bookings
-          try {
-            const bookingsResponse = await fetch('/api/operator/bookings')
-            if (bookingsResponse.ok) {
-              const bookingsData = await bookingsResponse.json()
-              if (bookingsData.success) {
-                const foundBooking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
-                if (foundBooking && foundBooking.database_id) {
-                  console.log('Found database ID for booking code:', foundBooking.database_id)
-                  await loadMessages(foundBooking.database_id)
-                  // Setup polling with database ID
-                  setupMessagePolling(foundBooking.database_id)
-                }
-              }
-            }
-          } catch (error) {
-            console.log('Could not find database ID:', error)
-          }
-          
-          // Setup polling even with booking code (as fallback)
-          if (!pollingIntervalRef.current) {
-            setupMessagePolling(messageBookingId)
-          }
         }
       }
+      
+      if (!booking && bookingId) {
+        // Create fallback booking
+        booking = {
+          id: bookingId,
+          status: 'pending',
+          created_at: new Date().toISOString()
+        }
+      }
+      
+      // If no booking found, try to get the most recent booking
+      if (!booking) {
+        console.log('No booking found, trying to get most recent booking...')
+        try {
+          const response = await fetch('/api/operator/bookings')
+          if (response.ok) {
+            const data = await response.json()
+            if (data.success && data.data.length > 0) {
+              // First, try to find a booking with operator messages
+              let bookingWithOperatorMessages = null
+              
+              // Check each booking for operator messages (most recent first)
+              const sortedBookings = data.data.sort((a: any, b: any) => b.booking_code.localeCompare(a.booking_code))
+              
+              for (const booking of sortedBookings.slice(0, 5)) { // Check first 5 most recent bookings
+                try {
+                  const messagesResponse = await fetch(`/api/simple-chat?bookingId=${booking.booking_code}`)
+                  if (messagesResponse.ok) {
+                    const messagesData = await messagesResponse.json()
+                    const messages = messagesData.data || []
+                    const operatorMessages = messages.filter(msg => msg.sender_type === 'operator')
+                    
+                    if (operatorMessages.length > 0) {
+                      bookingWithOperatorMessages = booking
+                      console.log(`✅ Found booking with operator messages: ${booking.booking_code} (${operatorMessages.length} messages)`)
+                      break
+                    }
+                  }
+                } catch (error) {
+                  console.log(`Error checking messages for ${booking.booking_code}:`, error)
+                }
+              }
+              
+              // Use booking with operator messages, or fallback to most recent
+              const selectedBooking = bookingWithOperatorMessages || sortedBookings[0]
+              console.log(`Selected booking: ${selectedBooking.booking_code} (${bookingWithOperatorMessages ? 'has operator messages' : 'most recent'})`)
+              
+              booking = {
+                id: selectedBooking.booking_code,
+                status: selectedBooking.status,
+                created_at: selectedBooking.created_at,
+                client: selectedBooking.client,
+                pickup_address: selectedBooking.pickup_address,
+                destination_address: selectedBooking.destination_address,
+                scheduled_date: selectedBooking.scheduled_date,
+                scheduled_time: selectedBooking.scheduled_time,
+                duration_hours: selectedBooking.duration_hours,
+                service_type: selectedBooking.service_type,
+                total_price: selectedBooking.total_price
+              }
+              
+              console.log('✅ Loaded booking:', booking.id)
+              
+              // Store in localStorage for future use
+              localStorage.setItem('currentBooking', JSON.stringify(booking))
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching most recent booking:', error)
+        }
+      }
+      
+      if (!booking) {
+        console.log('No booking found')
+        setIsLoading(false)
+        return
+      }
+      
+      setBookingPayload(booking)
+      
+      // Set initial status
+      setRequestStatus(booking.status || 'pending')
+      
+      // Load messages using unified service
+      console.log('🔍 Loading messages for booking:', booking.id)
+      try {
+        const messages = await unifiedChatService.getMessages(booking.id)
+        console.log('📨 Loaded messages:', messages.length, messages)
+        
+        // Check for operator messages specifically
+        const operatorMessages = messages.filter(msg => msg.sender_type === 'operator')
+        console.log('👨‍💼 Operator messages found:', operatorMessages.length)
+        
+        if (operatorMessages.length > 0) {
+          console.log('✅ Operator messages that should be displayed:')
+          operatorMessages.forEach((msg, index) => {
+            console.log(`   ${index + 1}. [${msg.sender_type}] ${msg.message}`)
+          })
+        } else {
+          console.log('❌ No operator messages found in loaded messages')
+        }
+        
+        console.log('🔍 Setting chat messages state:', messages.length, 'messages')
+        console.log('🔍 Messages to be displayed:', messages)
+        setChatMessages(messages)
+        
+        // Check for invoice data
+        const invoiceMessage = messages.find(msg => msg.has_invoice && msg.invoice_data)
+        if (invoiceMessage) {
+          setInvoiceData(invoiceMessage.invoice_data)
+        }
+      } catch (error) {
+        console.error('❌ Error loading messages:', error)
+        setChatMessages([])
+      }
+      
+      // Setup real-time subscription
+      setupMessageSubscription(booking.id)
+      
     } catch (error) {
       console.error("Error initializing chat:", error)
     } finally {
@@ -361,53 +278,6 @@ export default function ChatPage() {
     }
   }
 
-  const loadMessages = async (bookingId: string) => {
-    try {
-      console.log('=== LOADING MESSAGES ===')
-      console.log('Loading messages for booking:', bookingId)
-      
-      // First check localStorage immediately
-      const storedMessages = localStorage.getItem(`chat_${bookingId}`)
-      console.log('Stored messages from localStorage:', storedMessages)
-      
-      if (storedMessages) {
-        const parsedMessages = JSON.parse(storedMessages)
-        console.log('Parsed messages from localStorage:', parsedMessages)
-        
-        // Check for invoice messages and set invoice data
-        const invoiceMessage = parsedMessages.find((msg: any) => msg.has_invoice && msg.invoiceData)
-        if (invoiceMessage) {
-          setInvoiceData(invoiceMessage.invoiceData)
-        }
-        
-        setChatMessages(parsedMessages)
-        return // Use localStorage first for immediate display
-      }
-      
-      // Then try database
-      const messages = await chatService.getMessages(bookingId)
-      console.log('Messages from database:', messages)
-      
-      if (messages.length > 0) {
-        setChatMessages(messages)
-      } else {
-        console.log('No messages found in database or localStorage')
-        setChatMessages([])
-      }
-    } catch (error) {
-      console.error("Error loading messages:", error)
-      // Final fallback: check localStorage for messages
-      const storedMessages = localStorage.getItem(`chat_${bookingId}`)
-      console.log('Error fallback - stored messages:', storedMessages)
-      if (storedMessages) {
-        const parsedMessages = JSON.parse(storedMessages)
-        console.log('Error fallback - parsed messages:', parsedMessages)
-        setChatMessages(parsedMessages)
-      } else {
-        setChatMessages([])
-      }
-    }
-  }
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !bookingPayload || !user || isSending) return
@@ -416,58 +286,22 @@ export default function ChatPage() {
       setIsSending(true)
       
       const messageText = newMessage.trim()
+      setNewMessage("") // Clear input immediately
       
-      // Check for duplicates before sending - use database_id if available
-      const messageBookingId = bookingPayload.database_id || bookingPayload.id
-      const existingMessages = JSON.parse(localStorage.getItem(`chat_${messageBookingId}`) || '[]')
-      const isDuplicate = existingMessages.some((msg: any) => 
-        msg.message === messageText && 
-        msg.sender_type === 'client' && 
-        msg.sender_id === user.id &&
-        Math.abs(new Date(msg.created_at).getTime() - Date.now()) < 3000 // Within 3 seconds
-      )
-      
-      if (isDuplicate) {
-        console.log('Duplicate message detected, skipping')
-        setNewMessage("")
-        return
-      }
-      
-      // Create client message (messageBookingId already defined above)
-      console.log('📤 Sending message with booking ID:', messageBookingId)
-      console.log('📤 Booking payload database_id:', bookingPayload.database_id)
-      console.log('📤 Booking payload id:', bookingPayload.id)
-      
-      const message = await chatService.createClientMessage(
-        messageBookingId,
+      // Send message using unified service
+      const message = await unifiedChatService.sendMessage(
+        bookingPayload.id,
         messageText,
+        'client',
         user.id
       )
       
-      console.log('✅ Message sent successfully:', message.id)
-      
-      // Clear input immediately to prevent double sending
-      setNewMessage("")
-      
-      // Add to local state immediately
+      // Add to local state
       setChatMessages(prev => {
-        // Check if message already exists to prevent duplicates
         const exists = prev.some(msg => msg.id === message.id)
         if (exists) return prev
         return [...prev, message]
       })
-      
-      // Save to localStorage with both booking code and database ID
-      const currentMessages = JSON.parse(localStorage.getItem(`chat_${messageBookingId}`) || '[]')
-      const updatedMessages = [...currentMessages, message]
-      localStorage.setItem(`chat_${messageBookingId}`, JSON.stringify(updatedMessages))
-      
-      // Also store with booking code if different from database_id
-      if (bookingPayload.database_id && bookingPayload.database_id !== bookingPayload.id) {
-        const currentMessagesCode = JSON.parse(localStorage.getItem(`chat_${bookingPayload.id}`) || '[]')
-        const updatedMessagesCode = [...currentMessagesCode, message]
-        localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessagesCode))
-      }
       
     } catch (error) {
       console.error("Error sending message:", error)
@@ -483,45 +317,32 @@ export default function ChatPage() {
   }
 
   const handleApprovePayment = async () => {
-    if (!bookingPayload || !invoiceData) return
+    if (!bookingPayload || !invoiceData || !user) return
 
     try {
       setIsSending(true)
       
-      // Use database_id if available, otherwise use booking.id
-      const messageBookingId = bookingPayload.database_id || bookingPayload.id
-      
-      // Create payment approval message
-      const approvalMessage = {
-        id: `approval_${Date.now()}`,
-        booking_id: messageBookingId,
-        sender_type: 'client',
-        message: "✅ Payment approved! Please proceed with the service.",
-        created_at: new Date().toISOString()
-      }
+      // Send approval message
+      const approvalMessage = await unifiedChatService.sendMessage(
+        bookingPayload.id,
+        "✅ Payment approved! Please proceed with the service.",
+        'client',
+        user.id
+      )
 
-      // Create status update message for operator
-      const statusMessage = {
-        id: `status_${Date.now()}`,
-        booking_id: messageBookingId,
-        sender_type: 'system',
-        message: "🔄 Status updated: Payment approved → Ready for deployment",
-        created_at: new Date().toISOString()
-      }
+      // Send status update message
+      const statusMessage = await unifiedChatService.sendMessage(
+        bookingPayload.id,
+        "🔄 Status updated: Payment approved → Ready for deployment",
+        'system',
+        user.id,
+        { isSystemMessage: true }
+      )
 
-      // Add to local state immediately
+      // Add to local state
       setChatMessages(prev => [...prev, approvalMessage, statusMessage])
       
-      // Save to localStorage with both booking code and database ID
-      const updatedMessages = [...chatMessages, approvalMessage, statusMessage]
-      localStorage.setItem(`chat_${messageBookingId}`, JSON.stringify(updatedMessages))
-      
-      // Also store with booking code if different from database_id
-      if (bookingPayload.database_id && bookingPayload.database_id !== bookingPayload.id) {
-        localStorage.setItem(`chat_${bookingPayload.id}`, JSON.stringify(updatedMessages))
-      }
-      
-      // Update booking status to accepted and add payment approval flag
+      // Update booking status
       const storedBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
       const updatedBookings = storedBookings.map((booking: any) => 
         booking.id === bookingPayload.id 
@@ -535,9 +356,9 @@ export default function ChatPage() {
       )
       localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
       
-      // Update local booking payload
+      // Update local state
       setBookingPayload({ ...bookingPayload, status: 'accepted' })
-      setRequestStatus('Accepted')
+      setRequestStatus('accepted')
       
       setShowInvoiceModal(false)
       setInvoiceData(null)
@@ -621,19 +442,45 @@ export default function ChatPage() {
             </div>
           </div>
           <div
-            className={`px-2 py-1 rounded-full text-xs font-medium ${
-              requestStatus === "Pending Deployment"
-                ? "bg-yellow-600 text-yellow-100"
-                : "bg-green-600 text-green-100"
+            className={`px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-2 ${
+              requestStatus === "pending"
+                ? "bg-yellow-500 text-white shadow-lg"
+                : requestStatus === "accepted"
+                ? "bg-blue-500 text-white shadow-lg"
+                : requestStatus === "deployed"
+                ? "bg-purple-500 text-white shadow-lg"
+                : requestStatus === "en_route"
+                ? "bg-purple-500 text-white shadow-lg"
+                : requestStatus === "arrived"
+                ? "bg-green-500 text-white shadow-lg"
+                : requestStatus === "in_service"
+                ? "bg-green-500 text-white shadow-lg"
+                : requestStatus === "completed"
+                ? "bg-gray-500 text-white shadow-lg"
+                : requestStatus === "cancelled"
+                ? "bg-red-500 text-white shadow-lg"
+                : "bg-yellow-500 text-white shadow-lg"
             }`}
           >
-            {requestStatus}
+            {isStatusUpdating && (
+              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            )}
+            {requestStatus === "pending" ? "Pending Deployment" :
+             requestStatus === "accepted" ? "Accepted" :
+             requestStatus === "deployed" ? "Deployed" :
+             requestStatus === "en_route" ? "En Route" :
+             requestStatus === "arrived" ? "Arrived" :
+             requestStatus === "in_service" ? "In Service" :
+             requestStatus === "completed" ? "Completed" :
+             requestStatus === "cancelled" ? "Cancelled" :
+             requestStatus.charAt(0).toUpperCase() + requestStatus.slice(1)}
           </div>
         </div>
       </header>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 pt-16 space-y-3">
+        {console.log('🔍 Rendering messages:', chatMessages.length, chatMessages)}
         {chatMessages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.sender_type === "client" ? "justify-end" : "justify-start"}`}>
             <div
@@ -666,29 +513,29 @@ export default function ChatPage() {
               ) : (
                 <div>
                   <div className="text-sm leading-relaxed">{msg.message}</div>
-                  {msg.has_invoice && msg.invoiceData && (
+                  {msg.has_invoice && msg.invoice_data && (
                     <div className="mt-2 p-3 bg-gray-800 rounded-lg border border-gray-700">
                       <div className="text-xs text-gray-400 mb-2 font-semibold">Invoice Details</div>
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
                           <span>Base Price:</span>
-                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{msg.invoiceData.basePrice?.toLocaleString()}</span>
+                          <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.basePrice?.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span>Hourly Rate ({msg.invoiceData.duration}h):</span>
-                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{((msg.invoiceData.hourlyRate || 0) * (msg.invoiceData.duration || 0)).toLocaleString()}</span>
+                          <span>Hourly Rate ({msg.invoice_data.duration}h):</span>
+                          <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{((msg.invoice_data.hourlyRate || 0) * (msg.invoice_data.duration || 0)).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Vehicle Fee:</span>
-                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{msg.invoiceData.vehicleFee?.toLocaleString()}</span>
+                          <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.vehicleFee?.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>Personnel Fee:</span>
-                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{msg.invoiceData.personnelFee?.toLocaleString()}</span>
+                          <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.personnelFee?.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between font-semibold border-t border-gray-600 pt-1 mt-2">
                           <span>Total Amount:</span>
-                          <span>{msg.invoiceData.currency === 'USD' ? '$' : '₦'}{msg.invoiceData.totalAmount?.toLocaleString()}</span>
+                          <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.totalAmount?.toLocaleString()}</span>
                         </div>
                       </div>
                       <Button
@@ -701,8 +548,18 @@ export default function ChatPage() {
                       </Button>
                     </div>
                   )}
-                  <div className="text-xs text-gray-400 mt-1">
-                    {formatTime(msg.created_at)}
+                  <div className="flex items-center justify-between mt-1">
+                    <div className="text-xs text-gray-400">
+                      {formatTime(msg.created_at)}
+                    </div>
+                    {msg.sender_type === 'client' && (
+                      <div className="text-xs text-gray-500">
+                        {msg.status === 'sending' && '⏳ Sending...'}
+                        {msg.status === 'sent' && '✓ Sent'}
+                        {msg.status === 'delivered' && '✓✓ Delivered'}
+                        {msg.status === 'read' && '✓✓ Read'}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

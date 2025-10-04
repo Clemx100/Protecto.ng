@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone } from "lucide-react"
+import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
-import { chatService } from "@/lib/services/chatService"
+import { unifiedChatService } from "@/lib/services/unifiedChatService"
 
 interface BookingDisplay {
   id: string
@@ -31,6 +31,13 @@ export default function ProtectorApp() {
 
   const [activeTab, setActiveTab] = useState("protector")
   const [userRole, setUserRole] = useState("client") // "client", "agent", "admin"
+  
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<any[]>([])
+  const [newChatMessage, setNewChatMessage] = useState("")
+  const [isSendingMessage, setIsSendingMessage] = useState(false)
+  const [currentBooking, setCurrentBooking] = useState<any>(null)
+  const [isCreatingBooking, setIsCreatingBooking] = useState(false)
   const [selectedService, setSelectedService] = useState("")
   const [protectorArmed, setProtectorArmed] = useState(true)
   const [unarmedNeedsCar, setUnarmedNeedsCar] = useState(true)
@@ -215,16 +222,10 @@ export default function ProtectorApp() {
     try {
       console.log('📥 Loading bookings for user:', user.id)
       
-      // Get active bookings (including pending!)
+      // Get active bookings (including pending!) - simplified query
       const { data: activeData, error: activeError } = await supabase
         .from('bookings')
-        .select(`
-          *,
-          client:profiles!bookings_client_id_fkey(first_name, last_name, phone, email),
-          assigned_agent:agents!bookings_assigned_agent_id_fkey(name, profile_image, rating, phone),
-          assigned_vehicle:vehicles!bookings_assigned_vehicle_id_fkey(model, type, license_plate),
-          service:services(name, description)
-        `)
+        .select('*')
         .eq('client_id', user.id)
         .in('status', ['pending', 'accepted', 'en_route', 'arrived', 'in_service'])
         .order('created_at', { ascending: false })
@@ -236,16 +237,10 @@ export default function ProtectorApp() {
         throw activeError
       }
 
-      // Get booking history
+      // Get booking history - simplified query
       const { data: historyData, error: historyError } = await supabase
         .from('bookings')
-        .select(`
-          *,
-          client:profiles!bookings_client_id_fkey(first_name, last_name, phone, email),
-          assigned_agent:agents!bookings_assigned_agent_id_fkey(name, profile_image, rating, phone),
-          assigned_vehicle:vehicles!bookings_assigned_vehicle_id_fkey(model, type, license_plate),
-          service:services(name, description)
-        `)
+        .select('*')
         .eq('client_id', user.id)
         .in('status', ['completed', 'cancelled'])
         .order('created_at', { ascending: false })
@@ -406,6 +401,50 @@ export default function ProtectorApp() {
     }
   }, [activeTab, user?.id])
 
+  // Load chat messages when switching to chat tab
+  useEffect(() => {
+    if (activeTab === 'chat' && user?.id) {
+      console.log('💬 Chat tab opened, loading messages...')
+      loadChatMessages()
+    }
+  }, [activeTab, user?.id])
+
+  // Load chat messages from localStorage
+  const loadChatMessages = () => {
+    try {
+      const storedMessages = localStorage.getItem('chat_messages')
+      if (storedMessages) {
+        const messages = JSON.parse(storedMessages)
+        setChatMessages(messages)
+        console.log('📱 Loaded chat messages:', messages.length)
+      }
+    } catch (error) {
+      console.error('Error loading chat messages:', error)
+    }
+  }
+
+  // Create booking summary message for chat
+  const createBookingSummaryMessage = (booking: any) => {
+    const summaryMessage = {
+      id: `summary_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      sender_type: 'system',
+      sender_id: 'system',
+      message: `🛡️ **New Protection Request**\n\n📍 **Location:** ${booking.pickupDetails?.location || 'N/A'}\n🎯 **Destination:** ${booking.destinationDetails?.primary || 'N/A'}\n📅 **Date:** ${booking.pickupDetails?.date || 'N/A'}\n⏰ **Time:** ${booking.pickupDetails?.time || 'N/A'}\n⏱️ **Duration:** ${booking.pickupDetails?.duration || 'N/A'}\n🔫 **Service:** ${booking.serviceType === 'armed-protection' ? 'Armed Protection' : 'Car Only'}\n💰 **Status:** ${booking.status}\n\n**Request ID:** ${booking.id}\n**Submitted:** ${new Date(booking.timestamp).toLocaleString()}`,
+      created_at: new Date().toISOString(),
+      booking_id: booking.id
+    }
+
+    // Add to local state
+    setChatMessages(prev => [...prev, summaryMessage])
+
+    // Store in localStorage
+    const existingMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]')
+    const updatedMessages = [...existingMessages, summaryMessage]
+    localStorage.setItem('chat_messages', JSON.stringify(updatedMessages))
+
+    console.log('📋 Created booking summary message')
+  }
+
   // Listen for auth state changes
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -413,6 +452,23 @@ export default function ProtectorApp() {
       setUser(session?.user || null)
       
       if (session?.user) {
+        // Check for stored redirect path and navigate to it
+        const redirectPath = sessionStorage.getItem('redirectAfterAuth')
+        if (redirectPath) {
+          console.log('🔄 Redirecting to stored path:', redirectPath)
+          sessionStorage.removeItem('redirectAfterAuth')
+          router.push(redirectPath)
+          return
+        }
+        
+        // Fallback: Check for last visited location
+        const lastVisitedLocation = sessionStorage.getItem('lastVisitedLocation')
+        if (lastVisitedLocation && lastVisitedLocation !== '/client') {
+          console.log('🔄 Redirecting to last visited location:', lastVisitedLocation)
+          sessionStorage.removeItem('lastVisitedLocation')
+          router.push(lastVisitedLocation)
+          return
+        }
         // Check if email is verified
         if (session.user.email_confirmed_at) {
           setShowLoginForm(false)
@@ -1017,14 +1073,22 @@ export default function ProtectorApp() {
       
       // Use the API endpoint instead of direct Supabase calls
       console.log('📤 Submitting booking via API with user:', user.id)
+      
+      // Add timeout to the fetch request
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+      
       const response = await fetch('/api/bookings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': session?.access_token ? `Bearer ${session.access_token}` : '',
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       })
+      
+      clearTimeout(timeoutId)
 
       const result = await response.json()
       
@@ -1050,6 +1114,10 @@ export default function ProtectorApp() {
       
       return result.data
     } catch (error) {
+      if (error.name === 'AbortError') {
+        console.error('❌ Booking creation timed out after 10 seconds')
+        throw new Error('Booking creation timed out. Please try again.')
+      }
       console.error('❌ Failed to store booking via API:', error)
       throw error
     }
@@ -1115,7 +1183,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       console.log('✅ Booking stored in Supabase successfully:', createdBooking)
 
       // Store system message in Supabase
-      await chatService.createSystemMessage(payload.id, bookingSummary, userId)
+      await unifiedChatService.createSystemMessage(payload.id, bookingSummary, userId)
       console.log('System message stored in Supabase successfully')
       
       // IMPORTANT: Refresh bookings list to include the new booking
@@ -1154,6 +1222,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
   }
 
   const handleNextStep = () => {
+    console.log('🔄 handleNextStep called - bookingStep:', bookingStep, 'selectedService:', selectedService)
+    
     if (selectedService === "armed-protection") {
       if (bookingStep === 1) setBookingStep(2)
       else if (bookingStep === 2) setBookingStep(3)
@@ -1162,12 +1232,17 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       else if (bookingStep === 5) setBookingStep(6)
       else if (bookingStep === 6) setBookingStep(8)
       else if (bookingStep === 8) {
+        console.log('📋 Creating armed protection booking - user:', user?.id)
         // Check if user is authenticated before creating booking
         if (!user?.id) {
+          console.log('❌ User not authenticated, showing login form')
           setAuthError('Please log in to create a booking')
           setShowLoginForm(true)
           return
         }
+        
+        setIsCreatingBooking(true)
+        console.log('🚀 Starting booking creation process...')
         
         // Compile booking summary payload
         const payload = {
@@ -1201,13 +1276,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         setBookingPayload(payload)
 
         // Create initial system message with booking summary
-        createInitialBookingMessage(payload).then(() => {
-          // Navigate to chat page after storing
-          handleChatNavigation(payload)
+        // Add timeout to prevent getting stuck
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Booking creation timeout after 15 seconds')), 15000)
+        })
+        
+        Promise.race([
+          createInitialBookingMessage(payload),
+          timeoutPromise
+        ]).then(() => {
+          // Set current booking and switch to chat tab
+          setCurrentBooking(payload)
+          setActiveTab("chat")
+          // Also create a local booking summary message
+          createBookingSummaryMessage(payload)
+          setIsCreatingBooking(false)
         }).catch(error => {
           console.error('Failed to create initial booking message:', error)
-          // Still navigate even if storage fails
-          handleChatNavigation(payload)
+          // Still switch to chat even if storage fails
+          setCurrentBooking(payload)
+          setActiveTab("chat")
+          createBookingSummaryMessage(payload)
+          setIsCreatingBooking(false)
         })
         return
       }
@@ -1216,12 +1306,16 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       else if (bookingStep === 4) setBookingStep(5)
       else if (bookingStep === 5) setBookingStep(7)
       else if (bookingStep === 7) {
+        console.log('📋 Creating car-only booking - user:', user?.id)
         // Check if user is authenticated before creating booking
         if (!user?.id) {
+          console.log('❌ User not authenticated, showing login form')
           setAuthError('Please log in to create a booking')
           setShowLoginForm(true)
           return
         }
+        
+        setIsCreatingBooking(true)
         
         // Compile booking summary payload for car-only service
         const payload = {
@@ -1249,13 +1343,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         setBookingPayload(payload)
 
         // Create initial system message with booking summary
-        createInitialBookingMessage(payload).then(() => {
-          // Navigate to chat page after storing
-          handleChatNavigation(payload)
+        // Add timeout to prevent getting stuck
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Booking creation timeout after 15 seconds')), 15000)
+        })
+        
+        Promise.race([
+          createInitialBookingMessage(payload),
+          timeoutPromise
+        ]).then(() => {
+          // Set current booking and switch to chat tab
+          setCurrentBooking(payload)
+          setActiveTab("chat")
+          // Also create a local booking summary message
+          createBookingSummaryMessage(payload)
+          setIsCreatingBooking(false)
         }).catch(error => {
           console.error('Failed to create initial booking message:', error)
-          // Still navigate even if storage fails
-          handleChatNavigation(payload)
+          // Still switch to chat even if storage fails
+          setCurrentBooking(payload)
+          setActiveTab("chat")
+          createBookingSummaryMessage(payload)
+          setIsCreatingBooking(false)
         })
         return
       }
@@ -1428,9 +1537,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
         if (error) {
           if (error.message.includes("Invalid login credentials")) {
-            throw new Error("Invalid email or password")
+            throw new Error("Invalid email or password. Please check your credentials or register if you're a new user.")
           } else if (error.message.includes("Email not confirmed")) {
-            throw new Error("Please check your email and click the confirmation link")
+            throw new Error("Please check your email and click the confirmation link to verify your account before logging in.")
+          } else if (error.message.includes("Failed to fetch")) {
+            throw new Error("Network error. Please check your internet connection and try again.")
+          } else if (error.message.includes("Email address is invalid")) {
+            throw new Error("Please enter a valid email address (e.g., yourname@gmail.com)")
           } else {
             throw new Error(error.message)
           }
@@ -1486,11 +1599,15 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         if (error) {
           console.error('Supabase auth error:', error)
           if (error.message.includes("User already registered")) {
-            throw new Error("An account with this email already exists")
+            throw new Error("An account with this email already exists. Please try logging in instead.")
           } else if (error.message.includes("Password should be")) {
             throw new Error("Password must be at least 8 characters with uppercase, lowercase, and number")
           } else if (error.message.includes("Failed to fetch")) {
             throw new Error("Network error. Please check your internet connection and try again.")
+          } else if (error.message.includes("Email address is invalid")) {
+            throw new Error("Please enter a valid email address (e.g., yourname@gmail.com)")
+          } else if (error.message.includes("Signup is disabled")) {
+            throw new Error("Registration is temporarily disabled. Please contact support.")
           } else {
             throw new Error(error.message)
           }
@@ -1766,6 +1883,16 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 <div className="w-2 h-2 bg-red-400 rounded-full"></div>
                 <p className="text-red-400 text-sm font-medium">{authError}</p>
               </div>
+              {authError.includes("Email not confirmed") && (
+                <div className="mt-2 text-xs text-red-300">
+                  💡 Check your email inbox for a verification link from Protector.Ng
+                </div>
+              )}
+              {authError.includes("Invalid email or password") && (
+                <div className="mt-2 text-xs text-red-300">
+                  💡 Make sure you're using the correct email and password, or register if you're new
+                </div>
+              )}
             </div>
           )}
 
@@ -2553,6 +2680,55 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     setTimeout(() => {
       router.push(`/chat?id=${booking.id}`)
     }, 100)
+  }
+
+  // Send chat message function
+  const sendChatMessage = async () => {
+    if (!newChatMessage.trim() || !user || isSendingMessage) return
+
+    const messageText = newChatMessage.trim()
+    setNewChatMessage("") // Clear input immediately
+
+    try {
+      setIsSendingMessage(true)
+
+      // Create message object
+      const message = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        sender_type: 'client',
+        sender_id: user.id,
+        message: messageText,
+        created_at: new Date().toISOString(),
+        booking_id: currentBooking?.id || 'general'
+      }
+
+      // Add to local state immediately
+      setChatMessages(prev => [...prev, message])
+
+      // Store in localStorage
+      const existingMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]')
+      const updatedMessages = [...existingMessages, message]
+      localStorage.setItem('chat_messages', JSON.stringify(updatedMessages))
+
+      // If there's a current booking, also send to operator
+      if (currentBooking) {
+        try {
+          await unifiedChatService.createClientMessage(
+            currentBooking.id,
+            messageText,
+            user.id
+          )
+        } catch (error) {
+          console.error('Failed to send to operator:', error)
+        }
+      }
+
+    } catch (error) {
+      console.error('Error sending message:', error)
+      setNewChatMessage(messageText) // Restore message on error
+    } finally {
+      setIsSendingMessage(false)
+    }
   }
 
 
@@ -3754,10 +3930,23 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                     Edit Booking
                   </Button>
                     <Button
-                      onClick={handleNextStep}
-                      className="flex-1 bg-white text-black hover:bg-gray-200 font-semibold py-3"
+                      onClick={() => {
+                        console.log('🚀 Send Request button clicked!')
+                        console.log('Current state:', { bookingStep, selectedService, user: user?.id })
+                        handleNextStep()
+                      }}
+                      disabled={isCreatingBooking}
+                      className="flex-1 bg-white text-black hover:bg-gray-200 font-semibold py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{ zIndex: 1000, position: 'relative' }}
                     >
-                    Send Request
+                      {isCreatingBooking ? (
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-black"></div>
+                          <span>Creating...</span>
+                        </div>
+                      ) : (
+                        'Send Request'
+                      )}
                   </Button>
                 </div>
               </div>
@@ -4108,6 +4297,82 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   </div>
                 )
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Chat Tab */}
+        {activeTab === "chat" && (
+          <div className="flex flex-col h-full bg-black">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-800">
+              <h2 className="text-2xl font-semibold text-white">Chat with Operator</h2>
+              <p className="text-gray-400 text-sm">Send booking summaries and get status updates</p>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {chatMessages.length === 0 ? (
+                <div className="text-center py-8">
+                  <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-white mb-2">No Messages Yet</h3>
+                  <p className="text-gray-400 mb-4">Start a conversation by creating a booking or sending a message</p>
+                  <Button 
+                    onClick={() => setActiveTab("protector")}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Create Booking
+                  </Button>
+                </div>
+              ) : (
+                chatMessages.map((message) => (
+                  <div key={message.id} className={`flex ${message.sender_type === "client" ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[85%] rounded-2xl p-3 ${
+                        message.sender_type === "client"
+                          ? "bg-blue-600 text-white"
+                          : message.sender_type === "system"
+                            ? "bg-gray-800 text-gray-300 border border-gray-700"
+                            : "bg-gray-700 text-white"
+                      }`}
+                    >
+                      <div className="text-sm leading-relaxed whitespace-pre-wrap">{message.message}</div>
+                      <div className="text-xs text-gray-400 mt-1">
+                        {new Date(message.created_at).toLocaleTimeString([], { 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Message Input */}
+            <div className="p-4 border-t border-gray-800 bg-black">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newChatMessage}
+                  onChange={(e) => setNewChatMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && !isSendingMessage && sendChatMessage()}
+                  placeholder="Type your message..."
+                  disabled={isSendingMessage}
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm disabled:opacity-50"
+                />
+                <Button 
+                  onClick={sendChatMessage} 
+                  disabled={isSendingMessage || !newChatMessage.trim()}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl disabled:opacity-50"
+                >
+                  {isSendingMessage ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <MessageSquare className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -4501,6 +4766,16 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             <span className="text-xs">Bookings</span>
           </button>
 
+          <button
+            onClick={() => setActiveTab("chat")}
+            className={`flex flex-col items-center justify-center gap-1 ${
+              activeTab === "chat" ? "text-blue-500" : "text-gray-400"
+            }`}
+          >
+            <MessageSquare className="h-5 w-5" />
+            <span className="text-xs">Chat</span>
+          </button>
+
           {/* Operator Dashboard Tab - Only visible to operators */}
           {userRole === "agent" && (
             <button
@@ -4645,6 +4920,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           </div>
         </div>
       )}
+
     </div>
   )
 }
