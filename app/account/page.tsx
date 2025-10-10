@@ -127,12 +127,13 @@ export default function AccountPage() {
               .limit(1)
               .single()
             
-            if (bookingData?.client) {
+            if (bookingData?.client && Array.isArray(bookingData.client) && bookingData.client.length > 0) {
               console.log('Found client data in bookings:', bookingData.client)
+              const clientData = bookingData.client[0]
               const clientProfile = {
                 id: user.id,
-                first_name: bookingData.client.first_name || 'User',
-                last_name: bookingData.client.last_name || '',
+                first_name: clientData.first_name || 'User',
+                last_name: clientData.last_name || '',
                 phone: user.user_metadata?.phone || '',
                 email: user.email
               }
