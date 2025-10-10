@@ -1,5 +1,8 @@
 "use client"
 
+// Force dynamic rendering to prevent useSearchParams prerendering issues
+export const dynamic = 'force-dynamic'
+
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import AdminAnalyticsDashboard from "@/components/admin-analytics-dashboard"

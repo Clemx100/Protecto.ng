@@ -1,5 +1,8 @@
 "use client"
 
+// Force dynamic rendering to prevent useSearchParams prerendering issues
+export const dynamic = 'force-dynamic'
+
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState, Suspense } from "react"

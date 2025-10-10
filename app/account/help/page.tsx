@@ -1,5 +1,8 @@
 'use client'
 
+// Force dynamic rendering to prevent useSearchParams prerendering issues
+export const dynamic = 'force-dynamic'
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, HelpCircle, Search, ChevronDown, ChevronRight, Book, Shield, Phone, MessageCircle } from 'lucide-react'
