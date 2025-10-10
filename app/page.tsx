@@ -1,6 +1,6 @@
 "use client"
 
-// Force dynamic rendering to prevent useSearchParams prerendering issues
+// Force dynamic rendering by disabling static generation
 export const dynamic = 'force-dynamic'
 
 import Link from "next/link"
@@ -592,15 +592,22 @@ function HomePageContent() {
   )
 }
 
+// Component that uses useSearchParams - needs to be wrapped in Suspense
+function HomePageWithSearchParams() {
+  return <HomePageContent />
+}
+
 export default function HomePage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Loading...</p>
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-400">Loading PROTECTOR.NG...</p>
+        </div>
       </div>
-    </div>}>
-      <HomePageContent />
+    }>
+      <HomePageWithSearchParams />
     </Suspense>
   )
 }

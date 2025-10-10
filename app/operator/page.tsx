@@ -1,8 +1,5 @@
 "use client"
 
-// Force dynamic rendering to prevent useSearchParams prerendering issues
-export const dynamic = 'force-dynamic'
-
 import { useState, useEffect } from "react"
 import OperatorDashboard from "@/components/operator-dashboard"
 import OperatorLogin from "@/components/operator-login"

@@ -1,15 +1,26 @@
 "use client"
 
+import { Suspense } from "react"
 import { useLocationPreservation } from "@/hooks/useLocationPreservation"
 
 interface LocationPreservationWrapperProps {
   children: React.ReactNode
 }
 
-export default function LocationPreservationWrapper({ children }: LocationPreservationWrapperProps) {
-  // This hook will automatically preserve the current location
+// Component that uses the hook - needs to be wrapped in Suspense
+function LocationPreservationComponent() {
   useLocationPreservation()
-  
-  return <>{children}</>
+  return null
+}
+
+export default function LocationPreservationWrapper({ children }: LocationPreservationWrapperProps) {
+  return (
+    <>
+      <Suspense fallback={null}>
+        <LocationPreservationComponent />
+      </Suspense>
+      {children}
+    </>
+  )
 }
 
