@@ -7,10 +7,10 @@ export async function POST(request: NextRequest) {
     console.log('🧪 Test booking API called')
     
     // Use service role for demo API to bypass RLS
-    const supabase = createClient({
-      supabaseUrl: 'https://mjdbhusnplveeaveeovd.supabase.co',
-      supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E',
-    })
+    const supabase = createClient(
+      'https://mjdbhusnplveeaveeovd.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+    )
     
     const bookingData = await request.json()
     console.log('📝 Test booking data:', JSON.stringify(bookingData, null, 2))
