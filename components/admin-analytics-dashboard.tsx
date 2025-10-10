@@ -230,7 +230,7 @@ export default function AdminAnalyticsDashboard() {
                   <div key={index} className="flex-1 flex flex-col items-center">
                     <div
                       className="bg-blue-500 rounded-t w-full"
-                      style={{ height: `${(item.count / Math.max(...analytics.trends.bookings_trend.map(t => t.count))) * 200}px` }}
+                      style={{ height: `${(item.count / Math.max(...analytics.trends.bookings_trend.map((t: any) => t.count))) * 200}px` }}
                     ></div>
                     <span className="text-white text-xs mt-2">{item.count}</span>
                     <span className="text-gray-300 text-xs">{new Date(item.date).toLocaleDateString()}</span>
