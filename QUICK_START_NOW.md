@@ -145,3 +145,6 @@ The application is fully operational. Both operators and clients can now:
 - Mobile guide: `MOBILE_AND_OPERATOR_STATUS.md`
 
 
+
+
+

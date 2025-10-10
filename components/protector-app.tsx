@@ -427,9 +427,9 @@ export default function ProtectorApp() {
       }
       
       // If no selected booking, try to load the most recent one
-      if (bookings && bookings.length > 0) {
+      if (activeBookings && activeBookings.length > 0) {
         console.log('📋 No selected booking, loading most recent...')
-        const mostRecentBooking = bookings[0]
+        const mostRecentBooking = activeBookings[0]
         await loadMessagesForBooking(mostRecentBooking)
       } else {
         console.log('⚠️ No bookings available to load messages from')
@@ -1847,6 +1847,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
         if (error) {
           console.error('Supabase auth error:', error)
+          console.error('Full error details:', JSON.stringify(error, null, 2))
           if (error.message.includes("User already registered")) {
             throw new Error("An account with this email already exists. Please try logging in instead.")
           } else if (error.message.includes("Password should be")) {
@@ -1854,11 +1855,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           } else if (error.message.includes("Failed to fetch")) {
             throw new Error("Network error. Please check your internet connection and try again.")
           } else if (error.message.includes("Email address is invalid")) {
-            throw new Error("Please enter a valid email address (e.g., yourname@gmail.com)")
+            throw new Error("Email registration is currently unavailable. Please contact support at +234 712 000 5328 or try again later. Error: Email validation failed.")
           } else if (error.message.includes("Signup is disabled")) {
-            throw new Error("Registration is temporarily disabled. Please contact support.")
+            throw new Error("Registration is temporarily disabled. Please contact support at +234 712 000 5328.")
           } else {
-            throw new Error(error.message)
+            throw new Error(`Registration failed: ${error.message}. Please contact support if this persists.`)
           }
         }
 

@@ -243,7 +243,7 @@ export default function AdminAnalyticsDashboard() {
             <div className="bg-white/10 rounded-xl p-6 border border-white/20">
               <h3 className="text-lg font-semibold text-white mb-4">Revenue Trend</h3>
               <div className="h-64 flex items-end space-x-2">
-                {analytics.trends?.revenue_trend?.slice(-7).map((item, index) => (
+                {analytics.trends?.revenue_trend?.slice(-7).map((item: any, index: number) => (
                   <div key={index} className="flex-1 flex flex-col items-center">
                     <div
                       className="bg-green-500 rounded-t w-full"

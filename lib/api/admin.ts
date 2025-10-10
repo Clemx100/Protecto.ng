@@ -506,7 +506,7 @@ export class AdminAPI {
         return acc
       }, {} as Record<string, number>) || {}
 
-      const dailyRevenueArray = Object.entries(dailyRevenue).map(([date, revenue]) => ({
+      const dailyRevenueArray = Object.entries(dailyRevenue).map(([date, revenue]: [string, number]) => ({
         date,
         revenue
       }))
@@ -521,7 +521,7 @@ export class AdminAPI {
         return acc
       }, {} as Record<string, { count: number; amount: number }>) || {}
 
-      const paymentMethodsArray = Object.entries(paymentMethods).map(([method, data]) => ({
+      const paymentMethodsArray = Object.entries(paymentMethods).map(([method, data]: [string, { count: number; amount: number }]) => ({
         method,
         ...data
       }))
@@ -583,7 +583,7 @@ export class AdminAPI {
         return acc
       }, {} as Record<string, number>) || {}
 
-      const serviceTypesArray = Object.entries(serviceTypes).map(([type, count]) => ({
+      const serviceTypesArray = Object.entries(serviceTypes).map(([type, count]: [string, number]) => ({
         type,
         count
       }))

@@ -99,16 +99,16 @@ export class AdminAnalyticsAPI {
         amount: data.amount
       }))
 
-      const agentPerformanceArray = agentPerformance?.map(agent => ({
+      const agentPerformanceArray = agentPerformance?.map((agent: any) => ({
         agent_id: agent.id,
-        name: `${agent.profile?.first_name} ${agent.profile?.last_name}`,
+        name: `${agent.profile?.first_name || ''} ${agent.profile?.last_name || ''}`,
         bookings: agent.total_jobs,
         rating: agent.rating
       })) || []
 
-      const recentEmergenciesArray = recentEmergencies?.map(alert => ({
+      const recentEmergenciesArray = recentEmergencies?.map((alert: any) => ({
         id: alert.id,
-        client_name: `${alert.client?.first_name} ${alert.client?.last_name}`,
+        client_name: `${alert.client?.first_name || ''} ${alert.client?.last_name || ''}`,
         alert_type: alert.alert_type,
         created_at: alert.created_at,
         status: alert.status
@@ -256,8 +256,8 @@ export class AdminAnalyticsAPI {
 
       const byStatusArray = Object.entries(byStatus).map(([status, count]) => ({
         status,
-        count,
-        percentage: totalBookings > 0 ? (count / totalBookings) * 100 : 0
+        count: count as number,
+        percentage: totalBookings > 0 ? ((count as number) / totalBookings) * 100 : 0
       }))
 
       // Daily breakdown
@@ -273,8 +273,8 @@ export class AdminAnalyticsAPI {
 
       const dailyBreakdownArray = Object.entries(dailyBreakdown).map(([date, data]) => ({
         date,
-        bookings: data.bookings,
-        revenue: data.revenue
+        bookings: (data as any).bookings,
+        revenue: (data as any).revenue
       }))
 
       // Top clients
@@ -295,7 +295,7 @@ export class AdminAnalyticsAPI {
 
       const topClientsArray = Object.values(topClients)
         .sort((a: any, b: any) => b.total_spent - a.total_spent)
-        .slice(0, 10)
+        .slice(0, 10) as any[]
 
       return {
         data: {
@@ -460,9 +460,9 @@ export class AdminAnalyticsAPI {
 
       const paymentMethodsArray = Object.entries(paymentMethods).map(([method, data]) => ({
         method,
-        count: data.count,
-        amount: data.amount,
-        percentage: totalRevenue > 0 ? (data.amount / totalRevenue) * 100 : 0
+        count: (data as any).count,
+        amount: (data as any).amount,
+        percentage: totalRevenue > 0 ? ((data as any).amount / totalRevenue) * 100 : 0
       }))
 
       // Daily revenue
@@ -478,8 +478,8 @@ export class AdminAnalyticsAPI {
 
       const dailyRevenueArray = Object.entries(dailyRevenue).map(([date, data]) => ({
         date,
-        revenue: data.revenue,
-        transactions: data.transactions
+        revenue: (data as any).revenue,
+        transactions: (data as any).transactions
       }))
 
       // Monthly breakdown
@@ -493,7 +493,7 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { revenue: number; bookings: number }>) || {}
 
-      const monthlyBreakdownArray = Object.entries(monthlyBreakdown).map(([month, data]) => ({
+      const monthlyBreakdownArray = Object.entries(monthlyBreakdown).map(([month, data]: [string, { revenue: number; bookings: number }]) => ({
         month,
         revenue: data.revenue,
         bookings: data.bookings

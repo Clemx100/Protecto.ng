@@ -99,20 +99,26 @@ export class AdminAnalyticsAPI {
         amount: data.amount
       }))
 
-      const agentPerformanceArray = agentPerformance?.map(agent => ({
-        agent_id: agent.id,
-        name: `${agent.profile?.first_name} ${agent.profile?.last_name}`,
-        bookings: agent.total_jobs,
-        rating: agent.rating
-      })) || []
+      const agentPerformanceArray = agentPerformance?.map((agent: any) => {
+        const profile = Array.isArray(agent.profile) ? agent.profile[0] : agent.profile
+        return {
+          agent_id: agent.id,
+          name: `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || 'Unknown',
+          bookings: agent.total_jobs,
+          rating: agent.rating
+        }
+      }) || []
 
-      const recentEmergenciesArray = recentEmergencies?.map(alert => ({
-        id: alert.id,
-        client_name: `${alert.client?.first_name} ${alert.client?.last_name}`,
-        alert_type: alert.alert_type,
-        created_at: alert.created_at,
-        status: alert.status
-      })) || []
+      const recentEmergenciesArray = recentEmergencies?.map((alert: any) => {
+        const client = Array.isArray(alert.client) ? alert.client[0] : alert.client
+        return {
+          id: alert.id,
+          client_name: `${client?.first_name || ''} ${client?.last_name || ''}`.trim() || 'Unknown',
+          alert_type: alert.alert_type,
+          created_at: alert.created_at,
+          status: alert.status
+        }
+      }) || []
 
       return {
         data: {
@@ -254,7 +260,7 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, number>) || {}
 
-      const byStatusArray = Object.entries(byStatus).map(([status, count]) => ({
+      const byStatusArray = Object.entries(byStatus).map(([status, count]: [string, number]) => ({
         status,
         count,
         percentage: totalBookings > 0 ? (count / totalBookings) * 100 : 0
@@ -271,7 +277,7 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { bookings: number; revenue: number }>) || {}
 
-      const dailyBreakdownArray = Object.entries(dailyBreakdown).map(([date, data]) => ({
+      const dailyBreakdownArray = Object.entries(dailyBreakdown).map(([date, data]: [string, { bookings: number; revenue: number }]) => ({
         date,
         bookings: data.bookings,
         revenue: data.revenue
@@ -293,8 +299,13 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, any>) || {}
 
-      const topClientsArray = Object.values(topClients)
-        .sort((a: any, b: any) => b.total_spent - a.total_spent)
+      const topClientsArray = (Object.values(topClients) as Array<{
+        client_id: string;
+        client_name: string;
+        booking_count: number;
+        total_spent: number;
+      }>)
+        .sort((a, b) => b.total_spent - a.total_spent)
         .slice(0, 10)
 
       return {
@@ -458,7 +469,7 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { count: number; amount: number }>) || {}
 
-      const paymentMethodsArray = Object.entries(paymentMethods).map(([method, data]) => ({
+      const paymentMethodsArray = Object.entries(paymentMethods).map(([method, data]: [string, { count: number; amount: number }]) => ({
         method,
         count: data.count,
         amount: data.amount,
@@ -476,7 +487,7 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { revenue: number; transactions: number }>) || {}
 
-      const dailyRevenueArray = Object.entries(dailyRevenue).map(([date, data]) => ({
+      const dailyRevenueArray = Object.entries(dailyRevenue).map(([date, data]: [string, { revenue: number; transactions: number }]) => ({
         date,
         revenue: data.revenue,
         transactions: data.transactions
@@ -493,7 +504,7 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { revenue: number; bookings: number }>) || {}
 
-      const monthlyBreakdownArray = Object.entries(monthlyBreakdown).map(([month, data]) => ({
+      const monthlyBreakdownArray = Object.entries(monthlyBreakdown).map(([month, data]: [string, { revenue: number; bookings: number }]) => ({
         month,
         revenue: data.revenue,
         bookings: data.bookings

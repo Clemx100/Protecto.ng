@@ -4,10 +4,14 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { unifiedChatService, ChatMessage, BookingStatus } from '@/lib/services/unifiedChatService'
+import { unifiedChatService, UnifiedChatMessage } from '@/lib/services/unifiedChatService'
+import type { BookingStatus } from '@/lib/types/database'
+
+type ChatMessage = UnifiedChatMessage
 
 interface UseRealtimeChatOptions {
   bookingId: string
+  userId: string
   onStatusUpdate?: (status: string) => void
   autoLoad?: boolean
 }
@@ -26,6 +30,7 @@ interface UseRealtimeChatReturn {
 
 export function useRealtimeChat({
   bookingId,
+  userId,
   onStatusUpdate,
   autoLoad = true
 }: UseRealtimeChatOptions): UseRealtimeChatReturn {
@@ -35,9 +40,6 @@ export function useRealtimeChat({
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'disconnected' | 'connecting'>('connecting')
-  
-  const unsubscribeMessagesRef = useRef<(() => void) | null>(null)
-  const unsubscribeStatusRef = useRef<(() => void) | null>(null)
 
   /**
    * Load messages from backend
@@ -96,7 +98,8 @@ export function useRealtimeChat({
       const sentMessage = await unifiedChatService.sendMessage(
         bookingId,
         content.trim(),
-        'client'
+        'client',
+        userId
       )
 
       if (sentMessage) {
@@ -157,74 +160,45 @@ export function useRealtimeChat({
     console.log('🔴 Setting up real-time subscriptions for:', bookingId)
     setConnectionStatus('connecting')
 
+    let channel: any = null
+
     // Subscribe to messages
-    const unsubMessages = unifiedChatService.subscribeToMessages(
-      bookingId,
-      (newMessage) => {
-        console.log('📨 New message received via real-time:', newMessage)
-        
-        setMessages(prev => {
-          // Check if message already exists
-          const exists = prev.some(m => m.id === newMessage.id)
-          if (exists) {
-            console.log('Message already exists, skipping')
-            return prev
+    const setupSubscription = async () => {
+      try {
+        channel = await unifiedChatService.subscribeToMessages(
+          bookingId,
+          (newMessage) => {
+            console.log('📨 New message received via real-time:', newMessage)
+            
+            setMessages(prev => {
+              // Check if message already exists
+              const exists = prev.some(m => m.id === newMessage.id)
+              if (exists) {
+                console.log('Message already exists, skipping')
+                return prev
+              }
+              
+              console.log('Adding new message to state')
+              return [...prev, newMessage]
+            })
+            
+            // Update connection status
+            setConnectionStatus('connected')
           }
-          
-          console.log('Adding new message to state')
-          return [...prev, newMessage]
-        })
-        
-        // Update connection status
-        setConnectionStatus('connected')
+        )
+      } catch (error) {
+        console.error('❌ Failed to setup subscription:', error)
+        setConnectionStatus('disconnected')
       }
-    )
+    }
 
-    // Subscribe to booking status updates
-    const unsubStatus = unifiedChatService.subscribeToBookingStatus(
-      bookingId,
-      (statusUpdate) => {
-        console.log('🔄 Booking status updated:', statusUpdate)
-        
-        setCurrentStatus(statusUpdate.status)
-        
-        // Notify parent component
-        if (onStatusUpdate) {
-          onStatusUpdate(statusUpdate.status)
-        }
-        
-        // Add system message to chat about status change
-        if (statusUpdate.message) {
-          const systemMessage: ChatMessage = {
-            id: `status_${Date.now()}`,
-            booking_id: bookingId,
-            sender_type: 'system',
-            sender_id: 'system',
-            message: statusUpdate.message,
-            created_at: statusUpdate.updated_at,
-            is_system_message: true,
-            message_type: 'system'
-          }
-          
-          setMessages(prev => [...prev, systemMessage])
-        }
-      },
-      (error) => {
-        console.error('❌ Status subscription error:', error)
-      }
-    )
-
-    unsubscribeMessagesRef.current = unsubMessages
-    unsubscribeStatusRef.current = unsubStatus
+    setupSubscription()
 
     // Cleanup on unmount
     return () => {
       console.log('🔴 Cleaning up subscriptions')
-      if (unsubscribeMessagesRef.current) {
-        unsubscribeMessagesRef.current()
-      }
-      if (unsubscribeStatusRef.current) {
-        unsubscribeStatusRef.current()
+      if (channel) {
+        unifiedChatService.unsubscribe(bookingId)
       }
     }
   }, [bookingId, onStatusUpdate])

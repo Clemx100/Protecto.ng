@@ -1,64 +1,78 @@
-// Script to help configure Vercel environment variables
-const readline = require('readline');
+#!/usr/bin/env node
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
+/**
+ * Vercel Environment Variables Configuration Script
+ * This script helps you configure environment variables for www.protector.ng
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+console.log('🔧 VERCEL ENVIRONMENT VARIABLES SETUP');
+console.log('=====================================\n');
+
+// Environment variables needed for www.protector.ng
+const requiredEnvVars = {
+  'NEXT_PUBLIC_SUPABASE_URL': 'https://kifcevffaputepvpjpip.supabase.co',
+  'NEXT_PUBLIC_SUPABASE_ANON_KEY': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3OTQ0NzYsImV4cCI6MjA3NTM3MDQ3Nn0.YuVbfSbrDUy2nPigODzCcaOWTEXaJlPrVGE1L0C3y6g',
+  'NEXT_PUBLIC_APP_URL': 'https://www.protector.ng',
+  'NEXT_PUBLIC_APP_NAME': 'PROTECTOR.NG',
+  'NEXT_PUBLIC_APP_DESCRIPTION': 'Executive Protection Services',
+  'NEXT_PUBLIC_ENABLE_ANALYTICS': 'true',
+  'NEXT_PUBLIC_ENABLE_PAYMENTS': 'true',
+  'NEXT_PUBLIC_ENABLE_REAL_TIME': 'true'
+};
+
+console.log('📋 REQUIRED ENVIRONMENT VARIABLES:');
+console.log('==================================\n');
+
+Object.entries(requiredEnvVars).forEach(([key, value]) => {
+  console.log(`${key}=${value}`);
 });
 
-console.log('🔧 Vercel Environment Variables Configuration Helper\n');
+console.log('\n🚀 HOW TO SET THESE IN VERCEL:');
+console.log('==============================\n');
 
-console.log('📋 Step 1: Get your Supabase credentials from:');
-console.log('   https://supabase.com/dashboard → Your Project → Settings → API\n');
+console.log('1. Go to your Vercel Dashboard: https://vercel.com/dashboard');
+console.log('2. Select your "Protector.Ng" project');
+console.log('3. Click on "Settings" tab');
+console.log('4. Click on "Environment Variables" in the sidebar');
+console.log('5. Add each variable above with these settings:');
+console.log('   - Environment: Production, Preview, Development');
+console.log('   - Value: Copy from the list above');
+console.log('\n6. After adding all variables, redeploy your project');
 
-console.log('📋 Step 2: Configure Main App (protector-ng.vercel.app):');
-console.log('   https://vercel.com/dashboard → protector-ng → Settings → Environment Variables\n');
+console.log('\n🔍 SUPABASE API SETTINGS CHECK:');
+console.log('===============================\n');
 
-console.log('📋 Step 3: Configure Operator Dashboard (protector-ng-lxtd.vercel.app):');
-console.log('   https://vercel.com/dashboard → protector-ng-lxtd → Settings → Environment Variables\n');
+console.log('1. Go to Supabase Dashboard: https://supabase.com/dashboard');
+console.log('2. Select your project: kifcevffaputepvpjpip');
+console.log('3. Go to Settings → API');
+console.log('4. Check "Allowed Origins" section');
+console.log('5. Ensure these are added:');
+console.log('   - https://www.protector.ng');
+console.log('   - https://*.protector.ng (optional, for subdomains)');
 
-console.log('🔑 Environment Variables to Set:\n');
+console.log('\n✅ VERIFICATION STEPS:');
+console.log('=====================\n');
 
-console.log('=== MAIN APP (protector-ng.vercel.app) ===');
-console.log('NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co');
-console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here');
-console.log('SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here');
-console.log('NEXT_PUBLIC_APP_URL=https://protector-ng.vercel.app');
-console.log('OPERATOR_DASHBOARD_URL=https://protector-ng-lxtd.vercel.app');
-console.log('NODE_ENV=production\n');
+console.log('After configuration:');
+console.log('1. Test authentication at https://www.protector.ng');
+console.log('2. Check browser console for any CORS errors');
+console.log('3. Verify realtime chat functionality');
+console.log('4. Test booking creation flow');
 
-console.log('=== OPERATOR DASHBOARD (protector-ng-lxtd.vercel.app) ===');
-console.log('NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co');
-console.log('NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here');
-console.log('SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here');
-console.log('NEXT_PUBLIC_APP_URL=https://protector-ng-lxtd.vercel.app');
-console.log('MAIN_APP_URL=https://protector-ng.vercel.app');
-console.log('NODE_ENV=production\n');
+console.log('\n📝 NOTES:');
+console.log('==========\n');
+console.log('- Your app has hardcoded fallback values, so it will work even without env vars');
+console.log('- But setting them properly ensures better security and configuration');
+console.log('- The redirect URLs you already added in Supabase are perfect!');
 
-console.log('⚠️  Important Notes:');
-console.log('• Use the SAME Supabase project for both apps');
-console.log('• Keep SUPABASE_SERVICE_ROLE_KEY secret');
-console.log('• Set all variables for Production environment');
-console.log('• Redeploy both apps after setting variables\n');
+// Create a .env.production file for reference
+const envContent = Object.entries(requiredEnvVars)
+  .map(([key, value]) => `${key}=${value}`)
+  .join('\n');
 
-console.log('🧪 Step 4: Test Real-Time Communication');
-console.log('1. Create a booking on main app');
-console.log('2. Check if it appears in operator dashboard');
-console.log('3. Test status updates');
-console.log('4. Test payment flow\n');
-
-console.log('📊 Step 5: Monitor Performance');
-console.log('• Check Supabase dashboard for database performance');
-console.log('• Monitor Vercel function logs');
-console.log('• Test under load\n');
-
-rl.question('Press Enter when you have completed the configuration...', () => {
-  console.log('\n✅ Configuration complete! Your apps should now be connected to production Supabase.');
-  console.log('\n🚀 Next steps:');
-  console.log('1. Test both deployments');
-  console.log('2. Create a test booking');
-  console.log('3. Verify real-time updates');
-  console.log('4. Monitor performance');
-  
-  rl.close();
-});
+fs.writeFileSync('.env.production', envContent);
+console.log('\n💾 Created .env.production file for reference');
+console.log('   (This file is for reference only, not used by Vercel)');

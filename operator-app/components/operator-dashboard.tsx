@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
-import { unifiedChatService, ChatMessage } from "@/lib/services/unifiedChatService"
+import { unifiedChatService, UnifiedChatMessage } from "@/lib/services/unifiedChatService"
 
 export default function OperatorDashboard() {
   const supabase = createClient()
@@ -24,7 +24,7 @@ export default function OperatorDashboard() {
   const [success, setSuccess] = useState("")
   
   // Chat and messaging
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<UnifiedChatMessage[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [user, setUser] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -66,20 +66,32 @@ export default function OperatorDashboard() {
     getUser()
   }, [])
 
-  // Subscribe to real-time messages
+  // Subscribe to real-time messages for selected booking
   useEffect(() => {
-    if (!user) return
+    if (!user || !selectedBooking) return
 
-    const subscription = unifiedChatService.subscribeToAllMessages((newMessage) => {
-      // Update messages for the currently selected booking
-      if (selectedBooking && newMessage.booking_id === selectedBooking.id) {
-        setMessages(prev => [...prev, newMessage])
-        // Don't auto-scroll - let operator control their view
-      }
-    })
+    let subscription: any = null
+
+    const setupSubscription = async () => {
+      subscription = await unifiedChatService.subscribeToMessages(
+        selectedBooking.id,
+        (newMessage) => {
+          setMessages(prev => {
+            // Avoid duplicates
+            if (prev.some(m => m.id === newMessage.id)) return prev
+            return [...prev, newMessage]
+          })
+          // Don't auto-scroll - let operator control their view
+        }
+      )
+    }
+
+    setupSubscription()
 
     return () => {
-      unifiedChatService.unsubscribe(subscription)
+      if (subscription && selectedBooking) {
+        unifiedChatService.unsubscribe(selectedBooking.id)
+      }
     }
   }, [user, selectedBooking])
 
@@ -204,9 +216,10 @@ export default function OperatorDashboard() {
     if (!newMessage.trim() || !selectedBooking || !user) return
 
     try {
-      await unifiedChatService.createOperatorMessage(
+      await unifiedChatService.sendMessage(
         selectedBooking.id,
         newMessage.trim(),
+        'operator',
         user.id
       )
       
@@ -314,18 +327,20 @@ export default function OperatorDashboard() {
 
       // Send system message
       if (systemMessage) {
-        await chatService.createSystemMessage(
+        await unifiedChatService.sendMessage(
           selectedBooking.id,
           systemMessage,
-          user.id
+          'system',
+          'system'
         )
       }
 
       // Send operator message
       if (message) {
-        await chatService.createOperatorMessage(
+        await unifiedChatService.sendMessage(
           selectedBooking.id,
           message,
+          'operator',
           user.id
         )
       }
@@ -342,19 +357,23 @@ export default function OperatorDashboard() {
 
     try {
       // Send system message
-      await chatService.createSystemMessage(
+      await unifiedChatService.sendMessage(
         selectedBooking.id,
         "Invoice sent to client",
-        user.id
+        'system',
+        'system'
       )
 
       // Send invoice message
-      await chatService.createOperatorMessage(
+      await unifiedChatService.sendMessage(
         selectedBooking.id,
         "📄 Invoice sent. Please review and approve payment to proceed.",
+        'operator',
         user.id,
-        true,
-        invoiceData
+        {
+          hasInvoice: true,
+          invoiceData: invoiceData
+        }
       )
 
       setShowInvoiceModal(false)
@@ -725,12 +744,14 @@ export default function OperatorDashboard() {
                                   setSelectedBooking({ ...selectedBooking, status: 'accepted' })
                                 }
                                 
-                                const paymentMsg = {
-                                  id: messages.length + 1,
+                                const paymentMsg: UnifiedChatMessage = {
+                                  id: `payment_${Date.now()}`,
                                   booking_id: selectedBooking.id,
                                   sender_type: 'client',
+                                  sender_id: selectedBooking.client_id || 'client',
                                   message: "✅ Payment approved! Please proceed with the service.",
-                                  created_at: new Date().toISOString()
+                                  created_at: new Date().toISOString(),
+                                  updated_at: new Date().toISOString()
                                 }
                                 setMessages(prev => [...prev, paymentMsg])
                                 // Don't auto-scroll - let operator control their view

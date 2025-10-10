@@ -54,7 +54,7 @@ export default function ProtectorApp() {
   const [showLoginForm, setShowLoginForm] = useState(false)
   const [isLogin, setIsLogin] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [authStep, setAuthStep] = useState("login") // "login", "register", "email-verification", "profile"
+  const [authStep, setAuthStep] = useState<"login" | "register" | "email-verification" | "profile">("login") // "login", "register", "email-verification", "profile"
   const [user, setUser] = useState<any>(null)
 
   const [authLoading, setAuthLoading] = useState(false)
@@ -810,7 +810,7 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
         }
 
         setBookingPayload(payload)
-        setActiveBookings(prev => [payload, ...prev])
+        setActiveBookings(prev => [payload as any, ...prev])
 
         // Create initial system message with booking summary
         createInitialBookingMessage(payload)
@@ -848,7 +848,7 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
         }
 
         setBookingPayload(payload)
-        setActiveBookings(prev => [payload, ...prev])
+        setActiveBookings(prev => [payload as any, ...prev])
 
         // Create initial system message with booking summary
         createInitialBookingMessage(payload)
@@ -1172,7 +1172,7 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
                     ? "Verify Your Email"
                     : "Complete Your Profile"}
             </h2>
-              {(authStep === "register" || authStep === "email-verification") && (
+              {(authStep === "register" || authStep === "email-verification" || authStep === "profile") && (
                 <div className="flex items-center justify-center gap-2 mt-2">
                   <div className={`w-2 h-2 rounded-full ${authStep === "register" ? "bg-blue-500" : "bg-gray-600"}`}></div>
                   <div className={`w-2 h-2 rounded-full ${authStep === "email-verification" ? "bg-blue-500" : "bg-gray-600"}`}></div>

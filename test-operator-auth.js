@@ -113,3 +113,6 @@ async function testOperatorAuth() {
 // Run the test
 testOperatorAuth().catch(console.error)
 
+
+
+

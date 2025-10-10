@@ -19,11 +19,12 @@ import { useRealtimeChat } from "@/lib/hooks/useRealtimeChat"
 
 interface ClientChatProps {
   bookingId: string
+  userId: string
   bookingCode?: string
   onBack?: () => void
 }
 
-export default function ClientChatRealtime({ bookingId, bookingCode, onBack }: ClientChatProps) {
+export default function ClientChatRealtime({ bookingId, userId, bookingCode, onBack }: ClientChatProps) {
   const [newMessage, setNewMessage] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -40,6 +41,7 @@ export default function ClientChatRealtime({ bookingId, bookingCode, onBack }: C
     clearError
   } = useRealtimeChat({
     bookingId,
+    userId,
     autoLoad: true,
     onStatusUpdate: (newStatus) => {
       console.log('🔄 Status updated in chat:', newStatus)
@@ -202,9 +204,9 @@ export default function ClientChatRealtime({ bookingId, bookingCode, onBack }: C
                     }`}
                   >
                     {/* Message sender (for non-system messages) */}
-                    {!isSystem && message.sender && (
+                    {!isSystem && message.sender_type && (
                       <div className="text-xs opacity-70 mb-1">
-                        {message.sender.first_name} {message.sender.last_name}
+                        {message.sender_type === 'client' ? 'You' : message.sender_type === 'operator' ? 'Operator' : 'System'}
                       </div>
                     )}
 
