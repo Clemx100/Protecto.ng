@@ -226,9 +226,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Setup failed:', error)
-    return NextResponse.json({ 
+    return NextResponse.json({
       error: 'Failed to setup chat room tables',
-      details: error.message 
+      details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 })
   }
 }
