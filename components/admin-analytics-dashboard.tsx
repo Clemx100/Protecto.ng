@@ -50,7 +50,7 @@ export default function AdminAnalyticsDashboard() {
         dateRange.end
       )
       if (data && !error) {
-        setAnalytics(prev => ({ ...prev, bookingAnalytics: data }))
+        setAnalytics((prev: any) => ({ ...prev, bookingAnalytics: data }))
       }
     } catch (error) {
       console.error('Failed to load booking analytics:', error)
