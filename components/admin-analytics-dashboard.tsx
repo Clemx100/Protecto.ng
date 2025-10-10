@@ -67,7 +67,7 @@ export default function AdminAnalyticsDashboard() {
         dateRange.end
       )
       if (data && !error) {
-        setAnalytics(prev => ({ ...prev, financialAnalytics: data }))
+        setAnalytics((prev: any) => ({ ...prev, financialAnalytics: data }))
       }
     } catch (error) {
       console.error('Failed to load financial analytics:', error)
