@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 interface ChatMessage {
@@ -14,7 +14,7 @@ interface ChatMessage {
   message_type?: string
 }
 
-export default function MobileChatPage() {
+function MobileChatContent() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -264,5 +264,18 @@ export default function MobileChatPage() {
         </div>
       </form>
     </div>
+  )
+}
+
+export default function MobileChatPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
+        <p className="mt-4 text-gray-600">Loading chat...</p>
+      </div>
+    </div>}>
+      <MobileChatContent />
+    </Suspense>
   )
 }

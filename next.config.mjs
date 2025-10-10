@@ -1,53 +1,18 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // Remove static export for Vercel deployment
   images: {
-    unoptimized: true,
+    unoptimized: true
   },
   experimental: {
-    serverComponentsExternalPackages: ['@supabase/supabase-js'],
+    esmExternals: false
   },
-  async headers() {
-    return [
-      {
-        source: '/(.*)',
-        headers: [
-          {
-            key: 'Access-Control-Allow-Origin',
-            value: '*',
-          },
-          {
-            key: 'Access-Control-Allow-Methods',
-            value: 'GET, POST, PUT, DELETE, OPTIONS',
-          },
-          {
-            key: 'Access-Control-Allow-Headers',
-            value: 'Content-Type, Authorization',
-          },
-          {
-            key: 'X-Frame-Options',
-            value: 'SAMEORIGIN',
-          },
-        ],
-      },
-    ];
-  },
-  webpack: (config, { isServer }) => {
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        net: false,
-        tls: false,
-      };
-    }
-    return config;
-  },
+  // Enable dynamic rendering for pages with useSearchParams
+  dynamicParams: true,
+  // Configure for Vercel deployment
+  env: {
+    CUSTOM_KEY: process.env.CUSTOM_KEY,
+  }
 }
 
-export default nextConfig;
+export default nextConfig

@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect, useState } from "react"
+import { useEffect, useState, Suspense } from "react"
 import { 
   Shield, 
   Settings, 
@@ -22,7 +22,7 @@ import {
   Users
 } from "lucide-react"
 
-export default function HomePage() {
+function HomePageContent() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -586,5 +586,18 @@ export default function HomePage() {
         </div>
       </footer>
     </div>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
+        <p className="mt-4 text-gray-600">Loading...</p>
+      </div>
+    </div>}>
+      <HomePageContent />
+    </Suspense>
   )
 }

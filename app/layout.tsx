@@ -20,8 +20,6 @@ export const metadata: Metadata = {
   description: "Professional executive protection services with real-time tracking and secure payments",
   generator: "Next.js",
   manifest: "/manifest.json",
-  themeColor: "#1e40af",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -48,6 +46,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  themeColor: "#1e40af",
 }
 
 export default function RootLayout({
