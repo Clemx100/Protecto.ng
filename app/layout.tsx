@@ -63,21 +63,21 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <LocationPreservationWrapper>
-            <Suspense fallback={
-              <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-                <div className="text-center">
-                  <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
-                  <p className="mt-4 text-gray-600 dark:text-gray-400">Loading PROTECTOR.NG...</p>
-                </div>
+          <Suspense fallback={
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
+                <p className="mt-4 text-gray-600 dark:text-gray-400">Loading PROTECTOR.NG...</p>
               </div>
-            }>
+            </div>
+          }>
+            <LocationPreservationWrapper>
               {children}
-            </Suspense>
-            <Toaster />
-            <Sonner />
-            <PWAInstaller />
-          </LocationPreservationWrapper>
+              <Toaster />
+              <Sonner />
+              <PWAInstaller />
+            </LocationPreservationWrapper>
+          </Suspense>
         </ThemeProvider>
       </body>
     </html>
