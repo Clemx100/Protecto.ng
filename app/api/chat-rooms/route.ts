@@ -92,7 +92,6 @@ export async function GET(request: NextRequest) {
       console.error('❌ Chat room operation failed:', error)
       return NextResponse.json({ error: 'Chat room operation failed' }, { status: 500 })
     }
-
   } catch (error) {
     console.error('❌ Chat rooms API error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
