@@ -247,7 +247,7 @@ export default function AdminAnalyticsDashboard() {
                   <div key={index} className="flex-1 flex flex-col items-center">
                     <div
                       className="bg-green-500 rounded-t w-full"
-                      style={{ height: `${(item.amount / Math.max(...analytics.trends.revenue_trend.map(t => t.amount))) * 200}px` }}
+                      style={{ height: `${(item.amount / Math.max(...analytics.trends.revenue_trend.map((t: any) => t.amount))) * 200}px` }}
                     ></div>
                     <span className="text-white text-xs mt-2">₦{item.amount.toLocaleString()}</span>
                     <span className="text-gray-300 text-xs">{new Date(item.date).toLocaleDateString()}</span>
