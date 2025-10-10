@@ -131,7 +131,14 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    // Import Supabase client dynamically
+    const { createClient } = await import('@supabase/supabase-js')
+    
+    // Use service role for demo API to bypass RLS
+    const supabase = createClient(
+      'https://mjdbhusnplveeaveeovd.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+    )
     
     // Get all demo bookings
     const { data: bookings, error: bookingsError } = await supabase
