@@ -40,45 +40,45 @@ export async function GET(request: NextRequest) {
           .single()
         
         if (chatRoomError && chatRoomError.code === 'PGRST116') {
-        // Chat room doesn't exist, create it
-        console.log('💬 Creating chat room for booking:', bookingId)
-        
-        // Get the booking details first
-        const { data: booking, error: bookingError } = await supabase
-          .from('bookings')
-          .select('client_id, assigned_agent_id')
-          .eq('booking_code', bookingId)
-          .single()
-        
-        if (bookingError) {
-          console.error('❌ Error fetching booking:', bookingError)
-          return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
-        }
-        
-        // Create the chat room
-        const { data: newChatRoom, error: createError } = await supabase
-          .from('chat_rooms')
-          .insert([{
-            booking_id: bookingId,
-            client_id: booking.client_id,
-            assigned_agent_id: booking.assigned_agent_id,
-            status: 'active'
-          }])
-          .select()
-          .single()
-        
-        if (createError) {
-          console.error('❌ Error creating chat room:', createError)
-          return NextResponse.json({ error: 'Failed to create chat room' }, { status: 500 })
-        }
-        
-        return NextResponse.json({
-          success: true,
-          data: newChatRoom,
-          message: 'Chat room created successfully'
-        })
-        
-      } else if (chatRoomError) {
+          // Chat room doesn't exist, create it
+          console.log('💬 Creating chat room for booking:', bookingId)
+          
+          // Get the booking details first
+          const { data: booking, error: bookingError } = await supabase
+            .from('bookings')
+            .select('client_id, assigned_agent_id')
+            .eq('booking_code', bookingId)
+            .single()
+          
+          if (bookingError) {
+            console.error('❌ Error fetching booking:', bookingError)
+            return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+          }
+          
+          // Create the chat room
+          const { data: newChatRoom, error: createError } = await supabase
+            .from('chat_rooms')
+            .insert([{
+              booking_id: bookingId,
+              client_id: booking.client_id,
+              assigned_agent_id: booking.assigned_agent_id,
+              status: 'active'
+            }])
+            .select()
+            .single()
+          
+          if (createError) {
+            console.error('❌ Error creating chat room:', createError)
+            return NextResponse.json({ error: 'Failed to create chat room' }, { status: 500 })
+          }
+          
+          return NextResponse.json({
+            success: true,
+            data: newChatRoom,
+            message: 'Chat room created successfully'
+          })
+          
+        } else if (chatRoomError) {
         console.error('❌ Error fetching chat room:', chatRoomError)
         return NextResponse.json({ error: 'Failed to fetch chat room' }, { status: 500 })
       } else {
