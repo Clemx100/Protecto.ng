@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, Suspense } from 'react'
+import { useState } from 'react'
 
 export default function TestRealtimePage() {
   const [createResult, setCreateResult] = useState<string[]>([])

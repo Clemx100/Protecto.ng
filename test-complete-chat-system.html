@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete Chat System Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            color: #333;
+        }
+        h1 { color: #667eea; text-align: center; margin-bottom: 30px; }
+        .test-section {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            border-left: 5px solid #667eea;
+        }
+        .test-section h2 {
+            color: #667eea;
+            margin-top: 0;
+        }
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+        .btn-success { background: #28a745; color: white; }
+        .btn-danger { background: #dc3545; color: white; }
+        .status {
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        .status.info { background: #17a2b8; color: white; }
+        .status.success { background: #28a745; color: white; }
+        .status.error { background: #dc3545; color: white; }
+        .status.warning { background: #ffc107; color: #333; }
+        #results {
+            margin-top: 20px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .result-item {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .result-item h3 {
+            margin-top: 0;
+            color: #667eea;
+        }
+        pre {
+            background: #282c34;
+            color: #61dafb;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Complete Chat System Test</h1>
+        
+        <div class="test-section">
+            <h2>📋 Test Configuration</h2>
+            <div class="grid">
+                <button class="btn-primary" onclick="testWithBookingCode()">🔤 Test with Booking Code</button>
+                <button class="btn-primary" onclick="testWithUUID()">🔑 Test with UUID</button>
+                <button class="btn-success" onclick="testBidirectionalChat()">💬 Test Bidirectional Chat</button>
+                <button class="btn-danger" onclick="clearResults()">🗑️ Clear Results</button>
+            </div>
+        </div>
+
+        <div id="status" class="status info">Ready to test. Choose a test option above.</div>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000';
+        
+        // Sample booking data from terminal logs
+        const BOOKING_UUID = '49142142-006f-4f02-a022-848397ac31bf';
+        const BOOKING_CODE = 'REQ1759982673164';
+
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+        }
+
+        function addResult(title, data, type = 'info') {
+            const results = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result-item';
+            
+            const statusClass = type === 'success' ? '✅' : type === 'error' ? '❌' : '📊';
+            resultDiv.innerHTML = `
+                <h3>${statusClass} ${title}</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            results.insertBefore(resultDiv, results.firstChild);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            updateStatus('Results cleared. Ready for new tests.', 'info');
+        }
+
+        async function testWithBookingCode() {
+            updateStatus('🔤 Testing with booking code...', 'info');
+            
+            try {
+                // Test GET messages
+                addResult('GET Messages with Booking Code', { bookingCode: BOOKING_CODE, endpoint: '/api/messages' });
+                
+                const getResponse = await fetch(`${API_BASE}/api/messages?bookingId=${BOOKING_CODE}`);
+                const getResult = await getResponse.json();
+                
+                if (getResponse.ok) {
+                    addResult('✅ GET Messages - Success', getResult, 'success');
+                    updateStatus(`✅ Successfully fetched ${getResult.count} messages using booking code!`, 'success');
+                } else {
+                    addResult('❌ GET Messages - Failed', getResult, 'error');
+                    updateStatus('❌ Failed to fetch messages with booking code', 'error');
+                }
+
+                // Test POST message
+                const testMessage = `🧪 Test message with booking code - ${new Date().toLocaleTimeString()}`;
+                const postResponse = await fetch(`${API_BASE}/api/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bookingId: BOOKING_CODE,
+                        message: testMessage,
+                        senderType: 'client',
+                        messageType: 'text'
+                    })
+                });
+                const postResult = await postResponse.json();
+
+                if (postResponse.ok) {
+                    addResult('✅ POST Message - Success', postResult, 'success');
+                    updateStatus('✅ Message sent successfully with booking code!', 'success');
+                } else {
+                    addResult('❌ POST Message - Failed', postResult, 'error');
+                    updateStatus('❌ Failed to send message with booking code', 'error');
+                }
+
+            } catch (error) {
+                addResult('❌ Network Error', { error: error.message }, 'error');
+                updateStatus('❌ Network error occurred', 'error');
+            }
+        }
+
+        async function testWithUUID() {
+            updateStatus('🔑 Testing with UUID...', 'info');
+            
+            try {
+                // Test GET messages
+                addResult('GET Messages with UUID', { bookingUUID: BOOKING_UUID, endpoint: '/api/messages' });
+                
+                const getResponse = await fetch(`${API_BASE}/api/messages?bookingId=${BOOKING_UUID}`);
+                const getResult = await getResponse.json();
+                
+                if (getResponse.ok) {
+                    addResult('✅ GET Messages - Success', getResult, 'success');
+                    updateStatus(`✅ Successfully fetched ${getResult.count} messages using UUID!`, 'success');
+                } else {
+                    addResult('❌ GET Messages - Failed', getResult, 'error');
+                    updateStatus('❌ Failed to fetch messages with UUID', 'error');
+                }
+
+                // Test POST message
+                const testMessage = `🧪 Test message with UUID - ${new Date().toLocaleTimeString()}`;
+                const postResponse = await fetch(`${API_BASE}/api/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bookingId: BOOKING_UUID,
+                        message: testMessage,
+                        senderType: 'client',
+                        messageType: 'text'
+                    })
+                });
+                const postResult = await postResponse.json();
+
+                if (postResponse.ok) {
+                    addResult('✅ POST Message - Success', postResult, 'success');
+                    updateStatus('✅ Message sent successfully with UUID!', 'success');
+                } else {
+                    addResult('❌ POST Message - Failed', postResult, 'error');
+                    updateStatus('❌ Failed to send message with UUID', 'error');
+                }
+
+            } catch (error) {
+                addResult('❌ Network Error', { error: error.message }, 'error');
+                updateStatus('❌ Network error occurred', 'error');
+            }
+        }
+
+        async function testBidirectionalChat() {
+            updateStatus('💬 Testing bidirectional chat...', 'info');
+            
+            try {
+                // 1. Client sends message
+                addResult('Step 1: Client sends message', { sender: 'client' });
+                const clientMessage = `👤 Client message - ${new Date().toLocaleTimeString()}`;
+                const clientResponse = await fetch(`${API_BASE}/api/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bookingId: BOOKING_CODE,
+                        message: clientMessage,
+                        senderType: 'client',
+                        messageType: 'text'
+                    })
+                });
+                const clientResult = await clientResponse.json();
+                
+                if (clientResponse.ok) {
+                    addResult('✅ Client Message Sent', clientResult, 'success');
+                } else {
+                    addResult('❌ Client Message Failed', clientResult, 'error');
+                    return;
+                }
+
+                // 2. Operator sends message
+                addResult('Step 2: Operator sends message', { sender: 'operator' });
+                const operatorMessage = `👨‍💼 Operator response - ${new Date().toLocaleTimeString()}`;
+                const operatorResponse = await fetch(`${API_BASE}/api/operator/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        bookingId: BOOKING_CODE,
+                        content: operatorMessage,
+                        messageType: 'text'
+                    })
+                });
+                const operatorResult = await operatorResponse.json();
+                
+                if (operatorResponse.ok) {
+                    addResult('✅ Operator Message Sent', operatorResult, 'success');
+                } else {
+                    addResult('❌ Operator Message Failed', operatorResult, 'error');
+                    return;
+                }
+
+                // 3. Verify both messages are retrievable
+                addResult('Step 3: Verify messages', { action: 'fetching all messages' });
+                await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+                
+                const verifyResponse = await fetch(`${API_BASE}/api/messages?bookingId=${BOOKING_CODE}`);
+                const verifyResult = await verifyResponse.json();
+                
+                if (verifyResponse.ok) {
+                    const recentMessages = verifyResult.data.slice(-5); // Last 5 messages
+                    addResult('✅ Messages Retrieved', { 
+                        total: verifyResult.count,
+                        recentMessages 
+                    }, 'success');
+                    updateStatus('✅ Bidirectional chat test completed successfully!', 'success');
+                } else {
+                    addResult('❌ Verification Failed', verifyResult, 'error');
+                    updateStatus('❌ Failed to verify messages', 'error');
+                }
+
+            } catch (error) {
+                addResult('❌ Network Error', { error: error.message }, 'error');
+                updateStatus('❌ Network error occurred', 'error');
+            }
+        }
+
+        // Auto-run basic tests on load
+        window.onload = () => {
+            updateStatus('🚀 Chat system test page loaded. Click a button to start testing!', 'info');
+        };
+    </script>
+</body>
+</html>
+

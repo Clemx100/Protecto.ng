@@ -7,6 +7,7 @@ export interface ChatMessage {
   sender_type: 'client' | 'operator' | 'system'
   sender_id: string
   message: string
+  message_type?: 'text' | 'system' | 'invoice' | 'status_update' // Message type
   created_at: string
   updated_at: string
   has_invoice?: boolean

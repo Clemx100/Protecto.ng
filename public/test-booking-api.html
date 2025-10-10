@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Booking API - PROTECTOR.NG LIVE</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .success {
+            background: #d1fae5;
+            border: 2px solid #22c55e;
+            color: #065f46;
+        }
+        .error {
+            background: #fee2e2;
+            border: 2px solid #ef4444;
+            color: #991b1b;
+        }
+        .info {
+            background: #dbeafe;
+            border: 2px solid #3b82f6;
+            color: #1e3a8a;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 PROTECTOR.NG LIVE - Booking API Test</h1>
+        
+        <p><strong>Purpose:</strong> Test if the booking API is reachable and working</p>
+        
+        <button onclick="testBookingAPI()">🚀 Test Booking Creation API</button>
+        <button onclick="checkDatabase()">📊 Check Database Status</button>
+        <button onclick="clearResults()">🗑️ Clear Results</button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://kifcevffaputepvpjpip.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3OTQ0NzYsImV4cCI6MjA3NTM3MDQ3Nn0.YuVbfSbrDUy2nPigODzCcaOWTEXaJlPrVGE1L0C3y6g';
+
+        function log(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.createElement('div');
+            logDiv.className = `result ${type}`;
+            logDiv.textContent = `[${timestamp}] ${message}`;
+            resultDiv.appendChild(logDiv);
+            console.log(message);
+        }
+
+        function clearResults() {
+            document.getElementById('result').innerHTML = '';
+        }
+
+        async function testBookingAPI() {
+            clearResults();
+            log('🧪 Starting Booking API Test...', 'info');
+            
+            const testBooking = {
+                id: `REQ${Date.now()}`,
+                timestamp: new Date().toISOString(),
+                serviceType: 'armed-protection',
+                protectionType: 'Armed',
+                pickupDetails: {
+                    location: 'Test Pickup Location',
+                    date: new Date().toISOString().split('T')[0],
+                    time: '10:00',
+                    duration: '1 day'
+                },
+                destinationDetails: {
+                    primary: 'Test Destination',
+                    additional: []
+                },
+                personnel: {
+                    protectors: 1,
+                    protectee: 1,
+                    dressCode: 'Tactical'
+                },
+                vehicles: {
+                    sedan: 1
+                },
+                contact: {
+                    phone: '+234 9071034162',
+                    user: {
+                        firstName: 'Test',
+                        lastName: 'User'
+                    }
+                },
+                status: 'Pending Deployment'
+            };
+
+            log(`📦 Test booking payload created: ${testBooking.id}`, 'info');
+            
+            try {
+                log('📤 Sending POST request to /api/bookings...', 'info');
+                
+                const response = await fetch('/api/bookings', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(testBooking)
+                });
+
+                log(`📨 Response status: ${response.status} ${response.statusText}`, 
+                    response.ok ? 'success' : 'error');
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ BOOKING CREATED SUCCESSFULLY!', 'success');
+                    log(`📋 Booking ID: ${result.data?.id}`, 'success');
+                    log(`📋 Booking Code: ${result.data?.booking_code}`, 'success');
+                    log(`👤 Client ID: ${result.data?.client_id}`, 'success');
+                    log(`📊 Status: ${result.data?.status}`, 'success');
+                    log(JSON.stringify(result, null, 2), 'success');
+                } else {
+                    log('❌ BOOKING CREATION FAILED!', 'error');
+                    log(`Error: ${result.error || 'Unknown error'}`, 'error');
+                    log(`Details: ${result.details || 'No details'}`, 'error');
+                    log(JSON.stringify(result, null, 2), 'error');
+                }
+                
+            } catch (error) {
+                log('❌ FATAL ERROR!', 'error');
+                log(`Error: ${error.message}`, 'error');
+                log(`Stack: ${error.stack}`, 'error');
+            }
+        }
+
+        async function checkDatabase() {
+            clearResults();
+            log('📊 Checking Database Status...', 'info');
+            
+            try {
+                // Import Supabase client
+                const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+                const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                
+                // Check bookings count
+                const { data: bookings, error: bookingsError } = await supabase
+                    .from('bookings')
+                    .select('*')
+                    .order('created_at', { ascending: false })
+                    .limit(5);
+                
+                if (bookingsError) {
+                    log(`❌ Error fetching bookings: ${bookingsError.message}`, 'error');
+                } else {
+                    log(`✅ Bookings found: ${bookings.length}`, 'success');
+                    if (bookings.length > 0) {
+                        bookings.forEach((b, i) => {
+                            log(`${i + 1}. ${b.booking_code} - ${b.status} - ${new Date(b.created_at).toLocaleString()}`, 'info');
+                        });
+                    } else {
+                        log('⚠️  No bookings in database yet', 'info');
+                    }
+                }
+                
+                // Check messages count
+                const { data: messages, error: messagesError } = await supabase
+                    .from('messages')
+                    .select('*')
+                    .limit(5);
+                
+                if (messagesError) {
+                    log(`❌ Error fetching messages: ${messagesError.message}`, 'error');
+                } else {
+                    log(`✅ Messages found: ${messages.length}`, 'success');
+                }
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-check database on load
+        window.addEventListener('load', () => {
+            setTimeout(checkDatabase, 1000);
+        });
+    </script>
+</body>
+</html>
+

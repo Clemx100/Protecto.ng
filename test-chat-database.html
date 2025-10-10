@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Database Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 600;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin: 5px;
+        }
+        
+        button:hover {
+            background: #2563eb;
+        }
+        
+        #results {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9fafb;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-left: 4px solid #3b82f6;
+            background: white;
+        }
+        
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Chat Database Connection Test</h1>
+        <p>This tool tests if messages are being saved to and retrieved from Supabase database.</p>
+        
+        <div class="status info" id="status">
+            Ready to test. Click a button below to begin.
+        </div>
+        
+        <div>
+            <button onclick="testSendMessage()">📤 Test Send Message</button>
+            <button onclick="testFetchMessages()">📥 Test Fetch Messages</button>
+            <button onclick="testFullCycle()">🔄 Test Full Cycle</button>
+            <button onclick="clearResults()">🗑️ Clear Results</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        const TEST_BOOKING_ID = '819eb493-6c9e-468b-a46e-d160eb396c9f'; // Use a real booking ID
+        const API_BASE_URL = 'http://localhost:3000'; // Next.js server URL
+        
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+        }
+        
+        function addResult(title, data, type = 'info') {
+            const results = document.getElementById('results');
+            const result = document.createElement('div');
+            result.className = 'test-result';
+            result.innerHTML = `
+                <strong>${title}</strong>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            results.appendChild(result);
+            results.scrollTop = results.scrollHeight;
+        }
+        
+        async function testSendMessage() {
+            updateStatus('📤 Testing message send to database...', 'info');
+            
+            try {
+                const message = {
+                    bookingId: TEST_BOOKING_ID,
+                    senderId: '9882762d-93e4-484c-b055-a14737f76cba', // Use the actual test client UUID
+                    senderType: 'client',
+                    content: `Test message at ${new Date().toLocaleTimeString()}`,
+                    messageType: 'text'
+                };
+                
+                addResult('Request Body:', message);
+                
+                const response = await fetch(`${API_BASE_URL}/api/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(message)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    updateStatus('✅ Message sent successfully!', 'success');
+                    addResult('Response:', result);
+                } else {
+                    updateStatus('❌ Failed to send message', 'error');
+                    addResult('Error:', result, 'error');
+                    addResult('Response Status:', { status: response.status, statusText: response.statusText }, 'error');
+                    addResult('Response Headers:', Object.fromEntries(response.headers.entries()), 'error');
+                }
+            } catch (error) {
+                updateStatus('❌ Network error', 'error');
+                addResult('Error:', { message: error.message }, 'error');
+            }
+        }
+        
+        async function testFetchMessages() {
+            updateStatus('📥 Testing message fetch from database...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/messages?bookingId=${TEST_BOOKING_ID}`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    updateStatus(`✅ Fetched ${result.count} messages from database!`, 'success');
+                    addResult('Messages:', result);
+                } else {
+                    updateStatus('❌ Failed to fetch messages', 'error');
+                    addResult('Error:', result, 'error');
+                }
+            } catch (error) {
+                updateStatus('❌ Network error', 'error');
+                addResult('Error:', { message: error.message }, 'error');
+            }
+        }
+        
+        async function testFullCycle() {
+            updateStatus('🔄 Testing full send → receive cycle...', 'info');
+            
+            // Send message
+            await testSendMessage();
+            
+            // Wait a bit
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Fetch messages
+            await testFetchMessages();
+            
+            updateStatus('✅ Full cycle test complete!', 'success');
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            updateStatus('Results cleared. Ready for new tests.', 'info');
+        }
+        
+        // Auto-run initial check on load
+        window.onload = () => {
+            addResult('📋 Initial Setup:', {
+                testBookingId: TEST_BOOKING_ID,
+                apiBaseUrl: API_BASE_URL,
+                apiEndpoint: `${API_BASE_URL}/api/messages`,
+                timestamp: new Date().toISOString()
+            });
+        };
+    </script>
+</body>
+</html>
+

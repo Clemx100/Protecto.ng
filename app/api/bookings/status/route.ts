@@ -9,8 +9,8 @@ export async function PATCH(request: NextRequest) {
     
     // Use service role for real API to bypass RLS
     const supabase = createClient(
-      'https://mjdbhusnplveeaveeovd.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+      'https://kifcevffaputepvpjpip.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
     )
     
     // For now, skip authentication check to allow operator dashboard to work
@@ -70,12 +70,19 @@ export async function PATCH(request: NextRequest) {
     console.log('Found booking:', existingBooking)
 
     // Update booking status using the actual UUID from the database
+    const updateData: any = {
+      status: status,
+      updated_at: new Date().toISOString()
+    }
+    
+    // Set completed_at timestamp when status is completed
+    if (status === 'completed') {
+      updateData.completed_at = new Date().toISOString()
+    }
+    
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
-      .update({
-        status: status,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', existingBooking.id) // Use the UUID from the database, not the input bookingId
       .select()
       .single()
@@ -104,8 +111,8 @@ export async function PATCH(request: NextRequest) {
     // Add notes if provided
     const fullMessage = notes ? `${messageContent}\n\nNotes: ${notes}` : messageContent
 
-    // Create system message - use a valid operator ID for system messages
-    const operatorId = '9882762d-93e4-484c-b055-a14737f76cba' // Use the same valid user ID as other APIs
+    // Create system message - use the client ID as sender for system messages
+    const operatorId = updatedBooking.client_id // Use the client ID for system messages
     
     console.log('📨 Creating system message for status update:', { bookingId, status, message: fullMessage })
     
@@ -115,10 +122,11 @@ export async function PATCH(request: NextRequest) {
         booking_id: existingBooking.id, // Use the UUID from the database
         sender_id: operatorId,
         recipient_id: updatedBooking.client_id,
-        content: fullMessage,
+        content: fullMessage, // ✅ Use 'content' column (primary)
+        message: fullMessage, // ✅ Also set 'message' for compatibility
         message_type: 'system',
         sender_type: 'system',
-        is_encrypted: false
+        is_system_message: true
       })
       .select()
       .single()
@@ -151,8 +159,8 @@ export async function POST(request: NextRequest) {
     
     // Use service role for real API to bypass RLS
     const supabase = createClient(
-      'https://mjdbhusnplveeaveeovd.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+      'https://kifcevffaputepvpjpip.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
     )
     
     // For now, skip authentication check to allow operator dashboard to work
@@ -167,12 +175,19 @@ export async function POST(request: NextRequest) {
     console.log(`Updating booking ${booking_id} to status: ${status}`)
 
     // Update booking status
+    const updateData: any = {
+      status: status,
+      updated_at: new Date().toISOString()
+    }
+    
+    // Set completed_at timestamp when status is completed
+    if (status === 'completed') {
+      updateData.completed_at = new Date().toISOString()
+    }
+    
     const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
-      .update({ 
-        status: status,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', booking_id)
       .select()
       .single()
@@ -205,7 +220,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (booking) {
-      const operatorId = '4d2535f4-e7c7-4e06-b78a-469f68cc96be' // Default operator ID
+      const operatorId = booking.client_id // Use the client ID for system messages
       
       console.log('📨 Creating system message:', fullMessage)
       
@@ -215,9 +230,11 @@ export async function POST(request: NextRequest) {
           booking_id: booking_id,
           sender_id: operatorId,
           recipient_id: booking.client_id,
-          content: fullMessage,
+          content: fullMessage, // ✅ Use 'content' column (primary)
+          message: fullMessage, // ✅ Also set 'message' for compatibility
           message_type: 'system',
-          is_encrypted: false
+          sender_type: 'system',
+          is_system_message: true
         }])
         .select()
         .single()

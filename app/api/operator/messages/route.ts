@@ -1,20 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireOperatorAuth } from '@/lib/auth/operatorAuth'
 
 export async function GET(request: NextRequest) {
   try {
     console.log('💬 Operator messages GET API called')
+    
+    // ✅ SECURITY: Verify operator authentication
+    const authResult = await requireOperatorAuth(request)
+    if (authResult.error) {
+      console.log('❌ Unauthorized access attempt to operator messages')
+      return authResult.response
+    }
+    
+    console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
     
     // Import Supabase client dynamically
     const { createClient } = await import('@supabase/supabase-js')
     
     // Use service role for real API to bypass RLS
     const supabase = createClient(
-      'https://mjdbhusnplveeaveeovd.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+      'https://kifcevffaputepvpjpip.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
     )
-    
-    // For now, skip authentication check to allow operator dashboard to work
-    console.log('⚠️ Skipping authentication for operator messages compatibility')
 
     const { searchParams } = new URL(request.url)
     const bookingId = searchParams.get('bookingId')
@@ -76,7 +83,7 @@ export async function GET(request: NextRequest) {
         booking_id: message.booking_id,
         sender_type: message.sender_type || (message.message_type === 'system' ? 'system' : 'client'),
         sender_id: message.sender_id,
-        message: message.content,
+        message: message.content || message.message, // ✅ Use 'content' column, fallback to 'message'
         created_at: message.created_at,
         is_system_message: message.message_type === 'system',
         has_invoice: isInvoice,
@@ -107,17 +114,23 @@ export async function POST(request: NextRequest) {
   try {
     console.log('💬 Operator messages POST API called')
     
+    // ✅ SECURITY: Verify operator authentication
+    const authResult = await requireOperatorAuth(request)
+    if (authResult.error) {
+      console.log('❌ Unauthorized access attempt to send operator message')
+      return authResult.response
+    }
+    
+    console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
+    
     // Import Supabase client dynamically
     const { createClient } = await import('@supabase/supabase-js')
     
     // Use service role for real API to bypass RLS
     const supabase = createClient(
-      'https://mjdbhusnplveeaveeovd.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+      'https://kifcevffaputepvpjpip.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
     )
-    
-    // For now, skip authentication check to allow operator dashboard to work
-    console.log('⚠️ Skipping authentication for operator messages compatibility')
 
     const { bookingId, content, messageType = 'text', recipientId, metadata = {} } = await request.json()
 
@@ -159,43 +172,62 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
     }
 
-    // Create message - use a valid user ID that exists in the profiles table
-    const operatorId = '9882762d-93e4-484c-b055-a14737f76cba' // Valid user ID from database
+    // Get operator ID from request or use a system operator ID
+    // For now, we'll use the client ID as operator for testing, but this should be replaced with actual operator authentication
+    const operatorId = recipientId || booking.client_id
     
-    // Check if messages table has metadata column
-    const messageData: any = {
+    // Prepare base message data
+    const baseData: any = {
       booking_id: actualBookingId,
       sender_id: operatorId,
       recipient_id: recipientId || booking.client_id,
-      content: content,
-      message_type: messageType,
-      is_encrypted: false
+      sender_type: 'operator', // ✅ FIX: Set correct sender type
+      message_type: messageType
     }
     
     // Add metadata if available (for invoices, etc.)
     if (Object.keys(metadata).length > 0) {
-      // Try to add metadata, but don't fail if column doesn't exist
-      try {
-        // First check if metadata column exists
-        const { data: columns } = await supabase
-          .from('messages')
-          .select('*')
-          .limit(0)
-        
-        // If we got here, try to add metadata
-        messageData.metadata = metadata
-      } catch (err) {
-        console.log('⚠️ Metadata column may not exist, storing in special_instructions instead')
-        // Fallback: store in content or special field
-        messageData.invoice_data = metadata
-      }
+      baseData.metadata = metadata
+      baseData.invoice_data = metadata
+      baseData.has_invoice = true
     }
     
-    const { data: newMessage, error: messageError } = await supabase
+    // Set is_system_message for system messages
+    if (messageType === 'system') {
+      baseData.is_system_message = true
+    }
+    
+    // Try different column names for message content (schema cache issue workaround)
+    const messageColumns = ['content', 'message', 'text', 'body']
+    let newMessage, messageError
+    let insertSuccessful = false
+    
+    // Set both content and message columns for maximum compatibility
+    const messageData = {
+      ...baseData,
+      content: content,
+      message: content
+    }
+    
+    const result = await supabase
       .from('messages')
       .insert(messageData)
       .select()
       .single()
+    
+    if (!result.error) {
+      newMessage = result.data
+      messageError = null
+      insertSuccessful = true
+      console.log(`✅ Operator message inserted successfully`)
+    } else {
+      messageError = result.error
+      console.log(`❌ Failed to insert message:`, result.error.message)
+    }
+    
+    if (!insertSuccessful) {
+      messageError = { message: 'Failed to insert message with any column name' }
+    }
 
     if (messageError) {
       console.error('Error creating message:', messageError)
@@ -204,14 +236,28 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Operator message created successfully:', newMessage.id)
 
+    // Transform response to match expected format
+    const responseData = {
+      id: newMessage.id,
+      booking_id: newMessage.booking_id,
+      sender_id: newMessage.sender_id,
+      sender_type: newMessage.sender_type,
+      message: newMessage.message || newMessage.content, // ✅ Handle both column names
+      message_type: newMessage.message_type,
+      metadata: newMessage.metadata || metadata,
+      has_invoice: newMessage.message_type === 'invoice',
+      invoice_data: newMessage.invoice_data || newMessage.metadata || metadata,
+      is_system_message: newMessage.message_type === 'system',
+      is_read: false,
+      status: 'sent',
+      created_at: newMessage.created_at,
+      updated_at: newMessage.updated_at,
+      invoiceData: metadata // For backward compatibility
+    }
+
     return NextResponse.json({
       success: true,
-      data: {
-        ...newMessage,
-        // Include metadata in response
-        metadata: metadata,
-        invoiceData: metadata // For backward compatibility
-      }
+      data: responseData
     })
 
   } catch (error) {

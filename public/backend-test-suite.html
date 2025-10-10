@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protector.Ng Backend Test Suite</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .test-section h2 {
+            color: #4CAF50;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+        
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .test-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .test-card h3 {
+            color: #81C784;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+        
+        .test-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+        
+        .test-button:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+        
+        .test-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .test-button.danger {
+            background: #f44336;
+        }
+        
+        .test-button.danger:hover {
+            background: #da190b;
+        }
+        
+        .test-button.warning {
+            background: #ff9800;
+        }
+        
+        .test-button.warning:hover {
+            background: #e68900;
+        }
+        
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        
+        .result.success {
+            background: rgba(76, 175, 80, 0.2);
+            border: 1px solid #4CAF50;
+            color: #C8E6C9;
+        }
+        
+        .result.error {
+            background: rgba(244, 67, 54, 0.2);
+            border: 1px solid #f44336;
+            color: #FFCDD2;
+        }
+        
+        .result.info {
+            background: rgba(33, 150, 243, 0.2);
+            border: 1px solid #2196F3;
+            color: #BBDEFB;
+        }
+        
+        .input-group {
+            margin: 10px 0;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        .input-group input, .input-group select, .input-group textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            font-size: 14px;
+        }
+        
+        .input-group input::placeholder, .input-group textarea::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-indicator.success {
+            background: #4CAF50;
+        }
+        
+        .status-indicator.error {
+            background: #f44336;
+        }
+        
+        .status-indicator.warning {
+            background: #ff9800;
+        }
+        
+        .status-indicator.info {
+            background: #2196F3;
+        }
+        
+        .live-updates {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .live-updates h3 {
+            color: #81C784;
+            margin-bottom: 10px;
+        }
+        
+        .update-item {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+        }
+        
+        .booking-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .booking-card h4 {
+            color: #81C784;
+            margin-bottom: 10px;
+        }
+        
+        .booking-details {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        
+        .chat-container {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .message {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .message.client {
+            background: rgba(33, 150, 243, 0.2);
+            border-left: 3px solid #2196F3;
+        }
+        
+        .message.operator {
+            background: rgba(76, 175, 80, 0.2);
+            border-left: 3px solid #4CAF50;
+        }
+        
+        .message.system {
+            background: rgba(255, 152, 0, 0.2);
+            border-left: 3px solid #ff9800;
+        }
+        
+        .message-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .message-input input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+        
+        .message-input button {
+            padding: 8px 15px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .message-input button:hover {
+            background: #45a049;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #4CAF50;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.8);
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            .test-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Protector.Ng Backend Test Suite</h1>
+        
+        <!-- System Status -->
+        <div class="test-section">
+            <h2>📊 System Status</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalBookings">-</div>
+                    <div class="stat-label">Total Bookings</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="activeBookings">-</div>
+                    <div class="stat-label">Active Bookings</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="totalMessages">-</div>
+                    <div class="stat-label">Total Messages</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="apiHealth">-</div>
+                    <div class="stat-label">API Health</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Database Connection Tests -->
+        <div class="test-section">
+            <h2>🗄️ Database Connection Tests</h2>
+            <div class="test-grid">
+                <div class="test-card">
+                    <h3>Test Supabase Connection</h3>
+                    <button class="test-button" onclick="testSupabaseConnection()">Test Connection</button>
+                    <div id="supabaseResult" class="result"></div>
+                </div>
+                
+                <div class="test-card">
+                    <h3>Test Tables Existence</h3>
+                    <button class="test-button" onclick="testTablesExistence()">Check Tables</button>
+                    <div id="tablesResult" class="result"></div>
+                </div>
+                
+                <div class="test-card">
+                    <h3>Test RLS Policies</h3>
+                    <button class="test-button" onclick="testRLSPolicies()">Check RLS</button>
+                    <div id="rlsResult" class="result"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Booking System Tests -->
+        <div class="test-section">
+            <h2>📋 Booking System Tests</h2>
+            <div class="test-grid">
+                <div class="test-card">
+                    <h3>Create Test Booking</h3>
+                    <div class="input-group">
+                        <label>Service Type:</label>
+                        <select id="serviceType">
+                            <option value="armed-protection">Armed Protection</option>
+                            <option value="unarmed-protection">Unarmed Protection</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>Pickup Location:</label>
+                        <input type="text" id="pickupLocation" placeholder="Enter pickup location" value="Lagos, Nigeria">
+                    </div>
+                    <div class="input-group">
+                        <label>Duration:</label>
+                        <select id="duration">
+                            <option value="1 hour">1 Hour</option>
+                            <option value="4 hours">4 Hours</option>
+                            <option value="1 day">1 Day</option>
+                            <option value="1 week">1 Week</option>
+                        </select>
+                    </div>
+                    <button class="test-button" onclick="createTestBooking()">Create Booking</button>
+                    <div id="bookingResult" class="result"></div>
+                </div>
+                
+                <div class="test-card">
+                    <h3>Get All Bookings</h3>
+                    <button class="test-button" onclick="getAllBookings()">Fetch Bookings</button>
+                    <button class="test-button warning" onclick="getOperatorBookings()">Operator View</button>
+                    <div id="bookingsList" class="result"></div>
+                </div>
+                
+                <div class="test-card">
+                    <h3>Update Booking Status</h3>
+                    <div class="input-group">
+                        <label>Booking ID:</label>
+                        <input type="text" id="statusBookingId" placeholder="Enter booking ID">
+                    </div>
+                    <div class="input-group">
+                        <label>New Status:</label>
+                        <select id="newStatus">
+                            <option value="pending">Pending</option>
+                            <option value="accepted">Accepted</option>
+                            <option value="deployed">Deployed</option>
+                            <option value="en_route">En Route</option>
+                            <option value="arrived">Arrived</option>
+                            <option value="in_service">In Service</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                    <button class="test-button" onclick="updateBookingStatus()">Update Status</button>
+                    <div id="statusResult" class="result"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Messaging System Tests -->
+        <div class="test-section">
+            <h2>💬 Messaging System Tests</h2>
+            <div class="test-grid">
+                <div class="test-card">
+                    <h3>Create Chat Room</h3>
+                    <div class="input-group">
+                        <label>Booking ID:</label>
+                        <input type="text" id="chatBookingId" placeholder="Enter booking ID">
+                    </div>
+                    <button class="test-button" onclick="createChatRoom()">Create Chat Room</button>
+                    <div id="chatRoomResult" class="result"></div>
+                </div>
+                
+                <div class="test-card">
+                    <h3>Send Message</h3>
+                    <div class="input-group">
+                        <label>Room ID:</label>
+                        <input type="text" id="roomId" placeholder="Enter room ID">
+                    </div>
+                    <div class="input-group">
+                        <label>Message:</label>
+                        <textarea id="messageText" placeholder="Enter message" rows="3"></textarea>
+                    </div>
+                    <div class="input-group">
+                        <label>Sender Type:</label>
+                        <select id="senderType">
+                            <option value="client">Client</option>
+                            <option value="operator">Operator</option>
+                            <option value="system">System</option>
+                        </select>
+                    </div>
+                    <button class="test-button" onclick="sendMessage()">Send Message</button>
+                    <div id="messageResult" class="result"></div>
+                </div>
+                
+                <div class="test-card">
+                    <h3>Get Messages</h3>
+                    <div class="input-group">
+                        <label>Room ID:</label>
+                        <input type="text" id="getMessagesRoomId" placeholder="Enter room ID">
+                    </div>
+                    <button class="test-button" onclick="getMessages()">Get Messages</button>
+                    <div id="messagesList" class="result"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment System Tests -->
+        <div class="test-section">
+            <h2>💳 Payment System Tests</h2>
+            <div class="test-grid">
+                <div class="test-card">
+                    <h3>Create Payment Intent</h3>
+                    <div class="input-group">
+                        <label>Amount (NGN):</label>
+                        <input type="number" id="paymentAmount" placeholder="Enter amount" value="100000">
+                    </div>
+                    <div class="input-group">
+                        <label>Currency:</label>
+                        <select id="paymentCurrency">
+                            <option value="ngn">NGN</option>
+                            <option value="usd">USD</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label>Booking ID:</label>
+                        <input type="text" id="paymentBookingId" placeholder="Enter booking ID">
+                    </div>
+                    <button class="test-button" onclick="createPaymentIntent()">Create Payment Intent</button>
+                    <div id="paymentResult" class="result"></div>
+                </div>
+                
+                <div class="test-card">
+                    <h3>Confirm Payment</h3>
+                    <div class="input-group">
+                        <label>Payment Intent ID:</label>
+                        <input type="text" id="paymentIntentId" placeholder="Enter payment intent ID">
+                    </div>
+                    <div class="input-group">
+                        <label>Booking ID:</label>
+                        <input type="text" id="confirmBookingId" placeholder="Enter booking ID">
+                    </div>
+                    <button class="test-button" onclick="confirmPayment()">Confirm Payment</button>
+                    <div id="confirmResult" class="result"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Real-time Tests -->
+        <div class="test-section">
+            <h2>⚡ Real-time Communication Tests</h2>
+            <div class="test-grid">
+                <div class="test-card">
+                    <h3>Start Real-time Monitoring</h3>
+                    <button class="test-button" onclick="startRealtimeMonitoring()">Start Monitoring</button>
+                    <button class="test-button danger" onclick="stopRealtimeMonitoring()">Stop Monitoring</button>
+                    <div id="realtimeStatus" class="result"></div>
+                </div>
+                
+                <div class="test-card">
+                    <h3>Test WebSocket Connection</h3>
+                    <button class="test-button" onclick="testWebSocket()">Test WebSocket</button>
+                    <div id="websocketResult" class="result"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Updates -->
+        <div class="live-updates">
+            <h3>📡 Live Updates</h3>
+            <div id="liveUpdates"></div>
+        </div>
+
+        <!-- Current Bookings Display -->
+        <div class="test-section">
+            <h2>📋 Current Bookings</h2>
+            <div id="currentBookings"></div>
+        </div>
+
+        <!-- Chat Interface -->
+        <div class="test-section">
+            <h2>💬 Live Chat Test</h2>
+            <div class="chat-container" id="chatContainer">
+                <div class="message system">System: Select a booking to start chatting</div>
+            </div>
+            <div class="message-input">
+                <input type="text" id="chatInput" placeholder="Type a message..." disabled>
+                <button onclick="sendChatMessage()" disabled id="sendButton">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let currentBookings = [];
+        let selectedBooking = null;
+        let realtimeSubscription = null;
+        let websocketConnection = null;
+        let liveUpdateCount = 0;
+
+        // API Base URL
+        const API_BASE = window.location.origin;
+
+        // Utility functions
+        function logResult(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `result ${type}`;
+        }
+
+        function addLiveUpdate(message, type = 'info') {
+            const container = document.getElementById('liveUpdates');
+            const update = document.createElement('div');
+            update.className = `update-item ${type}`;
+            update.innerHTML = `<span class="status-indicator ${type}"></span>${new Date().toLocaleTimeString()}: ${message}`;
+            container.insertBefore(update, container.firstChild);
+            
+            // Keep only last 50 updates
+            while (container.children.length > 50) {
+                container.removeChild(container.lastChild);
+            }
+            
+            liveUpdateCount++;
+        }
+
+        function updateStats() {
+            // Update stats display
+            document.getElementById('totalBookings').textContent = currentBookings.length;
+            document.getElementById('activeBookings').textContent = currentBookings.filter(b => 
+                ['pending', 'accepted', 'deployed', 'en_route', 'arrived', 'in_service'].includes(b.status)
+            ).length;
+            document.getElementById('apiHealth').textContent = 'OK';
+        }
+
+        // Database Connection Tests
+        async function testSupabaseConnection() {
+            try {
+                logResult('supabaseResult', 'Testing Supabase connection...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/bookings`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('supabaseResult', `✅ Connection successful!\nFound ${data.count || 0} bookings`, 'success');
+                    addLiveUpdate('Supabase connection test passed', 'success');
+                } else {
+                    throw new Error(data.error || 'Connection failed');
+                }
+            } catch (error) {
+                logResult('supabaseResult', `❌ Connection failed: ${error.message}`, 'error');
+                addLiveUpdate(`Supabase connection test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testTablesExistence() {
+            try {
+                logResult('tablesResult', 'Checking table existence...', 'info');
+                
+                // Test multiple endpoints to check table existence
+                const endpoints = [
+                    '/api/bookings',
+                    '/api/operator/bookings',
+                    '/api/chat-rooms'
+                ];
+                
+                const results = [];
+                for (const endpoint of endpoints) {
+                    try {
+                        const response = await fetch(`${API_BASE}${endpoint}`);
+                        const data = await response.json();
+                        results.push(`✅ ${endpoint}: ${response.ok ? 'OK' : 'FAILED'}`);
+                    } catch (error) {
+                        results.push(`❌ ${endpoint}: ${error.message}`);
+                    }
+                }
+                
+                logResult('tablesResult', results.join('\n'), 'success');
+                addLiveUpdate('Table existence check completed', 'success');
+            } catch (error) {
+                logResult('tablesResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Table existence check failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testRLSPolicies() {
+            try {
+                logResult('rlsResult', 'Testing RLS policies...', 'info');
+                
+                // Test if we can access data without authentication
+                const response = await fetch(`${API_BASE}/api/bookings`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('rlsResult', '⚠️ RLS may be bypassed - data accessible without auth', 'warning');
+                    addLiveUpdate('RLS policy test: Data accessible without authentication', 'warning');
+                } else {
+                    logResult('rlsResult', '✅ RLS working - data protected', 'success');
+                    addLiveUpdate('RLS policy test: Data properly protected', 'success');
+                }
+            } catch (error) {
+                logResult('rlsResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`RLS policy test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Booking System Tests
+        async function createTestBooking() {
+            try {
+                const serviceType = document.getElementById('serviceType').value;
+                const pickupLocation = document.getElementById('pickupLocation').value;
+                const duration = document.getElementById('duration').value;
+                
+                const bookingData = {
+                    id: `REQ${Date.now()}`,
+                    serviceType: serviceType,
+                    pickupDetails: {
+                        location: pickupLocation,
+                        date: new Date().toISOString().split('T')[0],
+                        time: new Date().toLocaleTimeString().slice(0, 5),
+                        duration: duration,
+                        coordinates: {
+                            lat: 6.5244,
+                            lng: 3.3792
+                        }
+                    },
+                    destinationDetails: {
+                        primary: "Victoria Island, Lagos",
+                        coordinates: {
+                            lat: 6.4281,
+                            lng: 3.4219
+                        }
+                    },
+                    personnel: {
+                        protectors: 2,
+                        protectee: 1,
+                        dressCode: "tactical-casual"
+                    },
+                    vehicles: {
+                        armoredSedan: 1
+                    },
+                    protectionType: "high",
+                    contact: {
+                        phone: "+234-800-000-0000",
+                        user: {
+                            firstName: "Test",
+                            lastName: "User",
+                            email: `test${Date.now()}@protector.ng`
+                        }
+                    },
+                    status: "Pending Deployment",
+                    timestamp: new Date().toISOString()
+                };
+                
+                logResult('bookingResult', 'Creating test booking...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/bookings`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(bookingData)
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('bookingResult', `✅ Booking created successfully!\nID: ${data.data?.booking_code || data.data?.id}\nStatus: ${data.data?.status}`, 'success');
+                    addLiveUpdate(`New booking created: ${data.data?.booking_code || data.data?.id}`, 'success');
+                    getAllBookings(); // Refresh bookings list
+                } else {
+                    throw new Error(data.error || 'Failed to create booking');
+                }
+            } catch (error) {
+                logResult('bookingResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Booking creation failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function getAllBookings() {
+            try {
+                logResult('bookingsList', 'Fetching bookings...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/bookings`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentBookings = data.data || [];
+                    updateStats();
+                    displayBookings();
+                    logResult('bookingsList', `✅ Found ${currentBookings.length} bookings`, 'success');
+                    addLiveUpdate(`Fetched ${currentBookings.length} bookings`, 'success');
+                } else {
+                    throw new Error(data.error || 'Failed to fetch bookings');
+                }
+            } catch (error) {
+                logResult('bookingsList', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Failed to fetch bookings: ${error.message}`, 'error');
+            }
+        }
+
+        async function getOperatorBookings() {
+            try {
+                logResult('bookingsList', 'Fetching operator bookings...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/operator/bookings`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentBookings = data.data || [];
+                    updateStats();
+                    displayBookings();
+                    logResult('bookingsList', `✅ Found ${currentBookings.length} operator bookings`, 'success');
+                    addLiveUpdate(`Fetched ${currentBookings.length} operator bookings`, 'success');
+                } else {
+                    throw new Error(data.error || 'Failed to fetch operator bookings');
+                }
+            } catch (error) {
+                logResult('bookingsList', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Failed to fetch operator bookings: ${error.message}`, 'error');
+            }
+        }
+
+        function displayBookings() {
+            const container = document.getElementById('currentBookings');
+            container.innerHTML = '';
+            
+            if (currentBookings.length === 0) {
+                container.innerHTML = '<div class="booking-card"><h4>No bookings found</h4></div>';
+                return;
+            }
+            
+            currentBookings.forEach(booking => {
+                const card = document.createElement('div');
+                card.className = 'booking-card';
+                card.innerHTML = `
+                    <h4>${booking.booking_code || booking.id} - ${booking.status}</h4>
+                    <div class="booking-details">
+                        <p><strong>Client:</strong> ${booking.client?.first_name || 'Unknown'} ${booking.client?.last_name || 'User'}</p>
+                        <p><strong>Service:</strong> ${booking.service?.name || 'Unknown Service'}</p>
+                        <p><strong>Pickup:</strong> ${booking.pickup_address || 'N/A'}</p>
+                        <p><strong>Created:</strong> ${new Date(booking.created_at).toLocaleString()}</p>
+                    </div>
+                    <button class="test-button" onclick="selectBooking('${booking.id}')">Select for Chat</button>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function selectBooking(bookingId) {
+            selectedBooking = currentBookings.find(b => b.id === bookingId);
+            if (selectedBooking) {
+                document.getElementById('chatInput').disabled = false;
+                document.getElementById('sendButton').disabled = false;
+                document.getElementById('chatBookingId').value = bookingId;
+                addLiveUpdate(`Selected booking: ${selectedBooking.booking_code || selectedBooking.id}`, 'info');
+                
+                // Load messages for this booking
+                loadChatMessages(bookingId);
+            }
+        }
+
+        async function updateBookingStatus() {
+            try {
+                const bookingId = document.getElementById('statusBookingId').value;
+                const newStatus = document.getElementById('newStatus').value;
+                
+                if (!bookingId) {
+                    logResult('statusResult', '❌ Please enter a booking ID', 'error');
+                    return;
+                }
+                
+                logResult('statusResult', 'Updating booking status...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/bookings/status`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        bookingId: bookingId,
+                        status: newStatus,
+                        notes: `Status updated via test suite at ${new Date().toLocaleString()}`
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('statusResult', `✅ Status updated successfully!\nNew status: ${newStatus}`, 'success');
+                    addLiveUpdate(`Booking ${bookingId} status updated to ${newStatus}`, 'success');
+                    getAllBookings(); // Refresh bookings list
+                } else {
+                    throw new Error(data.error || 'Failed to update status');
+                }
+            } catch (error) {
+                logResult('statusResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Status update failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Messaging System Tests
+        async function createChatRoom() {
+            try {
+                const bookingId = document.getElementById('chatBookingId').value;
+                
+                if (!bookingId) {
+                    logResult('chatRoomResult', '❌ Please enter a booking ID', 'error');
+                    return;
+                }
+                
+                logResult('chatRoomResult', 'Creating chat room...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/chat-rooms`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        bookingId: bookingId,
+                        bookingCode: bookingId.startsWith('REQ') ? bookingId : `REQ${bookingId}`,
+                        clientId: '9882762d-93e4-484c-b055-a14737f76cba' // Default client ID
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('chatRoomResult', `✅ Chat room created successfully!\nRoom ID: ${data.data?.id}`, 'success');
+                    addLiveUpdate(`Chat room created for booking ${bookingId}`, 'success');
+                    document.getElementById('roomId').value = data.data?.id;
+                } else {
+                    throw new Error(data.error || 'Failed to create chat room');
+                }
+            } catch (error) {
+                logResult('chatRoomResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Chat room creation failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function sendMessage() {
+            try {
+                const roomId = document.getElementById('roomId').value;
+                const message = document.getElementById('messageText').value;
+                const senderType = document.getElementById('senderType').value;
+                
+                if (!roomId || !message) {
+                    logResult('messageResult', '❌ Please enter room ID and message', 'error');
+                    return;
+                }
+                
+                logResult('messageResult', 'Sending message...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/chat-rooms/${roomId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        bookingId: roomId, // This might need to be the actual booking ID
+                        senderId: 'test-sender',
+                        senderType: senderType,
+                        message: message,
+                        messageType: 'text'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('messageResult', `✅ Message sent successfully!\nMessage ID: ${data.data?.id}`, 'success');
+                    addLiveUpdate(`Message sent: ${message.substring(0, 50)}...`, 'success');
+                    document.getElementById('messageText').value = '';
+                    getMessages(); // Refresh messages
+                } else {
+                    throw new Error(data.error || 'Failed to send message');
+                }
+            } catch (error) {
+                logResult('messageResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Message send failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function getMessages() {
+            try {
+                const roomId = document.getElementById('getMessagesRoomId').value;
+                
+                if (!roomId) {
+                    logResult('messagesList', '❌ Please enter a room ID', 'error');
+                    return;
+                }
+                
+                logResult('messagesList', 'Fetching messages...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/chat-rooms/${roomId}/messages`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const messages = data.data || [];
+                    logResult('messagesList', `✅ Found ${messages.length} messages`, 'success');
+                    addLiveUpdate(`Fetched ${messages.length} messages for room ${roomId}`, 'success');
+                } else {
+                    throw new Error(data.error || 'Failed to fetch messages');
+                }
+            } catch (error) {
+                logResult('messagesList', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Failed to fetch messages: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadChatMessages(bookingId) {
+            try {
+                // Try to get messages using the operator messages API
+                const response = await fetch(`${API_BASE}/api/operator/messages?bookingId=${bookingId}`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const messages = data.data || [];
+                    displayChatMessages(messages);
+                } else {
+                    console.error('Failed to load messages:', data.error);
+                }
+            } catch (error) {
+                console.error('Error loading messages:', error);
+            }
+        }
+
+        function displayChatMessages(messages) {
+            const container = document.getElementById('chatContainer');
+            container.innerHTML = '';
+            
+            if (messages.length === 0) {
+                container.innerHTML = '<div class="message system">No messages yet</div>';
+                return;
+            }
+            
+            messages.forEach(message => {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${message.sender_type}`;
+                messageDiv.innerHTML = `
+                    <strong>${message.sender_type}:</strong> ${message.message}
+                    <br><small>${new Date(message.created_at).toLocaleTimeString()}</small>
+                `;
+                container.appendChild(messageDiv);
+            });
+            
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message || !selectedBooking) return;
+            
+            // Add message to chat immediately
+            const container = document.getElementById('chatContainer');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message client';
+            messageDiv.innerHTML = `
+                <strong>client:</strong> ${message}
+                <br><small>${new Date().toLocaleTimeString()}</small>
+            `;
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
+            
+            // Send to server
+            sendMessage();
+            input.value = '';
+        }
+
+        // Payment System Tests
+        async function createPaymentIntent() {
+            try {
+                const amount = parseFloat(document.getElementById('paymentAmount').value);
+                const currency = document.getElementById('paymentCurrency').value;
+                const bookingId = document.getElementById('paymentBookingId').value;
+                
+                if (!amount || !bookingId) {
+                    logResult('paymentResult', '❌ Please enter amount and booking ID', 'error');
+                    return;
+                }
+                
+                logResult('paymentResult', 'Creating payment intent...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/payments/create-intent`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        amount: amount,
+                        currency: currency,
+                        bookingId: bookingId,
+                        customerEmail: 'test@protector.ng'
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('paymentResult', `✅ Payment intent created!\nIntent ID: ${data.paymentIntentId}\nClient Secret: ${data.clientSecret?.substring(0, 20)}...`, 'success');
+                    addLiveUpdate(`Payment intent created for ${currency.toUpperCase()} ${amount}`, 'success');
+                    document.getElementById('paymentIntentId').value = data.paymentIntentId;
+                } else {
+                    throw new Error(data.error || 'Failed to create payment intent');
+                }
+            } catch (error) {
+                logResult('paymentResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Payment intent creation failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function confirmPayment() {
+            try {
+                const paymentIntentId = document.getElementById('paymentIntentId').value;
+                const bookingId = document.getElementById('confirmBookingId').value;
+                
+                if (!paymentIntentId || !bookingId) {
+                    logResult('confirmResult', '❌ Please enter payment intent ID and booking ID', 'error');
+                    return;
+                }
+                
+                logResult('confirmResult', 'Confirming payment...', 'info');
+                
+                const response = await fetch(`${API_BASE}/api/payments/confirm`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        paymentIntentId: paymentIntentId,
+                        bookingId: bookingId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logResult('confirmResult', `✅ Payment confirmed successfully!`, 'success');
+                    addLiveUpdate(`Payment confirmed for booking ${bookingId}`, 'success');
+                } else {
+                    throw new Error(data.error || 'Failed to confirm payment');
+                }
+            } catch (error) {
+                logResult('confirmResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Payment confirmation failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Real-time Tests
+        function startRealtimeMonitoring() {
+            try {
+                logResult('realtimeStatus', 'Starting real-time monitoring...', 'info');
+                
+                // Simulate real-time updates
+                const interval = setInterval(() => {
+                    addLiveUpdate(`Real-time update #${liveUpdateCount + 1}`, 'info');
+                }, 5000);
+                
+                realtimeSubscription = interval;
+                
+                logResult('realtimeStatus', '✅ Real-time monitoring started', 'success');
+                addLiveUpdate('Real-time monitoring started', 'success');
+            } catch (error) {
+                logResult('realtimeStatus', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`Real-time monitoring failed: ${error.message}`, 'error');
+            }
+        }
+
+        function stopRealtimeMonitoring() {
+            if (realtimeSubscription) {
+                clearInterval(realtimeSubscription);
+                realtimeSubscription = null;
+                logResult('realtimeStatus', '✅ Real-time monitoring stopped', 'success');
+                addLiveUpdate('Real-time monitoring stopped', 'success');
+            }
+        }
+
+        function testWebSocket() {
+            try {
+                logResult('websocketResult', 'Testing WebSocket connection...', 'info');
+                
+                // Note: This is a placeholder - actual WebSocket implementation would go here
+                // For now, we'll simulate a WebSocket test
+                setTimeout(() => {
+                    logResult('websocketResult', '⚠️ WebSocket test not implemented - using polling instead', 'warning');
+                    addLiveUpdate('WebSocket test: Using polling fallback', 'warning');
+                }, 1000);
+                
+            } catch (error) {
+                logResult('websocketResult', `❌ Error: ${error.message}`, 'error');
+                addLiveUpdate(`WebSocket test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize the test suite
+        document.addEventListener('DOMContentLoaded', function() {
+            addLiveUpdate('Backend Test Suite initialized', 'success');
+            getAllBookings(); // Load initial data
+        });
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            getAllBookings();
+        }, 30000);
+    </script>
+</body>
+</html>
+

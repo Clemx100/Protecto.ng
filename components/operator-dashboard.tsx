@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
-import { unifiedChatService, ChatMessage } from "@/lib/services/unifiedChatService"
+import { chatService, ChatMessage } from "@/lib/services/chatService"
 
 interface OperatorDashboardProps {
   onLogout?: () => void
@@ -29,14 +29,20 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   const [success, setSuccess] = useState("")
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   
+  // Helper function to get auth headers
+  const getAuthHeaders = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session?.access_token || ''}`
+    }
+  }
+  
   // Chat and messaging
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [newMessage, setNewMessage] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const [chatSubscription, setChatSubscription] = useState<any>(null)
-  const [showScrollButton, setShowScrollButton] = useState(false)
-  const [userScrollPosition, setUserScrollPosition] = useState<number>(0)
   
   // Bookings and data
   const [bookings, setBookings] = useState<any[]>([])
@@ -64,6 +70,23 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   // Initialize dashboard
   useEffect(() => {
     initializeDashboard()
+  }, [])
+
+  // Monitor session and prevent message loss
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        console.warn('⚠️ Session lost, preserving current state...')
+        // Don't clear messages or selected booking when session is lost
+        // This prevents messages from disappearing
+      }
+    }
+
+    // Check session every 30 seconds
+    const sessionInterval = setInterval(checkSession, 30000)
+
+    return () => clearInterval(sessionInterval)
   }, [])
 
   // Auto-dismiss error and success messages
@@ -108,19 +131,12 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       
       // Clean up existing subscription
       if (chatSubscription) {
-        unifiedChatService.unsubscribe(chatSubscription)
+        chatService.unsubscribe(chatSubscription)
       }
       
-      // Use the booking code for subscription
-      const bookingIdForSubscription = selectedBooking.id && selectedBooking.id.startsWith('REQ') 
-        ? selectedBooking.id 
-        : selectedBooking.database_id || selectedBooking.id
-      
-      console.log('🔗 Setting up subscription for booking ID:', bookingIdForSubscription)
-      
       // Set up new subscription
-      const subscription = unifiedChatService.subscribeToMessages(
-        bookingIdForSubscription,
+      const subscription = chatService.subscribeToMessages(
+        selectedBooking.database_id || selectedBooking.id,
         (message) => {
           console.log('📨 New message received in operator dashboard:', message)
           
@@ -133,25 +149,25 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
                 msg.id === message.id ? { ...msg, ...message } : msg
               )
             } else {
-          // Add new message
-          return [...prev, message]
-        }
-      })
-      
-      // Restore scroll position to maintain user's view
-      setTimeout(() => restoreScrollPosition(), 100)
+              // Add new message
+              return [...prev, message]
+            }
+          })
+          
+          // Scroll to bottom when new message arrives
+          setTimeout(() => scrollToBottom(), 100)
         }
       )
       
       setChatSubscription(subscription)
       
       // Load initial messages
-      loadMessages(bookingIdForSubscription)
+      loadMessages(selectedBooking.database_id || selectedBooking.id)
     }
     
     return () => {
       if (chatSubscription) {
-        unifiedChatService.unsubscribe(chatSubscription)
+        chatService.unsubscribe(chatSubscription)
       }
     }
   }, [selectedBooking])
@@ -245,8 +261,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             const updatedClientMessages = [...clientMessages, chatMessage]
             localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedClientMessages))
             
-            // Restore scroll position to maintain user's view
-            setTimeout(() => restoreScrollPosition(), 100)
+            scrollToBottom()
           }
         }
       )
@@ -288,15 +303,36 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
   const loadBookings = async () => {
     try {
+      // Get auth headers with retry logic
+      let headers
+      try {
+        headers = await getAuthHeaders()
+      } catch (authError) {
+        console.error('❌ Authentication error, retrying...', authError)
+        // Try to refresh the session
+        const { data: { session } } = await supabase.auth.refreshSession()
+        if (session) {
+          headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`
+          }
+        } else {
+          throw new Error('No valid session available')
+        }
+      }
+      
       // Use the new API endpoint
       const response = await fetch('/api/operator/bookings', {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
       })
 
       if (!response.ok) {
+        if (response.status === 401) {
+          console.error('❌ Authentication failed, user may need to re-login')
+          setError('Authentication expired. Please refresh the page and login again.')
+          return
+        }
         throw new Error(`HTTP error! status: ${response.status}`)
       }
 
@@ -338,30 +374,13 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             }
           }
           
-          // Auto-select most recent booking if none selected
+          // Auto-select first pending booking if none selected
         if (!selectedBooking && transformedBookings.length > 0) {
-          // Sort by booking code to get the most recent booking
-          const sortedBookings = transformedBookings.sort((a: any, b: any) => b.booking_code.localeCompare(a.booking_code))
-          const mostRecentBooking = sortedBookings[0]
-          
-          console.log('🎯 Auto-selecting most recent booking:', mostRecentBooking.booking_code)
-          setSelectedBooking(mostRecentBooking)
-          loadMessages(mostRecentBooking.database_id || mostRecentBooking.id)
-          
-          // Also update localStorage to sync with client
-          localStorage.setItem('currentBooking', JSON.stringify({
-            id: mostRecentBooking.booking_code,
-            status: mostRecentBooking.status,
-            created_at: mostRecentBooking.created_at,
-            client: mostRecentBooking.client,
-            pickup_address: mostRecentBooking.pickup_address,
-            destination_address: mostRecentBooking.destination_address,
-            scheduled_date: mostRecentBooking.scheduled_date,
-            scheduled_time: mostRecentBooking.scheduled_time,
-            duration_hours: mostRecentBooking.duration_hours,
-            service_type: mostRecentBooking.service_type,
-            total_price: mostRecentBooking.total_price
-          }))
+          const pendingBooking = transformedBookings.find((b: any) => b.status === 'pending')
+          if (pendingBooking) {
+            setSelectedBooking(pendingBooking)
+            loadMessages(pendingBooking.database_id || pendingBooking.id)
+          }
         }
       } else {
         throw new Error(result.error || 'Failed to load bookings')
@@ -474,78 +493,12 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     console.log('📥 Loading messages for booking:', bookingId)
     
     try {
-      // If it's a UUID, try to find the corresponding booking code
-      let actualBookingId = bookingId
-      
-      // Check if it's a UUID (not a booking code starting with REQ)
-      if (!bookingId.startsWith('REQ') && bookingId.length > 20) {
-        console.log('🔍 UUID detected, looking for corresponding booking code...')
-        
-        // Find the booking in our local bookings array
-        const booking = bookings.find(b => b.database_id === bookingId || b.id === bookingId)
-        if (booking && booking.id && booking.id.startsWith('REQ')) {
-          actualBookingId = booking.id
-          console.log('✅ Found booking code for UUID:', actualBookingId)
-        } else {
-          console.log('⚠️ Could not find booking code for UUID:', bookingId)
-          // Try to use the UUID directly, the API should handle it
-          actualBookingId = bookingId
-        }
-      }
-      
-      const messages = await unifiedChatService.getMessages(actualBookingId)
+      const messages = await chatService.getMessages(bookingId)
       setMessages(messages)
-      // Restore scroll position after messages load
-      setTimeout(() => restoreScrollPosition(), 100)
+      scrollToBottom()
     } catch (error) {
       console.error('Failed to load messages:', error)
       setError('Failed to load messages')
-    }
-  }
-
-  const updateSystemMessageStatus = async (newStatus: string) => {
-    try {
-      console.log('🔄 Updating system message status to:', newStatus)
-      
-      // Find the system message in the current messages
-      const systemMessage = messages.find(msg => msg.sender_type === 'system')
-      if (!systemMessage) {
-        console.log('⚠️ No system message found to update')
-        return
-      }
-      
-      // Update the status in the system message content
-      const updatedContent = systemMessage.message.replace(
-        /\*\*Status:\*\* [^\n]+/,
-        `**Status:** ${newStatus.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}`
-      )
-      
-      // Update the message in the database
-      const response = await fetch('/api/simple-chat', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messageId: systemMessage.id,
-          content: updatedContent
-        })
-      })
-      
-      if (response.ok) {
-        console.log('✅ System message status updated successfully')
-        
-        // Update local state
-        setMessages(prev => prev.map(msg => 
-          msg.id === systemMessage.id 
-            ? { ...msg, message: updatedContent }
-            : msg
-        ))
-      } else {
-        console.log('⚠️ Failed to update system message status')
-      }
-    } catch (error) {
-      console.error('❌ Error updating system message status:', error)
     }
   }
 
@@ -559,23 +512,35 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     setNewMessage("") // Clear input immediately
 
     try {
-      // Use the booking code for sending messages
-      const bookingIdToUse = selectedBooking.id && selectedBooking.id.startsWith('REQ') 
-        ? selectedBooking.id 
-        : selectedBooking.database_id || selectedBooking.id
+      // Get auth headers for operator API
+      const authHeaders = await getAuthHeaders()
       
-      console.log('📤 Sending message with booking ID:', bookingIdToUse)
-      
-      const message = await unifiedChatService.createOperatorMessage(
-        bookingIdToUse,
-        messageText,
-        'operator'
-      )
-      
-      // Add to local state
-      setMessages(prev => [...prev, message])
-      // Don't auto-scroll - let operator control their view
-      setSuccess('Message sent successfully!')
+      // Send message directly via operator API with proper authentication
+      const response = await fetch('/api/operator/messages', {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          bookingId: selectedBooking.id,
+          content: messageText,
+          messageType: 'text'
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          const message = result.data
+          // Add to local state
+          setMessages(prev => [...prev, message])
+          scrollToBottom()
+          setSuccess('Message sent successfully!')
+        } else {
+          throw new Error(result.error || 'Failed to send message')
+        }
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to send message')
+      }
       
     } catch (error) {
       console.error('❌ Error sending message:', error)
@@ -667,7 +632,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           }
           message = "🚀 Protection team deployed! They are preparing for departure."
           systemMessage = "Protection team deployed"
-          newStatus = "deployed"
+          newStatus = "en_route"
           break
         case "en_route":
           message = "🚗 Protection team is en route to your location."
@@ -783,7 +748,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             console.log('Booking status updated successfully')
             setSuccess(`Status updated to: ${newStatus}`)
             
-            // Refresh messages to get the new system message created by the API
+            // Refresh messages to get the system message
             loadMessages(selectedBooking.id)
             
             // Force a re-render by updating the bookings list
@@ -801,94 +766,46 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         }
       }
 
-      // Create status update message
-      const statusUpdateMessage = `Status updated to: ${newStatus}`
-      
-      // Add status update system message
-      const statusMsg = {
-        id: `status_${Date.now()}`,
-        booking_id: selectedBooking.id,
-        sender_type: 'system',
-        message: statusUpdateMessage,
-        created_at: new Date().toISOString(),
-        is_system_message: true
-      }
-
-      // Add action system message
-      if (systemMessage) {
-        const systemMsg: ChatMessage = {
-          id: `system_${Date.now()}`,
-          booking_id: selectedBooking.id,
-          booking_code: selectedBooking.id,
-          sender_type: 'system',
-          sender_id: 'system',
-          message: systemMessage,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          is_system_message: true,
-          status: 'sent'
-        }
-        setMessages(prev => [...prev, systemMsg])
-      }
-
-      // Add client message
+      // Send operator message to database via API (if there's a message to send)
       if (message) {
-        const clientMsg: ChatMessage = {
-          id: `operator_${Date.now()}`,
-          booking_id: selectedBooking.id,
-          booking_code: selectedBooking.id,
-          sender_type: 'operator',
-          sender_id: 'operator',
-          message: message,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          status: 'sent'
-        }
-        setMessages(prev => [...prev, clientMsg])
-      }
+        try {
+          // Get auth headers for operator API
+          const authHeaders = await getAuthHeaders()
+          
+          // Get the database UUID
+          const databaseId = await getBookingUUID(selectedBooking.database_id || selectedBooking.id)
+          
+          if (!databaseId) {
+            console.error('❌ Could not resolve booking UUID for message')
+          } else {
+            // Send message via operator messages API
+            const messageResponse = await fetch('/api/operator/messages', {
+              method: 'POST',
+              headers: authHeaders,
+              body: JSON.stringify({
+                bookingId: databaseId,
+                content: message,
+                messageType: 'text'
+              })
+            })
 
-      // Store messages in localStorage for real-time updates
-      // Get current messages from localStorage first, then add new ones
-      const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
-      const allMessages = [...currentStoredMessages, statusMsg]
-      
-      if (systemMessage) {
-        allMessages.push({
-          id: `system_${Date.now()}`,
-          booking_id: selectedBooking.id,
-          sender_type: 'system',
-          message: systemMessage,
-          created_at: new Date().toISOString(),
-          is_system_message: true
-        })
+            if (!messageResponse.ok) {
+              console.error('Failed to send operator message:', await messageResponse.text())
+            } else {
+              const messageResult = await messageResponse.json()
+              if (messageResult.success) {
+                console.log('✅ Operator message sent to database:', messageResult.data.id)
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error sending operator message:', error)
+          // Don't fail the whole action if message sending fails
+        }
       }
-      if (message) {
-        allMessages.push({
-          id: `operator_${Date.now()}`,
-          booking_id: selectedBooking.id,
-          booking_code: selectedBooking.id,
-          sender_type: 'operator',
-          sender_id: 'operator',
-          message: message,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          status: 'sent'
-        })
-      }
-      
-      localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(allMessages))
-      
-      // Also update the client-side booking status in localStorage
-      const clientBookings = JSON.parse(localStorage.getItem('user_bookings') || '[]')
-      const updatedClientBookings = clientBookings.map((booking: any) => 
-        booking.id === selectedBooking.id 
-          ? { ...booking, status: newStatus }
-          : booking
-      )
-      localStorage.setItem('user_bookings', JSON.stringify(updatedClientBookings))
 
       setSuccess(`Action completed: ${action}`)
-      // Don't auto-scroll - let operator control their view
+      scrollToBottom()
     } catch (error) {
       console.error(`Failed to ${action} booking:`, error)
       const errorMessage = error instanceof Error ? error.message : String(error)
@@ -936,12 +853,13 @@ Please review and approve the payment to proceed with your service.`
 
       console.log('📤 Sending invoice message to database...')
 
+      // Get auth headers for operator API
+      const authHeaders = await getAuthHeaders()
+      
       // Send invoice message via API to persist it
       const response = await fetch('/api/operator/messages', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders,
         body: JSON.stringify({
           bookingId: databaseId,
           content: invoiceContent,
@@ -979,7 +897,7 @@ Please review and approve the payment to proceed with your service.`
         
         setShowInvoiceModal(false)
         setSuccess("Invoice sent successfully!")
-        // Don't auto-scroll - let operator control their view
+        scrollToBottom()
         
         // Refresh messages to ensure sync
         setTimeout(() => {
@@ -1001,25 +919,6 @@ Please review and approve the payment to proceed with your service.`
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }
 
-  // Handle scroll detection to show/hide scroll button and save position
-  const handleScroll = () => {
-    if (messagesContainerRef.current) {
-      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 100
-      setShowScrollButton(!isNearBottom)
-      
-      // Save scroll position for restoration
-      setUserScrollPosition(scrollTop)
-    }
-  }
-
-  // Restore scroll position when messages change
-  const restoreScrollPosition = () => {
-    if (messagesContainerRef.current && userScrollPosition > 0) {
-      messagesContainerRef.current.scrollTop = userScrollPosition
-    }
-  }
-
   const getStatusColor = (status: string) => {
     // Normalize status to lowercase for comparison
     const normalizedStatus = status.toLowerCase().replace(/\s+/g, '_')
@@ -1031,8 +930,6 @@ Please review and approve the payment to proceed with your service.`
       case 'accepted':
       case 'confirmed':
         return 'bg-blue-500/20 text-blue-300'
-      case 'deployed':
-        return 'bg-purple-500/20 text-purple-300'
       case 'en_route':
         return 'bg-purple-500/20 text-purple-300'
       case 'arrived':
@@ -1071,10 +968,6 @@ Please review and approve the payment to proceed with your service.`
             { action: 'invoice', label: 'Send Invoice', color: 'bg-blue-600 hover:bg-blue-700' }
           ]
         }
-      case 'deployed':
-        return [
-          { action: 'en_route', label: 'Mark En Route', color: 'bg-blue-600 hover:bg-blue-700' }
-        ]
       case 'en_route':
         return [
           { action: 'arrived', label: 'Mark Arrived', color: 'bg-green-600 hover:bg-green-700' }
@@ -1194,7 +1087,6 @@ Please review and approve the payment to proceed with your service.`
                   <option value="">All Status</option>
                   <option value="pending">Pending</option>
                   <option value="accepted">Accepted</option>
-                  <option value="deployed">Deployed</option>
                   <option value="en_route">En Route</option>
                   <option value="arrived">Arrived</option>
                   <option value="in_service">In Service</option>
@@ -1466,30 +1358,47 @@ Please review and approve the payment to proceed with your service.`
                 </div>
 
                 {/* Messages */}
-                <div 
-                  ref={messagesContainerRef}
-                  className="h-96 overflow-y-auto p-6 space-y-4 relative"
-                  onScroll={handleScroll}
-                >
-                  {console.log('🔍 Operator dashboard rendering messages:', messages.length, messages)}
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.sender_type === 'operator' ? 'justify-end' : 'justify-start'}`}
-                    >
+                <div className="h-96 overflow-y-auto p-6 space-y-4">
+                  {messages.map((message, index) => {
+                    const isOperator = message.sender_type === 'operator'
+                    const isSystem = message.sender_type === 'system'
+                    const isClient = message.sender_type === 'client'
+                    const prevMessage = index > 0 ? messages[index - 1] : null
+                    const showAvatar = !prevMessage || prevMessage.sender_type !== message.sender_type
+                    const isConsecutive = prevMessage && prevMessage.sender_type === message.sender_type
+                    
+                    return (
                       <div
-                        className={`max-w-[80%] rounded-lg p-3 ${
-                          message.sender_type === 'operator'
-                            ? 'bg-blue-600 text-white'
-                            : message.sender_type === 'system'
-                            ? 'bg-gray-800 text-gray-300 border border-gray-700'
-                            : 'bg-gray-700 text-white'
-                        }`}
+                        key={message.id}
+                        className={`flex ${isOperator ? 'justify-end' : 'justify-start'} ${showAvatar ? 'mt-4' : 'mt-1'}`}
                       >
-                        <div className="text-sm">{message.message}</div>
+                        <div className={`flex items-end space-x-2 max-w-[80%] ${isOperator ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                          {/* Client Avatar */}
+                          {isClient && showAvatar && (
+                            <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg">
+                              <span className="text-white text-xs font-bold">CL</span>
+                            </div>
+                          )}
+                          
+                          {/* Message Bubble */}
+                          <div
+                            className={`rounded-2xl p-3 shadow-lg ${
+                              isOperator
+                                ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-br-md'
+                                : isSystem
+                                ? 'bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-lg text-center mx-auto'
+                                : 'bg-gradient-to-br from-gray-700 to-gray-800 text-white rounded-bl-md'
+                            } ${isConsecutive && !isSystem ? (isOperator ? 'rounded-tr-md' : 'rounded-tl-md') : ''}`}
+                          >
+                            <div className="text-sm leading-relaxed">{message.message}</div>
+                            <div className={`text-xs mt-2 ${
+                              isOperator ? 'text-blue-100' : isSystem ? 'text-yellow-100' : 'text-gray-300'
+                            }`}>
+                              {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
                         
-                        {/* Invoice Details */}
-                        {message.has_invoice && message.invoice_data && (
+                            {/* Invoice Details */}
+                            {message.has_invoice && message.invoice_data && (
                           <div className="mt-3 p-3 bg-white/10 rounded border border-white/20">
                             <div className="flex justify-between items-center mb-2">
                               <div className="text-xs text-gray-300">Invoice Details</div>
@@ -1557,7 +1466,7 @@ Please review and approve the payment to proceed with your service.`
                                   status: 'sent'
                                 }
                                 setMessages(prev => [...prev, paymentMsg])
-                                // Don't auto-scroll - let operator control their view
+                                scrollToBottom()
                               }}
                               size="sm"
                               className="mt-3 bg-green-600 hover:bg-green-700 text-white w-full"
@@ -1565,41 +1474,20 @@ Please review and approve the payment to proceed with your service.`
                               Approve & Pay
                             </Button>
                           </div>
-                        )}
-                        
-                        <div className="flex items-center justify-between mt-1">
-                          <div className="text-xs opacity-70">
-                            {new Date(message.created_at).toLocaleTimeString()}
+                            )}
                           </div>
-                          {message.sender_type === 'operator' && (
-                            <div className="text-xs text-gray-500">
-                              {message.status === 'sending' && '⏳ Sending...'}
-                              {message.status === 'sent' && '✓ Sent'}
-                              {message.status === 'delivered' && '✓✓ Delivered'}
-                              {message.status === 'read' && '✓✓ Read'}
+                          
+                          {/* Operator Avatar */}
+                          {isOperator && showAvatar && (
+                            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg">
+                              <span className="text-white text-xs font-bold">OP</span>
                             </div>
                           )}
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   <div ref={messagesEndRef} />
-                  
-                  {/* Scroll to Bottom Button */}
-                  {showScrollButton && (
-                    <div className="absolute bottom-4 right-4">
-                      <Button
-                        onClick={scrollToBottom}
-                        size="sm"
-                        className="bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg"
-                        title="Scroll to bottom"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                        </svg>
-                      </Button>
-                    </div>
-                  )}
                 </div>
 
                 {/* Message Input */}

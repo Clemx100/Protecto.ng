@@ -32,11 +32,16 @@ export default function ProtectorApp() {
   const [activeTab, setActiveTab] = useState("protector")
   const [userRole, setUserRole] = useState("client") // "client", "agent", "admin"
   
-  // Chat state
+  // Chat state - Enhanced unified chat
   const [chatMessages, setChatMessages] = useState<any[]>([])
   const [newChatMessage, setNewChatMessage] = useState("")
   const [isSendingMessage, setIsSendingMessage] = useState(false)
   const [currentBooking, setCurrentBooking] = useState<any>(null)
+  const [selectedChatBooking, setSelectedChatBooking] = useState<any>(null)
+  const [chatSubscription, setChatSubscription] = useState<any>(null)
+  const [showChatInvoice, setShowChatInvoice] = useState(false)
+  const [chatInvoiceData, setChatInvoiceData] = useState<any>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
   const [isCreatingBooking, setIsCreatingBooking] = useState(false)
   const [selectedService, setSelectedService] = useState("")
   const [protectorArmed, setProtectorArmed] = useState(true)
@@ -409,17 +414,194 @@ export default function ProtectorApp() {
     }
   }, [activeTab, user?.id])
 
-  // Load chat messages from localStorage
-  const loadChatMessages = () => {
+  // Load chat messages from database (WhatsApp-style persistence)
+  const loadChatMessages = async () => {
     try {
-      const storedMessages = localStorage.getItem('chat_messages')
-      if (storedMessages) {
-        const messages = JSON.parse(storedMessages)
-        setChatMessages(messages)
-        console.log('📱 Loaded chat messages:', messages.length)
+      console.log('📥 Loading chat messages from database...')
+      
+      // If we already have a selected booking, load its messages
+      if (selectedChatBooking) {
+        console.log('📋 Loading messages for selected booking:', selectedChatBooking.id)
+        await loadMessagesForBooking(selectedChatBooking)
+        return
+      }
+      
+      // If no selected booking, try to load the most recent one
+      if (bookings && bookings.length > 0) {
+        console.log('📋 No selected booking, loading most recent...')
+        const mostRecentBooking = bookings[0]
+        await loadMessagesForBooking(mostRecentBooking)
+      } else {
+        console.log('⚠️ No bookings available to load messages from')
+        // As fallback, try localStorage
+        const storedMessages = localStorage.getItem('chat_messages')
+        if (storedMessages) {
+          const messages = JSON.parse(storedMessages)
+          setChatMessages(messages)
+          console.log('📱 Loaded chat messages from localStorage:', messages.length)
+        }
       }
     } catch (error) {
       console.error('Error loading chat messages:', error)
+    }
+  }
+
+  // Auto-scroll to bottom of messages
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  // Auto-scroll when messages change
+  useEffect(() => {
+    scrollToBottom()
+  }, [chatMessages])
+
+  // Cleanup chat subscription on unmount or when chat booking changes
+  useEffect(() => {
+    return () => {
+      if (chatSubscription && selectedChatBooking) {
+        console.log('🔴 Cleaning up chat subscription')
+        if (typeof chatSubscription === 'number') {
+          // It's a polling interval
+          clearInterval(chatSubscription)
+        } else {
+          // It's a real-time subscription
+          unifiedChatService.unsubscribe(selectedChatBooking.id)
+        }
+      }
+    }
+  }, [chatSubscription, selectedChatBooking])
+
+  // Load messages for selected booking
+  const loadMessagesForBooking = async (booking: any) => {
+    if (!booking) return
+    
+    try {
+      console.log('📥 Loading messages for booking:', booking.id)
+      setSelectedChatBooking(booking)
+      
+      // Refresh bookings list to show the new booking
+      console.log('🔄 Refreshing bookings list first...')
+      await loadBookings()
+      
+      // Load messages using unified service
+      const messages = await unifiedChatService.getMessages(booking.id)
+      
+      // Only update messages if we have database messages, otherwise preserve existing messages
+      // This prevents clearing immediate summary messages during booking creation
+      if (messages && messages.length > 0) {
+        setChatMessages(messages)
+        console.log('📥 Loaded', messages.length, 'messages from database')
+      } else {
+        console.log('📥 No database messages found, preserving existing messages')
+        // Don't clear existing messages - they might be the immediate summary
+      }
+      
+      // Check for invoice data
+      if (messages && messages.length > 0) {
+        const invoiceMessage = messages.find(msg => msg.has_invoice && msg.invoice_data)
+        if (invoiceMessage) {
+          setChatInvoiceData(invoiceMessage.invoice_data)
+        }
+      }
+      
+      // Setup real-time subscription with polling fallback
+      try {
+        const subscription = await unifiedChatService.subscribeToMessages(booking.id, (newMessage) => {
+          console.log('📨 New message received:', newMessage)
+          
+          setChatMessages(prev => {
+            const exists = prev.some(msg => msg.id === newMessage.id)
+            if (exists) return prev
+            return [...prev, newMessage]
+          })
+          
+          // Check for invoice in new message
+          if (newMessage.has_invoice && newMessage.invoice_data) {
+            setChatInvoiceData(newMessage.invoice_data)
+          }
+        })
+        
+        setChatSubscription(subscription)
+        console.log('✅ Real-time subscription setup successfully')
+      } catch (error) {
+        console.warn('⚠️ Real-time subscription failed, using polling fallback:', error)
+        
+        // Fallback to polling every 3 seconds
+        const pollInterval = setInterval(async () => {
+          try {
+            const updatedMessages = await unifiedChatService.getMessages(booking.id)
+            setChatMessages(updatedMessages)
+            
+            // Check for new invoice data
+            const invoiceMessage = updatedMessages.find(msg => msg.has_invoice && msg.invoice_data)
+            if (invoiceMessage) {
+              setChatInvoiceData(invoiceMessage.invoice_data)
+            }
+          } catch (error) {
+            console.error('Polling error:', error)
+          }
+        }, 3000)
+        
+        setChatSubscription(pollInterval)
+        console.log('✅ Polling fallback setup (checking every 3 seconds)')
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error)
+    }
+  }
+
+  // Handle invoice approval
+  const handleApprovePayment = async () => {
+    if (!selectedChatBooking || !chatInvoiceData || !user) return
+
+    try {
+      setIsSendingMessage(true)
+      
+      // Send approval message
+      const approvalMessage = await unifiedChatService.sendMessage(
+        selectedChatBooking.id,
+        "✅ Payment approved! Please proceed with the service.",
+        'client',
+        user.id
+      )
+
+      // Send status update message
+      const statusMessage = await unifiedChatService.sendMessage(
+        selectedChatBooking.id,
+        "🔄 Status updated: Payment approved → Ready for deployment",
+        'system',
+        user.id,
+        { isSystemMessage: true }
+      )
+
+      // Add to local state
+      setChatMessages(prev => [...prev, approvalMessage, statusMessage])
+      
+      // Update booking status in localStorage
+      const storedBookings = JSON.parse(localStorage.getItem('user_bookings') || '[]')
+      const updatedBookings = storedBookings.map((booking: any) => 
+        booking.id === selectedChatBooking.id 
+          ? { 
+              ...booking, 
+              status: 'accepted',
+              payment_approved: true,
+              payment_approved_at: new Date().toISOString()
+            }
+          : booking
+      )
+      localStorage.setItem('user_bookings', JSON.stringify(updatedBookings))
+      
+      // Update selected booking state
+      setSelectedChatBooking({ ...selectedChatBooking, status: 'accepted' })
+      
+      setShowChatInvoice(false)
+      setChatInvoiceData(null)
+      
+    } catch (error: any) {
+      console.error("Error approving payment:", error)
+    } finally {
+      setIsSendingMessage(false)
     }
   }
 
@@ -431,18 +613,25 @@ export default function ProtectorApp() {
       sender_id: 'system',
       message: `🛡️ **New Protection Request**\n\n📍 **Location:** ${booking.pickupDetails?.location || 'N/A'}\n🎯 **Destination:** ${booking.destinationDetails?.primary || 'N/A'}\n📅 **Date:** ${booking.pickupDetails?.date || 'N/A'}\n⏰ **Time:** ${booking.pickupDetails?.time || 'N/A'}\n⏱️ **Duration:** ${booking.pickupDetails?.duration || 'N/A'}\n🔫 **Service:** ${booking.serviceType === 'armed-protection' ? 'Armed Protection' : 'Car Only'}\n💰 **Status:** ${booking.status}\n\n**Request ID:** ${booking.id}\n**Submitted:** ${new Date(booking.timestamp).toLocaleString()}`,
       created_at: new Date().toISOString(),
-      booking_id: booking.id
+      booking_id: booking.id,
+      has_invoice: false,
+      is_system_message: true,
+      message_type: 'system'
     }
 
-    // Add to local state
-    setChatMessages(prev => [...prev, summaryMessage])
-
     // Store in localStorage
-    const existingMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]')
-    const updatedMessages = [...existingMessages, summaryMessage]
-    localStorage.setItem('chat_messages', JSON.stringify(updatedMessages))
+    try {
+      const existingMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]')
+      const updatedMessages = [...existingMessages, summaryMessage]
+      localStorage.setItem('chat_messages', JSON.stringify(updatedMessages))
+    } catch (error) {
+      console.error('Failed to store in localStorage:', error)
+    }
 
-    console.log('📋 Created booking summary message')
+    console.log('📋 Created booking summary message:', summaryMessage.id)
+    
+    // Return the message object so it can be used
+    return summaryMessage
   }
 
   // Listen for auth state changes
@@ -1113,7 +1302,7 @@ export default function ProtectorApp() {
       }
       
       return result.data
-    } catch (error) {
+    } catch (error: any) {
       if (error.name === 'AbortError') {
         console.error('❌ Booking creation timed out after 10 seconds')
         throw new Error('Booking creation timed out. Please try again.')
@@ -1182,8 +1371,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       const createdBooking = await storeBookingInSupabase(payload)
       console.log('✅ Booking stored in Supabase successfully:', createdBooking)
 
-      // Store system message in Supabase
-      await unifiedChatService.createSystemMessage(payload.id, bookingSummary, userId)
+      // Store system message in Supabase using the actual database ID
+      await unifiedChatService.sendMessage(
+        createdBooking.id, // Use the actual database UUID
+        bookingSummary,
+        'system',
+        userId,
+        { isSystemMessage: true }
+      )
       console.log('System message stored in Supabase successfully')
       
       // IMPORTANT: Refresh bookings list to include the new booking
@@ -1203,6 +1398,9 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
       console.log('Booking stored in localStorage as backup')
 
+      // Return the created booking so the caller can use the database ID
+      return createdBooking
+
     } catch (error) {
       console.error('❌ Failed to store in Supabase, falling back to localStorage:', error)
       
@@ -1216,9 +1414,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       const updatedBookings = [payload, ...existingBookings]
       localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
       console.log('Booking stored in localStorage (fallback)')
+      
+      // Return the payload as fallback
+      return payload
     }
-
-    return systemMessage
   }
 
   const handleNextStep = () => {
@@ -1275,8 +1474,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
         setBookingPayload(payload)
 
-        // Create initial system message with booking summary
-        // Add timeout to prevent getting stuck
+        // ⚡ IMMEDIATE UI UPDATE - Show chat summary instantly
+        setCurrentBooking(payload)
+        const bookingDisplay = {
+          id: payload.id,
+          status: payload.status || 'pending',
+          pickupLocation: payload.pickupDetails?.location || 'N/A',
+          destination: payload.destinationDetails?.primary || 'N/A',
+          date: payload.pickupDetails?.date || 'N/A'
+        }
+        
+        // Create immediate summary message for instant display
+        const immediateSummary = createBookingSummaryMessage(payload)
+        console.log('⚡ Setting immediate summary:', immediateSummary.id)
+        setChatMessages([immediateSummary])
+        
+        // Switch to chat tab immediately for instant feedback
+        console.log('⚡ Switching to chat tab')
+        setActiveTab("chat")
+        setIsCreatingBooking(false)
+        console.log('✅ Immediate feedback complete - user can see chat summary now')
+        
+        // Background process - store in database (non-blocking)
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Booking creation timeout after 15 seconds')), 15000)
         })
@@ -1284,20 +1503,25 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         Promise.race([
           createInitialBookingMessage(payload),
           timeoutPromise
-        ]).then(() => {
-          // Set current booking and switch to chat tab
-          setCurrentBooking(payload)
-          setActiveTab("chat")
-          // Also create a local booking summary message
-          createBookingSummaryMessage(payload)
-          setIsCreatingBooking(false)
+        ]).then(async (createdBooking) => {
+          console.log('✅ Booking stored successfully in background')
+          // Update booking display with actual database ID
+          const updatedBookingDisplay = {
+            ...bookingDisplay,
+            id: createdBooking.id, // Use the actual database UUID
+            database_id: createdBooking.id
+          }
+          
+          // Wait a moment before reloading to ensure immediate summary is visible
+          console.log('⏳ Waiting 2 seconds before reloading messages from database...')
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
+          // Reload messages to get the full system message from database
+          console.log('🔄 Now reloading messages from database')
+          loadMessagesForBooking(updatedBookingDisplay)
         }).catch(error => {
-          console.error('Failed to create initial booking message:', error)
-          // Still switch to chat even if storage fails
-          setCurrentBooking(payload)
-          setActiveTab("chat")
-          createBookingSummaryMessage(payload)
-          setIsCreatingBooking(false)
+          console.error('⚠️ Background booking storage failed:', error)
+          // Keep the immediate summary message as fallback
         })
         return
       }
@@ -1342,8 +1566,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
         setBookingPayload(payload)
 
-        // Create initial system message with booking summary
-        // Add timeout to prevent getting stuck
+        // ⚡ IMMEDIATE UI UPDATE - Show chat summary instantly
+        setCurrentBooking(payload)
+        const bookingDisplay = {
+          id: payload.id,
+          status: payload.status || 'pending',
+          pickupLocation: payload.pickupDetails?.location || 'N/A',
+          destination: payload.destinationDetails?.primary || 'N/A',
+          date: payload.pickupDetails?.date || 'N/A'
+        }
+        
+        // Create immediate summary message for instant display
+        const immediateSummary = createBookingSummaryMessage(payload)
+        console.log('⚡ Setting immediate summary:', immediateSummary.id)
+        setChatMessages([immediateSummary])
+        
+        // Switch to chat tab immediately for instant feedback
+        console.log('⚡ Switching to chat tab')
+        setActiveTab("chat")
+        setIsCreatingBooking(false)
+        console.log('✅ Immediate feedback complete - user can see chat summary now')
+        
+        // Background process - store in database (non-blocking)
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Booking creation timeout after 15 seconds')), 15000)
         })
@@ -1351,20 +1595,25 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         Promise.race([
           createInitialBookingMessage(payload),
           timeoutPromise
-        ]).then(() => {
-          // Set current booking and switch to chat tab
-          setCurrentBooking(payload)
-          setActiveTab("chat")
-          // Also create a local booking summary message
-          createBookingSummaryMessage(payload)
-          setIsCreatingBooking(false)
+        ]).then(async (createdBooking) => {
+          console.log('✅ Booking stored successfully in background')
+          // Update booking display with actual database ID
+          const updatedBookingDisplay = {
+            ...bookingDisplay,
+            id: createdBooking.id, // Use the actual database UUID
+            database_id: createdBooking.id
+          }
+          
+          // Wait a moment before reloading to ensure immediate summary is visible
+          console.log('⏳ Waiting 2 seconds before reloading messages from database...')
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
+          // Reload messages to get the full system message from database
+          console.log('🔄 Now reloading messages from database')
+          loadMessagesForBooking(updatedBookingDisplay)
         }).catch(error => {
-          console.error('Failed to create initial booking message:', error)
-          // Still switch to chat even if storage fails
-          setCurrentBooking(payload)
-          setActiveTab("chat")
-          createBookingSummaryMessage(payload)
-          setIsCreatingBooking(false)
+          console.error('⚠️ Background booking storage failed:', error)
+          // Keep the immediate summary message as fallback
         })
         return
       }
@@ -2665,26 +2914,22 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
   }
 
   const handleChatNavigation = (booking: any) => {
-    console.log('Navigating to chat with booking:', booking)
-    console.log('Booking ID:', booking.id)
+    console.log('📱 Opening chat for booking:', booking.id)
     
-    // Store booking data in localStorage for the chat page
-    localStorage.setItem('currentBooking', JSON.stringify(booking))
-    console.log('Stored in localStorage:', localStorage.getItem('currentBooking'))
+    // Load messages for this specific booking
+    loadMessagesForBooking(booking)
     
-    // Use router.push for better navigation instead of window.location.href
-    // This prevents full page reload and maintains React state
-    console.log('Navigating to:', `/chat?id=${booking.id}`)
-    
-    // Add a small delay to ensure localStorage is set, then navigate
-    setTimeout(() => {
-      router.push(`/chat?id=${booking.id}`)
-    }, 100)
+    // Switch to chat tab
+    setActiveTab('chat')
   }
 
   // Send chat message function
   const sendChatMessage = async () => {
     if (!newChatMessage.trim() || !user || isSendingMessage) return
+    if (!selectedChatBooking) {
+      console.warn('No booking selected for chat')
+      return
+    }
 
     const messageText = newChatMessage.trim()
     setNewChatMessage("") // Clear input immediately
@@ -2692,35 +2937,36 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     try {
       setIsSendingMessage(true)
 
-      // Create message object
-      const message = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        sender_type: 'client',
-        sender_id: user.id,
-        message: messageText,
-        created_at: new Date().toISOString(),
-        booking_id: currentBooking?.id || 'general'
-      }
+      // Send message directly via client API
+      const response = await fetch('/api/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bookingId: selectedChatBooking.id,
+          message: messageText,
+          senderType: 'client',
+          senderId: user.id
+        })
+      })
 
-      // Add to local state immediately
-      setChatMessages(prev => [...prev, message])
-
-      // Store in localStorage
-      const existingMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]')
-      const updatedMessages = [...existingMessages, message]
-      localStorage.setItem('chat_messages', JSON.stringify(updatedMessages))
-
-      // If there's a current booking, also send to operator
-      if (currentBooking) {
-        try {
-          await unifiedChatService.createClientMessage(
-            currentBooking.id,
-            messageText,
-            user.id
-          )
-        } catch (error) {
-          console.error('Failed to send to operator:', error)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          const message = result.data
+          // Add to local state
+          setChatMessages(prev => {
+            const exists = prev.some(msg => msg.id === message.id)
+            if (exists) return prev
+            return [...prev, message]
+          })
+        } else {
+          throw new Error(result.error || 'Failed to send message')
         }
+      } else {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to send message')
       }
 
     } catch (error) {
@@ -4301,22 +4547,75 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           </div>
         )}
 
-        {/* Chat Tab */}
+        {/* Chat Tab - Enhanced Unified Chat */}
         {activeTab === "chat" && (
           <div className="flex flex-col h-full bg-black">
             {/* Header */}
-            <div className="p-4 border-b border-gray-800">
-              <h2 className="text-2xl font-semibold text-white">Chat with Operator</h2>
-              <p className="text-gray-400 text-sm">Send booking summaries and get status updates</p>
+            <div className="p-3 border-b border-gray-800">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h2 className="text-xl font-semibold text-white">Chat</h2>
+                  {selectedChatBooking && (
+                    <p className="text-xs text-gray-400">#{selectedChatBooking.id}</p>
+                  )}
+                </div>
+                {selectedChatBooking && (
+                  <div
+                    className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      selectedChatBooking.status === "pending"
+                        ? "bg-yellow-600 text-yellow-100"
+                        : selectedChatBooking.status === "accepted"
+                        ? "bg-green-600 text-green-100"
+                        : selectedChatBooking.status === "deployed"
+                        ? "bg-blue-600 text-blue-100"
+                        : "bg-gray-600 text-gray-100"
+                    }`}
+                  >
+                    {selectedChatBooking.status?.toUpperCase() || 'N/A'}
+                  </div>
+                )}
+              </div>
+
+              {/* Booking Selector */}
+              <select
+                value={selectedChatBooking?.id || ''}
+                onChange={(e) => {
+                  const booking = [...activeBookings, ...bookingHistory].find(b => b.id === e.target.value)
+                  if (booking) {
+                    loadMessagesForBooking(booking)
+                  }
+                }}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="">Select a booking to chat</option>
+                {activeBookings.length > 0 && (
+                  <optgroup label="Active Bookings">
+                    {activeBookings.map(booking => (
+                      <option key={booking.id} value={booking.id}>
+                        {booking.pickupLocation} → {booking.destination || 'N/A'} ({booking.date})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {bookingHistory.length > 0 && (
+                  <optgroup label="Past Bookings">
+                    {bookingHistory.map(booking => (
+                      <option key={booking.id} value={booking.id}>
+                        {booking.pickupLocation} → {booking.destination || 'N/A'} ({booking.date})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {chatMessages.length === 0 ? (
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {!selectedChatBooking ? (
                 <div className="text-center py-8">
                   <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-white mb-2">No Messages Yet</h3>
-                  <p className="text-gray-400 mb-4">Start a conversation by creating a booking or sending a message</p>
+                  <h3 className="text-lg font-semibold text-white mb-2">No Booking Selected</h3>
+                  <p className="text-gray-400 mb-4">Select a booking above to view and send messages</p>
                   <Button 
                     onClick={() => setActiveTab("protector")}
                     className="bg-blue-600 hover:bg-blue-700 text-white"
@@ -4324,46 +4623,145 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                     Create Booking
                   </Button>
                 </div>
+              ) : chatMessages.length === 0 ? (
+                <div className="text-center py-8">
+                  <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-white mb-2">No Messages Yet</h3>
+                  <p className="text-gray-400 mb-4">Start a conversation about this booking</p>
+                </div>
               ) : (
-                chatMessages.map((message) => (
-                  <div key={message.id} className={`flex ${message.sender_type === "client" ? "justify-end" : "justify-start"}`}>
-                    <div
-                      className={`max-w-[85%] rounded-2xl p-3 ${
-                        message.sender_type === "client"
-                          ? "bg-blue-600 text-white"
-                          : message.sender_type === "system"
-                            ? "bg-gray-800 text-gray-300 border border-gray-700"
-                            : "bg-gray-700 text-white"
-                      }`}
-                    >
-                      <div className="text-sm leading-relaxed whitespace-pre-wrap">{message.message}</div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        {new Date(message.created_at).toLocaleTimeString([], { 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        })}
+                chatMessages.map((msg, index) => {
+                  const isClient = msg.sender_type === "client"
+                  const isSystem = msg.sender_type === "system"
+                  const isOperator = msg.sender_type === "operator"
+                  const prevMessage = index > 0 ? chatMessages[index - 1] : null
+                  const showAvatar = !prevMessage || prevMessage.sender_type !== msg.sender_type
+                  const isConsecutive = prevMessage && prevMessage.sender_type === msg.sender_type
+                  
+                  return (
+                    <div key={msg.id} className={`flex ${isClient ? "justify-end" : "justify-start"} ${showAvatar ? "mt-4" : "mt-1"}`}>
+                      <div className={`flex items-end space-x-2 max-w-[85%] ${isClient ? "flex-row-reverse space-x-reverse" : ""}`}>
+                        {/* Avatar */}
+                        {!isClient && !isSystem && showAvatar && (
+                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg">
+                            <span className="text-white text-xs font-bold">OP</span>
+                          </div>
+                        )}
+                        
+                        {/* Message Bubble */}
+                        <div
+                          className={`rounded-2xl p-3 shadow-lg ${
+                            isClient
+                              ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-br-md"
+                              : isSystem
+                                ? "bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-lg text-center mx-auto"
+                                : "bg-gradient-to-br from-gray-700 to-gray-800 text-white rounded-bl-md"
+                          } ${isConsecutive && !isSystem ? (isClient ? "rounded-tr-md" : "rounded-tl-md") : ""}`}
+                        >
+                      {msg.is_system_message ? (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Shield className="h-4 w-4 text-blue-400" />
+                            <span className="font-semibold text-sm">Protection Request</span>
+                          </div>
+                          <div className="bg-gray-900 p-3 rounded-lg">
+                            <div className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">
+                              {msg.message}
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-400 text-center">
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</div>
+                          <div className={`text-xs mt-2 ${
+                            isClient ? "text-blue-100" : isSystem ? "text-yellow-100" : "text-gray-300"
+                          }`}>
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                          {msg.has_invoice && msg.invoice_data && (
+                            <div className="mt-2 p-3 bg-gray-800 rounded-lg border border-gray-700">
+                              <div className="text-xs text-gray-400 mb-2 font-semibold">Invoice Details</div>
+                              <div className="space-y-1 text-xs">
+                                <div className="flex justify-between">
+                                  <span>Base Price:</span>
+                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.basePrice?.toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Hourly Rate ({msg.invoice_data.duration}h):</span>
+                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{((msg.invoice_data.hourlyRate || 0) * (msg.invoice_data.duration || 0)).toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Vehicle Fee:</span>
+                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.vehicleFee?.toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span>Personnel Fee:</span>
+                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.personnelFee?.toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between font-semibold border-t border-gray-600 pt-1 mt-2">
+                                  <span>Total Amount:</span>
+                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.totalAmount?.toLocaleString()}</span>
+                                </div>
+                              </div>
+                              <Button
+                                onClick={handleApprovePayment}
+                                size="sm"
+                                className="mt-3 bg-green-600 hover:bg-green-700 text-white text-xs px-4 py-2 w-full"
+                                disabled={isSendingMessage}
+                              >
+                                {isSendingMessage ? 'Processing...' : 'Approve & Pay'}
+                              </Button>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between mt-1">
+                            <div className="text-xs text-gray-400">
+                              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                            {msg.sender_type === 'client' && (
+                              <div className="text-xs text-gray-500">
+                                {msg.status === 'sending' && '⏳'}
+                                {msg.status === 'sent' && '✓'}
+                                {msg.status === 'delivered' && '✓✓'}
+                                {msg.status === 'read' && '✓✓'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                        </div>
+                        
+                        {/* Client Avatar */}
+                        {isClient && !isSystem && showAvatar && (
+                          <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg">
+                            <span className="text-white text-xs font-bold">ME</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))
+                  )
+                })
               )}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Message Input */}
-            <div className="p-4 border-t border-gray-800 bg-black">
+            <div className="p-3 border-t border-gray-800 bg-black">
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={newChatMessage}
                   onChange={(e) => setNewChatMessage(e.target.value)}
                   onKeyPress={(e) => e.key === "Enter" && !isSendingMessage && sendChatMessage()}
-                  placeholder="Type your message..."
-                  disabled={isSendingMessage}
+                  placeholder={selectedChatBooking ? "Type your message..." : "Select a booking first..."}
+                  disabled={isSendingMessage || !selectedChatBooking}
                   className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm disabled:opacity-50"
                 />
                 <Button 
                   onClick={sendChatMessage} 
-                  disabled={isSendingMessage || !newChatMessage.trim()}
+                  disabled={isSendingMessage || !newChatMessage.trim() || !selectedChatBooking}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl disabled:opacity-50"
                 >
                   {isSendingMessage ? (

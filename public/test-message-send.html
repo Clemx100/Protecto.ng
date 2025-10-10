@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Message Send - PROTECTOR.NG</title>
+    <style>
+        body {
+            font-family: system-ui;
+            max-width: 900px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #667eea; }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover { background: #5568d3; }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .success { background: #d1fae5; color: #065f46; }
+        .error { background: #fee2e2; color: #991b1b; }
+        .info { background: #dbeafe; color: #1e3a8a; }
+        input { padding: 8px; width: 400px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test Message Send</h1>
+        
+        <p><strong>Booking ID:</strong></p>
+        <input type="text" id="bookingId" value="7b009a74-cb4c-49ad-964b-d0e663606d5e" placeholder="Enter booking ID">
+        
+        <p><strong>Message:</strong></p>
+        <input type="text" id="messageText" value="Test message from client" placeholder="Enter message">
+        
+        <br><br>
+        <button onclick="testClientMessage()">📤 Send as Client</button>
+        <button onclick="testOperatorMessage()">👨‍💼 Send as Operator</button>
+        <button onclick="checkMessages()">📊 Check Messages</button>
+        <button onclick="clearResults()">🗑️ Clear</button>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const resultDiv = document.getElementById('result');
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.createElement('div');
+            logDiv.className = `result ${type}`;
+            logDiv.textContent = `[${timestamp}] ${message}`;
+            resultDiv.appendChild(logDiv);
+        }
+
+        function clearResults() {
+            document.getElementById('result').innerHTML = '';
+        }
+
+        async function testClientMessage() {
+            clearResults();
+            const bookingId = document.getElementById('bookingId').value;
+            const messageText = document.getElementById('messageText').value;
+            
+            log('📤 Testing client message send...', 'info');
+            log(`Booking ID: ${bookingId}`, 'info');
+            log(`Message: ${messageText}`, 'info');
+            
+            try {
+                const response = await fetch('/api/messages', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        bookingId: bookingId,
+                        message: messageText 
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ CLIENT MESSAGE SENT!', 'success');
+                    log(JSON.stringify(result, null, 2), 'success');
+                } else {
+                    log('❌ CLIENT MESSAGE FAILED!', 'error');
+                    log(`Status: ${response.status}`, 'error');
+                    log(`Error: ${result.error}`, 'error');
+                    log(`Details: ${result.details}`, 'error');
+                    log(JSON.stringify(result, null, 2), 'error');
+                }
+            } catch (error) {
+                log('❌ FATAL ERROR!', 'error');
+                log(error.message, 'error');
+            }
+        }
+
+        async function testOperatorMessage() {
+            clearResults();
+            const bookingId = document.getElementById('bookingId').value;
+            const messageText = document.getElementById('messageText').value;
+            
+            log('👨‍💼 Testing operator message send...', 'info');
+            
+            try {
+                const response = await fetch(`/api/operator/messages?bookingId=${bookingId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: messageText })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log('✅ OPERATOR MESSAGE SENT!', 'success');
+                    log(JSON.stringify(result, null, 2), 'success');
+                } else {
+                    log('❌ OPERATOR MESSAGE FAILED!', 'error');
+                    log(`Error: ${result.error}`, 'error');
+                    log(`Details: ${result.details}`, 'error');
+                    log(JSON.stringify(result, null, 2), 'error');
+                }
+            } catch (error) {
+                log('❌ FATAL ERROR!', 'error');
+                log(error.message, 'error');
+            }
+        }
+
+        async function checkMessages() {
+            clearResults();
+            const bookingId = document.getElementById('bookingId').value;
+            
+            log('📊 Checking messages for booking...', 'info');
+            
+            try {
+                const response = await fetch(`/api/messages?bookingId=${bookingId}`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    log(`✅ Found ${result.data?.length || 0} messages`, 'success');
+                    if (result.data && result.data.length > 0) {
+                        result.data.forEach((msg, i) => {
+                            log(`\n${i + 1}. From ${msg.sender_type}:`, 'info');
+                            log(`   ${msg.content || msg.message}`, 'info');
+                        });
+                    }
+                } else {
+                    log('❌ Failed to fetch messages', 'error');
+                    log(JSON.stringify(result, null, 2), 'error');
+                }
+            } catch (error) {
+                log('❌ ERROR!', 'error');
+                log(error.message, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
+

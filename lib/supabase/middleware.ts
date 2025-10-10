@@ -44,6 +44,11 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Note: We removed the operator route check from middleware
+  // The operator page component will handle authentication and show login form
+  // This allows users to see the login page and enter credentials first
+  // Then role verification happens after successful login
+
   if (
     request.nextUrl.pathname !== "/" &&
     !user &&
@@ -51,8 +56,7 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/_next") &&
     !request.nextUrl.pathname.startsWith("/app") &&
     !request.nextUrl.pathname.startsWith("/client") &&
-    !request.nextUrl.pathname.startsWith("/operator") &&
-    !request.nextUrl.pathname.startsWith("/chat")
+    !request.nextUrl.pathname.startsWith("/operator") // Allow operator page to load and show login
   ) {
     // Store the current location before redirecting for later restoration
     const currentPath = request.nextUrl.pathname + request.nextUrl.search

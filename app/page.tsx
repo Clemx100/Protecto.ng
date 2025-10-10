@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useEffect, Suspense } from "react"
+import { useEffect, useState } from "react"
 import { 
   Shield, 
   Settings, 
@@ -21,9 +21,10 @@ import {
   FileText,
   Users
 } from "lucide-react"
-import { useState } from "react"
 
-function SearchParamsHandler() {
+export default function HomePage() {
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const router = useRouter()
   const searchParams = useSearchParams()
 
   // Handle redirect after authentication
@@ -39,18 +40,7 @@ function SearchParamsHandler() {
     }
   }, [searchParams])
 
-  return null
-}
-
-export default function HomePage() {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const router = useRouter()
-
   return (
-    <>
-      <Suspense fallback={null}>
-        <SearchParamsHandler />
-      </Suspense>
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
       {/* Header */}
       <header className="bg-black/20 backdrop-blur-lg border-b border-white/10 sticky top-0 z-50">
@@ -72,6 +62,15 @@ export default function HomePage() {
 
             {/* Desktop CTA Buttons */}
             <div className="hidden md:flex items-center space-x-4">
+              <button
+                id="downloadBtn"
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium flex items-center space-x-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span>Download App</span>
+              </button>
               <Link 
                 href="/client"
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
@@ -97,11 +96,26 @@ export default function HomePage() {
                 <a href="#about" className="text-gray-300 hover:text-white transition-colors py-2">About</a>
                 <a href="#vehicle-owners" className="text-gray-300 hover:text-white transition-colors py-2">Vehicle Owners</a>
                 <a href="#contact" className="text-gray-300 hover:text-white transition-colors py-2">Contact</a>
+                <button
+                  id="mobileDownloadBtn"
+                  className="px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors font-medium text-center flex items-center justify-center space-x-2 mt-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span>Download App</span>
+                </button>
                 <Link 
                   href="/client"
-                  className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium text-center mt-2"
+                  className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium text-center"
                 >
                   Request Protection
+                </Link>
+                <Link 
+                  href="/history"
+                  className="px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors font-medium text-center"
+                >
+                  Booking History
                 </Link>
               </nav>
             </div>
@@ -130,6 +144,15 @@ export default function HomePage() {
               <Shield className="h-6 w-6" />
               <span>Request Protection</span>
             </Link>
+            <button
+              id="heroDownloadBtn"
+              className="px-8 py-4 bg-green-600 hover:bg-green-700 text-white text-lg font-semibold rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg hover:shadow-green-500/25"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Download App</span>
+            </button>
             <a 
               href="#services"
               className="px-8 py-4 bg-transparent border-2 border-white/30 hover:border-white text-white text-lg font-semibold rounded-lg transition-colors flex items-center justify-center space-x-2"
@@ -545,6 +568,9 @@ export default function HomePage() {
                 <Link href="/client" className="block text-sm text-gray-300 hover:text-white transition-colors">
                   Request Protection
                 </Link>
+                <Link href="/history" className="block text-sm text-gray-300 hover:text-white transition-colors">
+                  Booking History
+                </Link>
                 <Link href="/operator" className="block text-sm text-gray-300 hover:text-white transition-colors">
                   Operator Dashboard
                 </Link>
@@ -560,6 +586,5 @@ export default function HomePage() {
         </div>
       </footer>
     </div>
-    </>
   )
 }

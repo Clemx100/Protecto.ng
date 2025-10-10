@@ -177,11 +177,6 @@ export function useRealtimeChat({
         
         // Update connection status
         setConnectionStatus('connected')
-      },
-      (error) => {
-        console.error('❌ Message subscription error:', error)
-        setError(error.message)
-        setConnectionStatus('disconnected')
       }
     )
 

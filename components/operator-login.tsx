@@ -45,7 +45,10 @@ export default function OperatorLogin({ onLoginSuccess }: OperatorLoginProps) {
         if (profile && (profile.role === 'admin' || profile.role === 'agent' || profile.role === 'operator')) {
           onLoginSuccess(data.user)
         } else {
-          setError("Access denied. Only operators and admins can access this dashboard.")
+          // User logged in successfully but doesn't have operator role
+          // Log them out and show error
+          await supabase.auth.signOut()
+          setError(`Access denied. Your account has role '${profile?.role || 'unknown'}'. Only operators, admins, and agents can access this dashboard.`)
         }
       }
     } catch (err) {

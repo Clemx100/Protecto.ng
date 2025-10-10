@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Seamless Mobile Chat - PROTECTOR.NG</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            background: #f0f0f0;
+        }
+        .chat-container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            max-width: 500px;
+            margin: 0 auto;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        .header {
+            background: #2196f3;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .status {
+            padding: 8px 15px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .connected { background: #e8f5e8; color: #2e7d32; }
+        .disconnected { background: #ffebee; color: #c62828; }
+        .connecting { background: #fff3e0; color: #f57c00; }
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background: #fafafa;
+        }
+        .message {
+            margin: 10px 0;
+            display: flex;
+        }
+        .message.client { justify-content: flex-end; }
+        .message.operator { justify-content: flex-start; }
+        .message.system { justify-content: center; }
+        .message-bubble {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+        }
+        .message.client .message-bubble {
+            background: #2196f3;
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+        .message.operator .message-bubble {
+            background: white;
+            color: #333;
+            border: 1px solid #e0e0e0;
+            border-bottom-left-radius: 4px;
+        }
+        .message.system .message-bubble {
+            background: #fff3e0;
+            color: #f57c00;
+            border-radius: 12px;
+            font-size: 14px;
+            text-align: center;
+        }
+        .message-time {
+            font-size: 11px;
+            margin-top: 4px;
+            opacity: 0.7;
+        }
+        .input-area {
+            padding: 15px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+        }
+        .input-form {
+            display: flex;
+            gap: 10px;
+        }
+        .message-input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            outline: none;
+            font-size: 16px;
+        }
+        .message-input:focus {
+            border-color: #2196f3;
+        }
+        .send-btn {
+            padding: 12px 20px;
+            background: #2196f3;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="header">📱 PROTECTOR.NG - Seamless Chat</div>
+        <div id="status" class="status connecting">Connecting...</div>
+        <div class="messages" id="messages">
+            <div class="loading">Loading messages...</div>
+        </div>
+        <div class="input-area">
+            <form class="input-form" onsubmit="sendMessage(event)">
+                <input 
+                    type="text" 
+                    id="messageInput" 
+                    class="message-input" 
+                    placeholder="Type your message..."
+                    autocomplete="off"
+                />
+                <button type="submit" class="send-btn" id="sendBtn">Send</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        const supabase = window.supabase.createClient(
+            'https://kifcevffaputepvpjpip.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3OTQ0NzYsImV4cCI6MjA3NTM3MDQ3Nn0.8QZqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJq'
+        );
+        
+        const bookingId = '704ee613-c2d1-4c29-968f-0e5343c84580';
+        let messageCount = 0;
+        let isSending = false;
+        
+        function updateStatus(message, className) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${className}`;
+        }
+        
+        function addMessage(msg) {
+            messageCount++;
+            const messagesEl = document.getElementById('messages');
+            
+            // Remove loading message if present
+            const loading = messagesEl.querySelector('.loading');
+            if (loading) loading.remove();
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${msg.sender_type}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            bubble.innerHTML = `
+                <div>${msg.content || msg.message}</div>
+                <div class="message-time">${new Date(msg.created_at).toLocaleTimeString()}</div>
+            `;
+            
+            messageDiv.appendChild(bubble);
+            messagesEl.appendChild(messageDiv);
+            messageDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function sendMessage(event) {
+            event.preventDefault();
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (!message || isSending) return;
+            
+            isSending = true;
+            const sendBtn = document.getElementById('sendBtn');
+            sendBtn.textContent = 'Sending...';
+            sendBtn.disabled = true;
+            
+            // Optimistic update
+            const tempMessage = {
+                id: `temp_${Date.now()}`,
+                booking_id: bookingId,
+                sender_type: 'client',
+                sender_id: 'mobile-client',
+                content: message,
+                created_at: new Date().toISOString()
+            };
+            addMessage(tempMessage);
+            input.value = '';
+            
+            fetch('/api/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    bookingId: bookingId,
+                    content: message,
+                    senderType: 'client',
+                    senderId: 'mobile-client'
+                })
+            }).then(r => r.json()).then(data => {
+                if (data.success) {
+                    // Replace temp message with real message
+                    const messagesEl = document.getElementById('messages');
+                    const tempMsg = messagesEl.querySelector(`[data-temp-id="temp_${Date.now()}"]`);
+                    if (tempMsg) {
+                        tempMsg.remove();
+                    }
+                    addMessage(data.data);
+                } else {
+                    // Remove temp message on failure
+                    const messagesEl = document.getElementById('messages');
+                    const lastMessage = messagesEl.lastElementChild;
+                    if (lastMessage && lastMessage.textContent.includes(message)) {
+                        lastMessage.remove();
+                    }
+                    alert('Failed to send message: ' + data.error);
+                }
+            }).catch(err => {
+                console.error('Send error:', err);
+                alert('Failed to send message');
+            }).finally(() => {
+                isSending = false;
+                sendBtn.textContent = 'Send';
+                sendBtn.disabled = false;
+            });
+        }
+        
+        function loadMessages() {
+            updateStatus('Loading messages...', 'connecting');
+            fetch(`/api/messages?bookingId=${bookingId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('messages').innerHTML = '';
+                        data.data.forEach(addMessage);
+                        updateStatus(`🟢 Connected - ${data.data.length} messages`, 'connected');
+                    } else {
+                        updateStatus('❌ Failed to load messages', 'disconnected');
+                    }
+                })
+                .catch(err => {
+                    console.error('Load error:', err);
+                    updateStatus('❌ Connection failed', 'disconnected');
+                });
+        }
+        
+        // Set up real-time subscription
+        console.log('🔗 Setting up seamless real-time subscription for:', bookingId);
+        const channel = supabase
+            .channel('seamless-mobile-chat')
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'messages',
+                filter: `booking_id=eq.${bookingId}`
+            }, (payload) => {
+                console.log('📨 Real-time message received:', payload);
+                addMessage(payload.new);
+                updateStatus(`🟢 Connected - ${messageCount} messages (live)`, 'connected');
+            })
+            .subscribe((status) => {
+                console.log('📡 Subscription status:', status);
+                if (status === 'SUBSCRIBED') {
+                    updateStatus('🟢 Connected - Real-time active!', 'connected');
+                } else if (status === 'CHANNEL_ERROR') {
+                    updateStatus('🔴 Real-time connection failed', 'disconnected');
+                } else {
+                    updateStatus('🟡 Connecting...', 'connecting');
+                }
+            });
+        
+        // Load existing messages
+        loadMessages();
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            supabase.removeChannel(channel);
+        });
+        
+        // Auto-focus input
+        document.getElementById('messageInput').focus();
+    </script>
+</body>
+</html>

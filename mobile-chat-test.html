@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mobile Chat Test - PROTECTOR.NG</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .message { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .operator { background: #e3f2fd; border-left: 4px solid #2196f3; }
+        .client { background: #f3e5f5; border-left: 4px solid #9c27b0; }
+        .system { background: #fff3e0; border-left: 4px solid #ff9800; }
+        #status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background: #e8f5e8; color: #2e7d32; }
+        .disconnected { background: #ffebee; color: #c62828; }
+        .connecting { background: #fff3e0; color: #f57c00; }
+        button { padding: 10px 20px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .send-btn { background: #4caf50; color: white; }
+        .refresh-btn { background: #2196f3; color: white; }
+    </style>
+</head>
+<body>
+    <h1>📱 Mobile Chat Test - PROTECTOR.NG</h1>
+    <div id="status" class="connecting">Connecting to real-time chat...</div>
+    <div id="messages"></div>
+    <button class="send-btn" onclick="sendMessage()">Send Test Message</button>
+    <button class="refresh-btn" onclick="refreshMessages()">Refresh Messages</button>
+    
+    <script>
+        const supabase = window.supabase.createClient(
+            'https://kifcevffaputepvpjpip.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3OTQ0NzYsImV4cCI6MjA3NTM3MDQ3Nn0.8QZqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJqJq'
+        );
+        
+        const bookingId = '704ee613-c2d1-4c29-968f-0e5343c84580';
+        let messageCount = 0;
+        
+        function updateStatus(message, className) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = className;
+        }
+        
+        function addMessage(msg) {
+            messageCount++;
+            const div = document.createElement('div');
+            div.className = `message ${msg.sender_type}`;
+            div.innerHTML = `
+                <strong>${msg.sender_type.toUpperCase()}:</strong> 
+                ${msg.content || msg.message} 
+                <small>(${new Date(msg.created_at).toLocaleTimeString()})</small>
+            `;
+            document.getElementById('messages').appendChild(div);
+            div.scrollIntoView({ behavior: 'smooth' });
+        }
+        
+        function sendMessage() {
+            const message = prompt('Enter your message:');
+            if (!message) return;
+            
+            fetch('/api/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    bookingId: bookingId,
+                    content: message,
+                    senderType: 'client',
+                    senderId: 'mobile-test-client'
+                })
+            }).then(r => r.json()).then(data => {
+                if (data.success) {
+                    console.log('Message sent:', data);
+                    addMessage(data.data);
+                } else {
+                    alert('Failed to send message: ' + data.error);
+                }
+            }).catch(err => {
+                console.error('Send error:', err);
+                alert('Failed to send message');
+            });
+        }
+        
+        function refreshMessages() {
+            loadMessages();
+        }
+        
+        function loadMessages() {
+            updateStatus('Loading messages...', 'connecting');
+            fetch(`/api/messages?bookingId=${bookingId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('messages').innerHTML = '';
+                        data.data.forEach(addMessage);
+                        updateStatus(`Connected - ${data.data.length} messages loaded`, 'connected');
+                    } else {
+                        updateStatus('Failed to load messages: ' + data.error, 'disconnected');
+                    }
+                })
+                .catch(err => {
+                    console.error('Load error:', err);
+                    updateStatus('Failed to load messages', 'disconnected');
+                });
+        }
+        
+        // Set up real-time subscription
+        console.log('🔗 Setting up real-time subscription for booking:', bookingId);
+        const channel = supabase
+            .channel('mobile-chat-test')
+            .on('postgres_changes', {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'messages',
+                filter: `booking_id=eq.${bookingId}`
+            }, (payload) => {
+                console.log('📨 Real-time message received:', payload);
+                addMessage(payload.new);
+                updateStatus(`Connected - ${messageCount} messages (real-time active)`, 'connected');
+            })
+            .subscribe((status) => {
+                console.log('📡 Subscription status:', status);
+                if (status === 'SUBSCRIBED') {
+                    updateStatus('Connected - Real-time active!', 'connected');
+                } else if (status === 'CHANNEL_ERROR') {
+                    updateStatus('Real-time connection failed', 'disconnected');
+                } else {
+                    updateStatus('Connecting...', 'connecting');
+                }
+            });
+        
+        // Load existing messages
+        loadMessages();
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            supabase.removeChannel(channel);
+        });
+    </script>
+</body>
+</html>

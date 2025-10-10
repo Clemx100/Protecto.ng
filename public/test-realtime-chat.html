@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Real-time Chat</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #1a1a1a; color: #e0e0e0; }
+        .container { max-width: 800px; margin: auto; background-color: #2a2a2a; padding: 20px; border-radius: 8px; }
+        .chat-box { height: 300px; border: 1px solid #555; padding: 10px; overflow-y: auto; background-color: #1a1a1a; margin-bottom: 10px; }
+        .message { margin: 5px 0; padding: 8px; border-radius: 8px; }
+        .client-message { background-color: #007bff; color: white; text-align: right; }
+        .operator-message { background-color: #28a745; color: white; text-align: left; }
+        .system-message { background-color: #6c757d; color: white; text-align: center; font-style: italic; }
+        input[type="text"] {
+            width: calc(100% - 120px);
+            padding: 10px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background-color: #3a3a3a;
+            color: #e0e0e0;
+        }
+        button { padding: 10px 15px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-danger { background-color: #dc3545; color: white; }
+        .status { padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+        .status.connected { background-color: #28a745; color: white; }
+        .status.disconnected { background-color: #dc3545; color: white; }
+        .status.connecting { background-color: #ffc107; color: black; }
+        h1 { color: #ffffff; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #555; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Real-time Chat Test</h1>
+        <p>Test bidirectional chat between client and operator</p>
+
+        <div id="status" class="status connecting">Connecting...</div>
+
+        <div class="test-section">
+            <h3>📋 Test Configuration</h3>
+            <label for="bookingId">Booking ID:</label>
+            <input type="text" id="bookingId" value="2d933c93-bb6c-4ba1-9f36-2188b691be4c" placeholder="Enter Booking ID (UUID)">
+            <br><br>
+            <label for="clientId">Client ID:</label>
+            <input type="text" id="clientId" value="7dfb32d2-2322-4537-9c7d-20124c093642" placeholder="Enter Client ID">
+            <br><br>
+            <label for="operatorToken">Operator Token:</label>
+            <input type="text" id="operatorToken" value="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio" placeholder="Enter Operator Token">
+        </div>
+
+        <div class="test-section">
+            <h3>💬 Chat Test</h3>
+            <div id="chatBox" class="chat-box"></div>
+            <div>
+                <input type="text" id="messageInput" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
+                <button class="btn-primary" onclick="sendClientMessage()">📤 Send as Client</button>
+                <button class="btn-success" onclick="sendOperatorMessage()">👨‍💼 Send as Operator</button>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔧 Test Actions</h3>
+            <button class="btn-primary" onclick="loadMessages()">📥 Load Messages</button>
+            <button class="btn-success" onclick="startPolling()">🔄 Start Polling</button>
+            <button class="btn-danger" onclick="stopPolling()">⏹️ Stop Polling</button>
+            <button class="btn-danger" onclick="clearChat()">🗑️ Clear Chat</button>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 Test Results</h3>
+            <div id="testResults" style="background-color: #1a1a1a; padding: 10px; border-radius: 5px; white-space: pre-wrap;"></div>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://kifcevffaputepvpjpip.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3OTQ0NzYsImV4cCI6MjA3NTM3MDQ3Nn0.YuVbfSbrDUy2nPigODzCcaOWTEXaJlPrVGE1L0C3y6g';
+        
+        let pollingInterval = null;
+        let isConnected = false;
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const testResults = document.getElementById('testResults');
+            testResults.textContent += `[${timestamp}] ${message}\n`;
+            testResults.scrollTop = testResults.scrollHeight;
+            console.log(message);
+        }
+
+        function updateStatus(status, className) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = status;
+            statusDiv.className = `status ${className}`;
+            isConnected = className === 'connected';
+        }
+
+        function addMessageToChat(message, senderType) {
+            const chatBox = document.getElementById('chatBox');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${senderType}-message`;
+            
+            const time = new Date(message.created_at || new Date()).toLocaleTimeString();
+            messageDiv.innerHTML = `
+                <strong>${senderType.toUpperCase()}:</strong> ${message.message || message.content}
+                <br><small>${time}</small>
+            `;
+            
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        async function loadMessages() {
+            const bookingId = document.getElementById('bookingId').value;
+            if (!bookingId) {
+                log('❌ Please enter a Booking ID', 'error');
+                return;
+            }
+
+            log('📥 Loading messages...');
+            
+            try {
+                // Try client API first
+                let response = await fetch(`/api/messages?bookingId=${bookingId}`);
+                
+                if (!response.ok) {
+                    log('❌ Client API failed, trying operator API...');
+                    const operatorToken = document.getElementById('operatorToken').value;
+                    response = await fetch(`/api/operator/messages?bookingId=${bookingId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${operatorToken}`
+                        }
+                    });
+                }
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        log(`✅ Loaded ${result.data.length} messages`);
+                        
+                        // Clear chat and add all messages
+                        document.getElementById('chatBox').innerHTML = '';
+                        result.data.forEach(msg => {
+                            addMessageToChat(msg, msg.sender_type || 'system');
+                        });
+                        
+                        updateStatus('Connected', 'connected');
+                    } else {
+                        throw new Error(result.error || 'Failed to load messages');
+                    }
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to load messages');
+                }
+            } catch (error) {
+                log(`❌ Error loading messages: ${error.message}`, 'error');
+                updateStatus('Disconnected', 'disconnected');
+            }
+        }
+
+        async function sendClientMessage() {
+            const bookingId = document.getElementById('bookingId').value;
+            const clientId = document.getElementById('clientId').value;
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+
+            if (!bookingId || !clientId || !message) {
+                log('❌ Please fill in all fields', 'error');
+                return;
+            }
+
+            log(`📤 Sending client message: "${message}"`);
+
+            try {
+                const response = await fetch('/api/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        bookingId: bookingId,
+                        message: message,
+                        senderType: 'client',
+                        senderId: clientId
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        log('✅ Client message sent successfully');
+                        addMessageToChat(result.data, 'client');
+                        messageInput.value = '';
+                    } else {
+                        throw new Error(result.error || 'Failed to send message');
+                    }
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to send message');
+                }
+            } catch (error) {
+                log(`❌ Error sending client message: ${error.message}`, 'error');
+            }
+        }
+
+        async function sendOperatorMessage() {
+            const bookingId = document.getElementById('bookingId').value;
+            const operatorToken = document.getElementById('operatorToken').value;
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value.trim();
+
+            if (!bookingId || !operatorToken || !message) {
+                log('❌ Please fill in all fields', 'error');
+                return;
+            }
+
+            log(`👨‍💼 Sending operator message: "${message}"`);
+
+            try {
+                const response = await fetch('/api/operator/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${operatorToken}`
+                    },
+                    body: JSON.stringify({
+                        bookingId: bookingId,
+                        content: message,
+                        messageType: 'text'
+                    })
+                });
+
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.success) {
+                        log('✅ Operator message sent successfully');
+                        addMessageToChat(result.data, 'operator');
+                        messageInput.value = '';
+                    } else {
+                        throw new Error(result.error || 'Failed to send message');
+                    }
+                } else {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to send message');
+                }
+            } catch (error) {
+                log(`❌ Error sending operator message: ${error.message}`, 'error');
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                // Default to client message
+                sendClientMessage();
+            }
+        }
+
+        function startPolling() {
+            if (pollingInterval) {
+                log('⚠️ Polling already active');
+                return;
+            }
+
+            log('🔄 Starting polling (every 3 seconds)...');
+            updateStatus('Polling for new messages...', 'connecting');
+            
+            pollingInterval = setInterval(async () => {
+                await loadMessages();
+            }, 3000);
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+                log('⏹️ Polling stopped');
+                updateStatus('Disconnected', 'disconnected');
+            } else {
+                log('⚠️ Polling not active');
+            }
+        }
+
+        function clearChat() {
+            document.getElementById('chatBox').innerHTML = '';
+            document.getElementById('testResults').textContent = '';
+            log('🗑️ Chat cleared');
+        }
+
+        // Initialize on page load
+        window.onload = function() {
+            log('🚀 Real-time Chat Test initialized');
+            log('📋 Instructions:');
+            log('1. Verify Booking ID is correct');
+            log('2. Click "Load Messages" to fetch existing messages');
+            log('3. Send messages as both client and operator');
+            log('4. Click "Start Polling" to check for new messages');
+            log('5. Test bidirectional communication');
+            
+            // Auto-load messages if booking ID is provided
+            const bookingId = document.getElementById('bookingId').value;
+            if (bookingId) {
+                setTimeout(() => {
+                    loadMessages();
+                }, 1000);
+            }
+        };
+
+        // Cleanup on page unload
+        window.onbeforeunload = function() {
+            stopPolling();
+        };
+    </script>
+</body>
+</html>

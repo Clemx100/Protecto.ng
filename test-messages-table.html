@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Messages Table</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 600;
+        }
+        
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin: 5px;
+        }
+        
+        button:hover { background: #2563eb; }
+        
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Test Messages Table</h1>
+        <p>This tool tests if the messages table exists and is accessible.</p>
+        
+        <div class="status info" id="status">
+            Ready to test messages table access.
+        </div>
+        
+        <div>
+            <button onclick="testTableExists()">🔍 Check Table Exists</button>
+            <button onclick="testTableStructure()">📊 Check Table Structure</button>
+            <button onclick="testRealtimeEnabled()">⚡ Check Real-time Enabled</button>
+            <button onclick="testInsertMessage()">📝 Test Insert Message</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+        
+        // Initialize Supabase client
+        const supabaseClient = supabase.createClient(
+            'https://mjdbhusnplveeaveeovd.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDU5NTMsImV4cCI6MjA3MzUyMTk1M30.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+        );
+        
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+        }
+        
+        function addResult(title, data) {
+            const results = document.getElementById('results');
+            const result = document.createElement('div');
+            result.innerHTML = `
+                <h3>${title}</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            results.appendChild(result);
+            results.scrollTop = results.scrollHeight;
+        }
+        
+        async function testTableExists() {
+            try {
+                updateStatus('🔍 Checking if messages table exists...', 'info');
+                
+                const { data, error } = await supabaseClient
+                    .from('messages')
+                    .select('*')
+                    .limit(1);
+                
+                if (error) {
+                    updateStatus('❌ Messages table does not exist or is not accessible', 'error');
+                    addResult('Table Check Error:', error);
+                } else {
+                    updateStatus('✅ Messages table exists and is accessible', 'success');
+                    addResult('Table Check Success:', {
+                        tableExists: true,
+                        sampleData: data,
+                        rowCount: data.length
+                    });
+                }
+            } catch (error) {
+                updateStatus('❌ Error checking table', 'error');
+                addResult('Table Check Exception:', error);
+            }
+        }
+        
+        async function testTableStructure() {
+            try {
+                updateStatus('📊 Checking table structure...', 'info');
+                
+                // Try to select specific columns to test structure
+                const { data, error } = await supabaseClient
+                    .from('messages')
+                    .select('id, booking_id, sender_id, sender_type, content, message_type, created_at')
+                    .limit(1);
+                
+                if (error) {
+                    updateStatus('❌ Error reading table structure', 'error');
+                    addResult('Structure Check Error:', error);
+                } else {
+                    updateStatus('✅ Table structure is correct', 'success');
+                    addResult('Table Structure:', {
+                        columns: ['id', 'booking_id', 'sender_id', 'sender_type', 'content', 'message_type', 'created_at'],
+                        sampleRow: data[0] || 'No data'
+                    });
+                }
+            } catch (error) {
+                updateStatus('❌ Error checking structure', 'error');
+                addResult('Structure Check Exception:', error);
+            }
+        }
+        
+        async function testRealtimeEnabled() {
+            try {
+                updateStatus('⚡ Testing real-time subscription...', 'info');
+                
+                let subscriptionReceived = false;
+                const timeout = setTimeout(() => {
+                    if (!subscriptionReceived) {
+                        updateStatus('❌ Real-time subscription timed out', 'error');
+                        addResult('Real-time Test:', {
+                            enabled: false,
+                            error: 'Subscription timed out - real-time may not be enabled'
+                        });
+                    }
+                }, 5000);
+                
+                const subscription = supabaseClient
+                    .channel('test-channel')
+                    .on('postgres_changes', {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'messages'
+                    }, (payload) => {
+                        subscriptionReceived = true;
+                        clearTimeout(timeout);
+                        updateStatus('✅ Real-time is working!', 'success');
+                        addResult('Real-time Test:', {
+                            enabled: true,
+                            receivedPayload: payload
+                        });
+                    })
+                    .subscribe((status) => {
+                        if (status === 'SUBSCRIBED') {
+                            updateStatus('⚡ Real-time subscription active - waiting for test message...', 'info');
+                        } else if (status === 'CHANNEL_ERROR') {
+                            subscriptionReceived = true;
+                            clearTimeout(timeout);
+                            updateStatus('❌ Real-time subscription failed', 'error');
+                            addResult('Real-time Test:', {
+                                enabled: false,
+                                error: 'CHANNEL_ERROR - real-time not enabled on messages table'
+                            });
+                        }
+                    });
+                
+                // Clean up after 10 seconds
+                setTimeout(() => {
+                    supabaseClient.removeChannel(subscription);
+                }, 10000);
+                
+            } catch (error) {
+                updateStatus('❌ Error testing real-time', 'error');
+                addResult('Real-time Test Exception:', error);
+            }
+        }
+        
+        async function testInsertMessage() {
+            try {
+                updateStatus('📝 Testing message insertion...', 'info');
+                
+                const testMessage = {
+                    bookingId: '819eb493-6c9e-468b-a46e-d160eb396c9f',
+                    senderId: '9882762d-93e4-484c-b055-a14737f76cba',
+                    senderType: 'client',
+                    content: `Test message from table checker at ${new Date().toLocaleTimeString()}`,
+                    messageType: 'text'
+                };
+                
+                const response = await fetch(`${API_BASE_URL}/api/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(testMessage)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    updateStatus('✅ Message insertion successful', 'success');
+                    addResult('Insert Test Success:', result);
+                } else {
+                    updateStatus('❌ Message insertion failed', 'error');
+                    addResult('Insert Test Error:', result);
+                }
+            } catch (error) {
+                updateStatus('❌ Error testing insertion', 'error');
+                addResult('Insert Test Exception:', error);
+            }
+        }
+        
+        // Initial setup
+        window.onload = () => {
+            updateStatus('Ready to test messages table. Click buttons to run tests.', 'info');
+        };
+    </script>
+</body>
+</html>

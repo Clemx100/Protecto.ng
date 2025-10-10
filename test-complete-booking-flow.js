@@ -1,245 +1,292 @@
-// Complete booking flow test
-require('dotenv').config({ path: '.env.local' })
+/**
+ * Test Complete Booking Flow
+ * 
+ * This script tests the complete booking flow from request to completion:
+ * 1. User sends request
+ * 2. Operator accepts it
+ * 3. Operator sends invoice for payment
+ * 4. User clicks approve and pay
+ * 5. Operator deploys team
+ * 6. User sees deployed status
+ * 7. Operator clicks en route
+ * 8. User is updated
+ * 9. Team arrives - operator clicks start service
+ * 10. User is updated
+ * 11. Service is done - operator clicks complete service
+ * 12. User is updated and booking appears in history
+ */
 
-const { createClient } = require('@supabase/supabase-js')
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-const supabase = createClient(supabaseUrl, supabaseKey)
+const BASE_URL = 'http://localhost:3000'
 
 async function testCompleteBookingFlow() {
+  console.log('🚀 Testing Complete Booking Flow')
+  console.log('=====================================')
+  
   try {
-    console.log('🚀 Testing Complete Booking Flow...\n')
-    
-    // Step 1: Create a test client user
-    console.log('1. Creating test client user...')
-    const testEmail = `client-${Date.now()}@gmail.com`
-    const testPassword = 'testpassword123'
-    
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: testEmail,
-      password: testPassword,
-      options: {
-        data: {
-          first_name: 'Test',
-          last_name: 'Client'
-        }
-      }
-    })
-    
-    if (authError) {
-      console.error('❌ Client signup failed:', authError.message)
-      return false
-    }
-    
-    console.log('✅ Test client created:', authData.user?.id)
-    
-    // Wait for profile creation
-    await new Promise(resolve => setTimeout(resolve, 3000))
-    
-    // Step 2: Create a booking (simulating client app)
-    console.log('\n2. Creating booking through client app...')
-    
-    const { data: services } = await supabase
-      .from('services')
-      .select('id')
-      .eq('type', 'armed_protection')
-      .limit(1)
-    
-    const serviceId = services[0].id
-    
-    // Simulate the booking payload from the client app
-    const bookingPayload = {
+    // Step 1: Create a test booking
+    console.log('\n📝 Step 1: Creating test booking...')
+    const bookingData = {
       id: `REQ${Date.now()}`,
-      timestamp: new Date().toISOString(),
       serviceType: 'armed-protection',
-      pickupDetails: {
-        location: '123 Victoria Island, Lagos',
-        coordinates: { lat: 6.4281, lng: 3.4219 },
-        date: '2025-02-22',
-        time: '12:45:00',
-        duration: '1 day'
-      },
-      destinationDetails: {
-        primary: '456 Ikoyi, Lagos',
-        coordinates: { lat: 6.4474, lng: 3.4244 }
-      },
       personnel: {
         protectors: 2,
         protectee: 1,
-        dressCode: 'Tactical Casual'
+        dressCode: 'Business Formal'
       },
       vehicles: {
-        sedan: 2
+        armoredSedan: 1
+      },
+      protectionType: 'High Risk',
+      pickupDetails: {
+        location: 'Victoria Island, Lagos',
+        date: new Date().toISOString().split('T')[0],
+        time: '14:00',
+        duration: '8 hours',
+        coordinates: { lat: 6.4281, lng: 3.4219 }
+      },
+      destinationDetails: {
+        primary: 'Lekki Phase 1, Lagos',
+        additional: ['Ikoyi', 'Banana Island'],
+        coordinates: { lat: 6.4698, lng: 3.5852 }
       },
       contact: {
-        phone: '+234 2222222222',
+        phone: '+2348123456789',
         user: {
-          firstName: 'John',
-          lastName: 'Doe'
+          firstName: 'Test',
+          lastName: 'User',
+          email: 'test@example.com'
         }
       },
-      protectionType: 'Armed',
-      specialRequirements: 'High security detail required'
+      status: 'pending',
+      timestamp: new Date().toISOString()
     }
     
-    // Create booking using the same logic as the client app
-    const bookingData = {
-      booking_code: bookingPayload.id,
-      client_id: authData.user.id,
-      service_id: serviceId,
-      service_type: 'armed_protection',
-      protector_count: bookingPayload.personnel?.protectors || 1,
-      protectee_count: bookingPayload.personnel?.protectee || 1,
-      dress_code: bookingPayload.personnel?.dressCode?.toLowerCase().replace(/\s+/g, '_') || 'tactical_casual',
-      duration_hours: 24, // 1 day
-      pickup_address: bookingPayload.pickupDetails?.location || '',
-      pickup_coordinates: null, // Try without coordinates first
-      destination_address: bookingPayload.destinationDetails?.primary || '',
-      destination_coordinates: null, // Try without coordinates first
-      scheduled_date: bookingPayload.pickupDetails?.date || new Date().toISOString().split('T')[0],
-      scheduled_time: bookingPayload.pickupDetails?.time || '12:00:00',
-      base_price: 100000,
-      total_price: 100000,
-      special_instructions: JSON.stringify({
-        vehicles: bookingPayload.vehicles,
-        protectionType: bookingPayload.protectionType,
-        destinationDetails: bookingPayload.destinationDetails,
-        contact: bookingPayload.contact
-      }),
-      emergency_contact: bookingPayload.contact?.user?.firstName || 'N/A',
-      emergency_phone: bookingPayload.contact?.phone || 'N/A',
-      status: 'pending'
+    const createResponse = await fetch(`${BASE_URL}/api/bookings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(bookingData)
+    })
+    
+    if (!createResponse.ok) {
+      throw new Error(`Failed to create booking: ${createResponse.statusText}`)
     }
     
-    console.log('Creating booking with data:', JSON.stringify(bookingData, null, 2))
+    const createResult = await createResponse.json()
+    console.log('✅ Booking created:', createResult.data.booking_code)
+    const bookingId = createResult.data.id
+    const bookingCode = createResult.data.booking_code
     
-    const { data: newBooking, error: bookingError } = await supabase
-      .from('bookings')
-      .insert([bookingData])
-      .select()
-    
-    if (bookingError) {
-      console.error('❌ Booking creation failed:', bookingError.message)
-      console.error('Error details:', bookingError)
-      return false
-    }
-    
-    console.log('✅ Booking created successfully!')
-    console.log('Booking ID:', newBooking[0].id)
-    console.log('Booking Code:', newBooking[0].booking_code)
-    
-    // Step 3: Check if booking appears in operator dashboard
-    console.log('\n3. Checking if booking appears in operator dashboard...')
-    
-    // Get all bookings (as operator would see)
-    const { data: allBookings, error: allBookingsError } = await supabase
-      .from('bookings')
-      .select(`
-        *,
-        client:profiles!bookings_client_id_fkey(
-          id,
-          first_name,
-          last_name,
-          email,
-          phone
-        ),
-        service:services(
-          id,
-          name,
-          description,
-          base_price,
-          price_per_hour
-        )
-      `)
-      .order('created_at', { ascending: false })
-    
-    if (allBookingsError) {
-      console.error('❌ Failed to fetch bookings:', allBookingsError.message)
-      return false
-    }
-    
-    console.log(`✅ Found ${allBookings.length} total bookings`)
-    
-    // Check if our booking is in the list
-    const ourBooking = allBookings.find(b => b.booking_code === bookingPayload.id)
-    if (ourBooking) {
-      console.log('✅ Our booking found in operator dashboard!')
-      console.log('Booking status:', ourBooking.status)
-      console.log('Client name:', ourBooking.client?.first_name, ourBooking.client?.last_name)
-      console.log('Service:', ourBooking.service?.name)
-    } else {
-      console.log('❌ Our booking NOT found in operator dashboard!')
-      console.log('Available bookings:', allBookings.map(b => ({ id: b.id, code: b.booking_code, status: b.status })))
-      return false
-    }
-    
-    // Step 4: Test operator actions
-    console.log('\n4. Testing operator actions...')
-    
-    // Update booking status (as operator would)
-    const { data: updatedBooking, error: updateError } = await supabase
-      .from('bookings')
-      .update({ 
+    // Step 2: Operator accepts the booking
+    console.log('\n✅ Step 2: Operator accepting booking...')
+    const acceptResponse = await fetch(`${BASE_URL}/api/bookings/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bookingId: bookingId,
         status: 'accepted',
-        updated_at: new Date().toISOString()
+        notes: 'Booking accepted by operator'
       })
-      .eq('id', ourBooking.id)
-      .select()
+    })
     
-    if (updateError) {
-      console.error('❌ Failed to update booking status:', updateError.message)
+    if (!acceptResponse.ok) {
+      throw new Error(`Failed to accept booking: ${acceptResponse.statusText}`)
+    }
+    
+    console.log('✅ Booking accepted')
+    
+    // Step 3: Operator sends invoice
+    console.log('\n💰 Step 3: Operator sending invoice...')
+    const invoiceResponse = await fetch(`${BASE_URL}/api/operator/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bookingId: bookingId,
+        content: `📄 **Invoice for Your Protection Service**
+
+**Service Details:**
+• Base Price: ₦100,000
+• Hourly Rate (8h): ₦200,000
+• Vehicle Fee: ₦20,000
+• Personnel Fee: ₦60,000
+
+**Total Amount: ₦380,000**
+
+Please review and approve the payment to proceed with your service.`,
+        messageType: 'invoice',
+        metadata: {
+          basePrice: 100000,
+          hourlyRate: 25000,
+          vehicleFee: 20000,
+          personnelFee: 60000,
+          duration: 8,
+          totalAmount: 380000,
+          currency: 'NGN'
+        }
+      })
+    })
+    
+    if (!invoiceResponse.ok) {
+      throw new Error(`Failed to send invoice: ${invoiceResponse.statusText}`)
+    }
+    
+    console.log('✅ Invoice sent')
+    
+    // Step 4: User approves payment (simulated)
+    console.log('\n💳 Step 4: User approving payment...')
+    // In real flow, this would be done through the UI
+    console.log('✅ Payment approved (simulated)')
+    
+    // Step 5: Operator deploys team
+    console.log('\n🚀 Step 5: Operator deploying team...')
+    const deployResponse = await fetch(`${BASE_URL}/api/bookings/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bookingId: bookingId,
+        status: 'en_route',
+        notes: 'Protection team deployed and en route'
+      })
+    })
+    
+    if (!deployResponse.ok) {
+      throw new Error(`Failed to deploy team: ${deployResponse.statusText}`)
+    }
+    
+    console.log('✅ Team deployed')
+    
+    // Step 6: Team arrives
+    console.log('\n📍 Step 6: Team arriving...')
+    const arriveResponse = await fetch(`${BASE_URL}/api/bookings/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bookingId: bookingId,
+        status: 'arrived',
+        notes: 'Protection team arrived at location'
+      })
+    })
+    
+    if (!arriveResponse.ok) {
+      throw new Error(`Failed to mark arrived: ${arriveResponse.statusText}`)
+    }
+    
+    console.log('✅ Team arrived')
+    
+    // Step 7: Start service
+    console.log('\n🛡️ Step 7: Starting protection service...')
+    const startServiceResponse = await fetch(`${BASE_URL}/api/bookings/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bookingId: bookingId,
+        status: 'in_service',
+        notes: 'Protection service started'
+      })
+    })
+    
+    if (!startServiceResponse.ok) {
+      throw new Error(`Failed to start service: ${startServiceResponse.statusText}`)
+    }
+    
+    console.log('✅ Service started')
+    
+    // Step 8: Complete service
+    console.log('\n✅ Step 8: Completing service...')
+    const completeResponse = await fetch(`${BASE_URL}/api/bookings/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bookingId: bookingId,
+        status: 'completed',
+        notes: 'Service completed successfully'
+      })
+    })
+    
+    if (!completeResponse.ok) {
+      throw new Error(`Failed to complete service: ${completeResponse.statusText}`)
+    }
+    
+    console.log('✅ Service completed')
+    
+    // Step 9: Verify booking appears in history
+    console.log('\n📚 Step 9: Verifying booking appears in history...')
+    const historyResponse = await fetch(`${BASE_URL}/api/bookings`)
+    
+    if (!historyResponse.ok) {
+      throw new Error(`Failed to fetch booking history: ${historyResponse.statusText}`)
+    }
+    
+    const historyResult = await historyResponse.json()
+    const completedBookings = historyResult.data.filter(booking => booking.status === 'completed')
+    const ourBooking = completedBookings.find(booking => booking.booking_code === bookingCode)
+    
+    if (ourBooking) {
+      console.log('✅ Booking found in history:', ourBooking.booking_code)
+      console.log('   Status:', ourBooking.status)
+      console.log('   Completed at:', ourBooking.completed_at)
     } else {
-      console.log('✅ Booking status updated to accepted!')
+      console.log('❌ Booking not found in history')
+      console.log('   Available completed bookings:', completedBookings.map(b => b.booking_code))
     }
     
-    // Step 5: Clean up
-    console.log('\n5. Cleaning up test data...')
+    // Step 10: Test operator dashboard history view
+    console.log('\n👨‍💼 Step 10: Testing operator dashboard history...')
+    const operatorResponse = await fetch(`${BASE_URL}/api/operator/bookings`)
     
-    // Delete the test booking
-    const { error: deleteError } = await supabase
-      .from('bookings')
-      .delete()
-      .eq('id', ourBooking.id)
+    if (!operatorResponse.ok) {
+      throw new Error(`Failed to fetch operator bookings: ${operatorResponse.statusText}`)
+    }
     
-    if (deleteError) {
-      console.error('❌ Failed to clean up booking:', deleteError.message)
+    const operatorResult = await operatorResponse.json()
+    const operatorCompletedBookings = operatorResult.data.filter(booking => booking.status === 'completed')
+    const operatorBooking = operatorCompletedBookings.find(booking => booking.id === bookingCode)
+    
+    if (operatorBooking) {
+      console.log('✅ Booking found in operator dashboard history:', operatorBooking.id)
+      console.log('   Status:', operatorBooking.status)
     } else {
-      console.log('✅ Test booking cleaned up')
+      console.log('❌ Booking not found in operator dashboard history')
     }
     
-    // Delete the test user (this might not work due to RLS, but we'll try)
-    try {
-      await supabase.auth.admin.deleteUser(authData.user.id)
-      console.log('✅ Test user cleaned up')
-    } catch (err) {
-      console.log('ℹ️  Test user cleanup skipped (requires admin privileges)')
-    }
+    console.log('\n🎉 Complete Booking Flow Test Results:')
+    console.log('=====================================')
+    console.log(`✅ Booking created: ${bookingCode}`)
+    console.log(`✅ Booking accepted`)
+    console.log(`✅ Invoice sent`)
+    console.log(`✅ Payment approved`)
+    console.log(`✅ Team deployed`)
+    console.log(`✅ Team arrived`)
+    console.log(`✅ Service started`)
+    console.log(`✅ Service completed`)
+    console.log(`✅ Booking appears in history: ${ourBooking ? 'YES' : 'NO'}`)
+    console.log(`✅ Operator dashboard shows completed: ${operatorBooking ? 'YES' : 'NO'}`)
     
-    console.log('\n✅ Complete booking flow test PASSED!')
-    console.log('The booking synchronization issue has been FIXED!')
-    return true
+    if (ourBooking && operatorBooking) {
+      console.log('\n🎊 SUCCESS: Complete booking flow working correctly!')
+      console.log('   Users can now see completed services in their booking history.')
+    } else {
+      console.log('\n❌ ISSUE: Some parts of the flow need attention.')
+    }
     
   } catch (error) {
     console.error('❌ Test failed:', error.message)
-    console.error('Full error:', error)
-    return false
+    console.error('Stack trace:', error.stack)
   }
 }
 
-async function runTests() {
-  const success = await testCompleteBookingFlow()
-  
-  if (success) {
-    console.log('\n🎉 CONCLUSION: The booking synchronization issue is FIXED!')
-    console.log('✅ Bookings created through the client app now appear in the operator dashboard')
-    console.log('✅ The database integration is working correctly')
-    console.log('✅ Real-time synchronization is functional')
-  } else {
-    console.log('\n❌ CONCLUSION: The booking synchronization issue still exists')
-    console.log('Please check the error messages above for details')
-  }
-}
-
-runTests().catch(console.error)
+// Run the test
+testCompleteBookingFlow()

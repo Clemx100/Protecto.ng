@@ -6,6 +6,7 @@ import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/toaster"
 import { Toaster as Sonner } from "@/components/ui/sonner"
 import LocationPreservationWrapper from "@/components/location-preservation-wrapper"
+import PWAInstaller from "@/components/pwa-installer"
 import "./globals.css"
 
 const inter = Inter({
@@ -18,6 +19,28 @@ export const metadata: Metadata = {
   title: "Protector.Ng - Executive Protection Services",
   description: "Professional executive protection services with real-time tracking and secure payments",
   generator: "Next.js",
+  manifest: "/manifest.json",
+  themeColor: "#1e40af",
+  viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Protector.Ng",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  openGraph: {
+    type: "website",
+    siteName: "Protector.Ng",
+    title: "Protector.Ng - Executive Protection Services",
+    description: "Professional executive protection services with real-time tracking and secure payments",
+  },
+  twitter: {
+    card: "summary",
+    title: "Protector.Ng - Executive Protection Services",
+    description: "Professional executive protection services with real-time tracking and secure payments",
+  },
 }
 
 export const viewport: Viewport = {
@@ -45,6 +68,7 @@ export default function RootLayout({
             <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
             <Toaster />
             <Sonner />
+            <PWAInstaller />
           </LocationPreservationWrapper>
         </ThemeProvider>
       </body>

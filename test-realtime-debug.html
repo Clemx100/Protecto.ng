@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Debug Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 600;
+        }
+        
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin: 5px;
+        }
+        
+        button:hover { background: #2563eb; }
+        
+        .messages {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .message {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 5px;
+            background: white;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .operator-message { border-left-color: #10b981; background: #f0fdf4; }
+        .client-message { border-left-color: #3b82f6; background: #eff6ff; }
+        .system-message { border-left-color: #f59e0b; background: #fffbeb; }
+        
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Real-time Debug Test</h1>
+        <p>This tool tests the real-time subscription and shows detailed logs.</p>
+        
+        <div class="status info" id="status">
+            Ready to test real-time synchronization with detailed debugging.
+        </div>
+        
+        <div>
+            <button onclick="testRealtimeSubscription()">🔗 Test Real-time Subscription</button>
+            <button onclick="sendTestMessage()">📤 Send Test Message</button>
+            <button onclick="clearLogs()">🗑️ Clear Logs</button>
+        </div>
+        
+        <div class="messages" id="messages"></div>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        const TEST_BOOKING_ID = '819eb493-6c9e-468b-a46e-d160eb396c9f';
+        const API_BASE_URL = 'http://localhost:3000';
+        
+        // Initialize Supabase client
+        const supabaseClient = supabase.createClient(
+            'https://mjdbhusnplveeaveeovd.supabase.co',
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDU5NTMsImV4cCI6MjA3MzUyMTk1M30.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+        );
+        
+        let subscription = null;
+        
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+        }
+        
+        function addMessage(sender, message, type = 'info') {
+            const messages = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}-message`;
+            messageDiv.innerHTML = `
+                <strong>${sender.toUpperCase()}:</strong> ${message}
+                <small style="float: right; color: #666;">${new Date().toLocaleTimeString()}</small>
+            `;
+            messages.appendChild(messageDiv);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function addResult(title, data) {
+            const results = document.getElementById('results');
+            const result = document.createElement('div');
+            result.innerHTML = `
+                <h3>${title}</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            results.appendChild(result);
+            results.scrollTop = results.scrollHeight;
+        }
+        
+        async function testRealtimeSubscription() {
+            try {
+                updateStatus('🔗 Setting up real-time subscription...', 'info');
+                addMessage('system', 'Setting up real-time subscription...');
+                
+                // Clean up existing subscription
+                if (subscription) {
+                    await supabaseClient.removeChannel(subscription);
+                    addMessage('system', 'Cleaned up existing subscription');
+                }
+                
+                // Set up new subscription
+                subscription = supabaseClient
+                    .channel(`messages:${TEST_BOOKING_ID}`)
+                    .on(
+                        'postgres_changes',
+                        {
+                            event: 'INSERT',
+                            schema: 'public',
+                            table: 'messages',
+                            filter: `booking_id=eq.${TEST_BOOKING_ID}`
+                        },
+                        (payload) => {
+                            console.log('📨 Real-time message received:', payload);
+                            addMessage('system', `✅ Real-time message received! ID: ${payload.new.id}`);
+                            addMessage('system', `Message: "${payload.new.content}" from ${payload.new.sender_type}`);
+                            addResult('Real-time Payload:', payload);
+                        }
+                    )
+                    .subscribe((status) => {
+                        console.log('Subscription status:', status);
+                        addMessage('system', `Subscription status: ${status}`);
+                        if (status === 'SUBSCRIBED') {
+                            updateStatus('✅ Real-time subscription active! Send a message to test.', 'success');
+                        } else if (status === 'CHANNEL_ERROR') {
+                            updateStatus('❌ Subscription failed', 'error');
+                        }
+                    });
+                
+                addResult('Subscription Setup:', {
+                    bookingId: TEST_BOOKING_ID,
+                    channel: `messages:${TEST_BOOKING_ID}`,
+                    filter: `booking_id=eq.${TEST_BOOKING_ID}`
+                });
+                
+            } catch (error) {
+                updateStatus('❌ Failed to setup subscription', 'error');
+                addMessage('system', `Error: ${error.message}`);
+                addResult('Subscription Error:', error);
+            }
+        }
+        
+        async function sendTestMessage() {
+            try {
+                const message = {
+                    bookingId: TEST_BOOKING_ID,
+                    senderId: '9882762d-93e4-484c-b055-a14737f76cba',
+                    senderType: 'client',
+                    content: `Test message at ${new Date().toLocaleTimeString()}`,
+                    messageType: 'text'
+                };
+                
+                addMessage('client', `Sending: ${message.content}`);
+                
+                const response = await fetch(`${API_BASE_URL}/api/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(message)
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    addMessage('client', `✅ Message sent successfully! ID: ${result.data.id}`);
+                    addResult('Send Result:', result);
+                    updateStatus('✅ Message sent! Check if real-time subscription received it.', 'success');
+                } else {
+                    addMessage('client', `❌ Failed to send: ${result.error}`);
+                    updateStatus('❌ Failed to send message', 'error');
+                }
+            } catch (error) {
+                addMessage('client', `Error: ${error.message}`);
+                updateStatus('❌ Network error', 'error');
+            }
+        }
+        
+        function clearLogs() {
+            document.getElementById('messages').innerHTML = '';
+            document.getElementById('results').innerHTML = '';
+            updateStatus('Logs cleared. Ready for new tests.', 'info');
+        }
+        
+        // Initial setup
+        window.onload = () => {
+            addMessage('system', `Real-time debug test initialized for booking: ${TEST_BOOKING_ID}`);
+            addMessage('system', 'Click "Test Real-time Subscription" to start monitoring');
+        };
+        
+        // Cleanup on page unload
+        window.onbeforeunload = () => {
+            if (subscription) {
+                supabaseClient.removeChannel(subscription);
+            }
+        };
+    </script>
+</body>
+</html>

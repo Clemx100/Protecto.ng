@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA Test - Protector.Ng</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#1e40af">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Protector.Ng">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.svg">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .test-section {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        button {
+            background: #1e40af;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 6px;
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        .error {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛡️ Protector.Ng PWA Test</h1>
+        <p>Testing Progressive Web App functionality</p>
+
+        <div class="test-section">
+            <h2>PWA Status</h2>
+            <div id="status" class="status">Checking...</div>
+            <button onclick="checkPWAStatus()">Check Status</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Install Test</h2>
+            <button id="installBtn" onclick="handleInstall()" disabled>Install App</button>
+            <div id="installStatus"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>Service Worker</h2>
+            <div id="swStatus">Checking...</div>
+            <button onclick="checkServiceWorker()">Check Service Worker</button>
+        </div>
+
+        <div class="test-section">
+            <h2>iOS Instructions</h2>
+            <button onclick="showIOSInstructions()">Show iOS Instructions</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Navigation</h2>
+            <button onclick="window.location.href='/'">Go to Main App</button>
+            <button onclick="window.location.href='/app'">Go to Client App</button>
+        </div>
+    </div>
+
+    <script>
+        let deferredPrompt;
+
+        // Check PWA status
+        function checkPWAStatus() {
+            const status = document.getElementById('status');
+            const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+            const isInApp = window.navigator.standalone === true;
+            
+            if (isStandalone || isInApp) {
+                status.innerHTML = '✅ App is installed and running in standalone mode';
+                status.className = 'status';
+            } else {
+                status.innerHTML = '📱 App is running in browser - can be installed';
+                status.className = 'status';
+            }
+        }
+
+        // Check service worker
+        function checkServiceWorker() {
+            const swStatus = document.getElementById('swStatus');
+            
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistration()
+                    .then(registration => {
+                        if (registration) {
+                            swStatus.innerHTML = '✅ Service Worker is registered';
+                            swStatus.className = 'status';
+                        } else {
+                            swStatus.innerHTML = '❌ Service Worker not registered';
+                            swStatus.className = 'status error';
+                        }
+                    });
+            } else {
+                swStatus.innerHTML = '❌ Service Worker not supported';
+                swStatus.className = 'status error';
+            }
+        }
+
+        // Handle install
+        function handleInstall() {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(choiceResult => {
+                    if (choiceResult.outcome === 'accepted') {
+                        document.getElementById('installStatus').innerHTML = '✅ Installation accepted!';
+                    } else {
+                        document.getElementById('installStatus').innerHTML = '❌ Installation dismissed';
+                    }
+                    deferredPrompt = null;
+                    document.getElementById('installBtn').disabled = true;
+                });
+            } else {
+                document.getElementById('installStatus').innerHTML = '❌ Install prompt not available';
+            }
+        }
+
+        // Show iOS instructions
+        function showIOSInstructions() {
+            alert(`To install on iOS Safari:
+1. Tap the Share button (square with arrow up)
+2. Scroll down and tap "Add to Home Screen"
+3. Tap "Add" to confirm
+
+The app will appear on your home screen!`);
+        }
+
+        // Listen for beforeinstallprompt
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            document.getElementById('installBtn').disabled = false;
+            document.getElementById('installStatus').innerHTML = '✅ Install prompt is available';
+        });
+
+        // Listen for app installed
+        window.addEventListener('appinstalled', () => {
+            document.getElementById('installStatus').innerHTML = '🎉 App installed successfully!';
+            document.getElementById('installBtn').disabled = true;
+        });
+
+        // Initialize
+        window.addEventListener('load', () => {
+            checkPWAStatus();
+            checkServiceWorker();
+            
+            // Register service worker if not already registered
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(registration => console.log('SW registered:', registration))
+                    .catch(error => console.log('SW registration failed:', error));
+            }
+        });
+    </script>
+</body>
+</html>

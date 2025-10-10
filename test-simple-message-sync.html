@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Message Sync Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 600;
+        }
+        
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin: 5px;
+        }
+        
+        button:hover { background: #2563eb; }
+        button:disabled { background: #6b7280; cursor: not-allowed; }
+        
+        .messages {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        .message {
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 5px;
+            background: white;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .operator-message { border-left-color: #10b981; background: #f0fdf4; }
+        .client-message { border-left-color: #3b82f6; background: #eff6ff; }
+        .system-message { border-left-color: #f59e0b; background: #fffbeb; }
+        
+        pre {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Simple Message Sync Test</h1>
+        <p>This test uses polling instead of real-time subscriptions to verify message sync works.</p>
+        
+        <div class="status info" id="status">
+            Ready to test message synchronization with polling method.
+        </div>
+        
+        <div>
+            <button onclick="startPolling()" id="startBtn">🔄 Start Message Polling</button>
+            <button onclick="sendTestMessage()" id="sendBtn" disabled>📤 Send Test Message</button>
+            <button onclick="stopPolling()" id="stopBtn" disabled>⏹️ Stop Polling</button>
+            <button onclick="clearLogs()">🗑️ Clear Logs</button>
+        </div>
+        
+        <div class="messages" id="messages"></div>
+        
+        <div id="results"></div>
+    </div>
+    
+    <script>
+        const TEST_BOOKING_ID = '49142142-006f-4f02-a022-848397ac31bf';
+        const API_BASE_URL = 'http://localhost:3000';
+        
+        let pollingInterval = null;
+        let lastMessageId = null;
+        let messageCount = 0;
+        
+        function updateStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+        }
+        
+        function addMessage(sender, message) {
+            const messages = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}-message`;
+            messageDiv.innerHTML = `
+                <strong>${sender.toUpperCase()}:</strong> ${message}
+                <small style="float: right; color: #666;">${new Date().toLocaleTimeString()}</small>
+            `;
+            messages.appendChild(messageDiv);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        function addResult(title, data) {
+            const results = document.getElementById('results');
+            const result = document.createElement('div');
+            result.innerHTML = `
+                <h3>${title}</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+            results.appendChild(result);
+            results.scrollTop = results.scrollHeight;
+        }
+        
+        async function startPolling() {
+            try {
+                updateStatus('🔄 Starting message polling...', 'info');
+                addMessage('system', 'Starting message polling every 2 seconds...');
+                
+                // Enable/disable buttons
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('sendBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = false;
+                
+                // Start polling
+                pollingInterval = setInterval(async () => {
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/api/messages?bookingId=${TEST_BOOKING_ID}`);
+                        const result = await response.json();
+                        
+                        if (response.ok && result.data && result.data.length > 0) {
+                            const latestMessage = result.data[result.data.length - 1];
+                            
+                            if (!lastMessageId) {
+                                lastMessageId = latestMessage.id;
+                                messageCount = result.data.length;
+                                addMessage('system', `📥 Found ${result.data.length} existing messages`);
+                                addMessage('system', `Latest message: "${latestMessage.message}" from ${latestMessage.sender_type}`);
+                            } else if (latestMessage.id !== lastMessageId) {
+                                // New message detected!
+                                const newMessages = result.data.slice(messageCount);
+                                newMessages.forEach(msg => {
+                                    addMessage('system', `🎉 NEW MESSAGE: "${msg.message}" from ${msg.sender_type}`);
+                                });
+                                lastMessageId = latestMessage.id;
+                                messageCount = result.data.length;
+                                updateStatus('🎉 NEW MESSAGES DETECTED! Message sync is working!', 'success');
+                            }
+                        }
+                    } catch (error) {
+                        addMessage('system', `Polling error: ${error.message}`);
+                    }
+                }, 2000); // Poll every 2 seconds
+                
+                updateStatus('✅ Message polling active! Send a message to test sync.', 'success');
+                
+            } catch (error) {
+                updateStatus('❌ Failed to start polling', 'error');
+                addMessage('system', `Error: ${error.message}`);
+            }
+        }
+        
+        async function sendTestMessage() {
+            try {
+                const message = {
+                    bookingId: TEST_BOOKING_ID,
+                    senderId: '9882762d-93e4-484c-b055-a14737f76cba',
+                    senderType: 'client',
+                    content: `🔄 POLLING TEST: ${new Date().toLocaleTimeString()}`,
+                    messageType: 'text'
+                };
+                
+                console.log('Sending message:', message);
+                
+                addMessage('client', `Sending: ${message.content}`);
+                
+                const response = await fetch(`${API_BASE_URL}/api/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(message)
+                });
+                
+                const result = await response.json();
+                
+                console.log('Response status:', response.status);
+                console.log('Response result:', result);
+                
+                if (response.ok) {
+                    addMessage('client', `✅ Message sent! ID: ${result.data.id}`);
+                    addResult('Send Result:', result);
+                    updateStatus('✅ Message sent! Watch for polling detection above.', 'success');
+                } else {
+                    addMessage('client', `❌ Failed to send: ${result.error || 'Unknown error'}`);
+                    addMessage('client', `Status: ${response.status}, Details: ${result.details || 'No details'}`);
+                    addResult('Send Error:', result);
+                    updateStatus('❌ Failed to send message', 'error');
+                }
+            } catch (error) {
+                addMessage('client', `Error: ${error.message}`);
+                updateStatus('❌ Network error', 'error');
+            }
+        }
+        
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+                updateStatus('⏹️ Message polling stopped.', 'info');
+                addMessage('system', 'Message polling stopped.');
+                
+                // Re-enable start button
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('sendBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = true;
+            }
+        }
+        
+        function clearLogs() {
+            document.getElementById('messages').innerHTML = '';
+            document.getElementById('results').innerHTML = '';
+            updateStatus('Logs cleared. Ready for new tests.', 'info');
+        }
+        
+        // Initial setup
+        window.onload = () => {
+            addMessage('system', `Simple message sync test initialized for booking: ${TEST_BOOKING_ID}`);
+            addMessage('system', 'This test uses polling instead of real-time subscriptions');
+            addMessage('system', 'Click "Start Message Polling" to begin monitoring for new messages');
+        };
+        
+        // Cleanup on page unload
+        window.onbeforeunload = () => {
+            stopPolling();
+        };
+    </script>
+</body>
+</html>

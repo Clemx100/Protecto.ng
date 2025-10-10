@@ -1,21 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireOperatorAuth } from '@/lib/auth/operatorAuth'
 
 export async function GET(request: NextRequest) {
   try {
-    console.log('🔍 Real operator bookings API called')
+    console.log('🔍 Operator bookings API called')
+    
+    // ✅ SECURITY: Verify operator authentication
+    const authResult = await requireOperatorAuth(request)
+    if (authResult.error) {
+      console.log('❌ Unauthorized access attempt to operator bookings')
+      return authResult.response
+    }
+    
+    console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
     
     // Import Supabase client dynamically
     const { createClient } = await import('@supabase/supabase-js')
     
     // Use service role for real API to bypass RLS
     const supabase = createClient(
-      'https://mjdbhusnplveeaveeovd.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
+      'https://kifcevffaputepvpjpip.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
     )
-    
-    // For now, skip authentication check to allow operator dashboard to work
-    // TODO: Implement proper operator authentication later
-    console.log('⚠️ Skipping authentication for operator dashboard compatibility')
 
     // Get all bookings with client details
     const { data: bookings, error: bookingsError } = await supabase
@@ -151,29 +157,49 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const supabase = await createClient()
+    console.log('🔄 Operator booking PATCH API called')
     
-    // Check if user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // ✅ SECURITY: Verify operator authentication
+    const authResult = await requireOperatorAuth(request)
+    if (authResult.error) {
+      console.log('❌ Unauthorized access attempt to update booking')
+      return authResult.response
     }
-
-    // Check if user is operator or admin
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || (profile.role !== 'operator' && profile.role !== 'admin')) {
-      return NextResponse.json({ error: 'Forbidden - Operator access required' }, { status: 403 })
-    }
+    
+    console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
+    
+    // Import Supabase client dynamically
+    const { createClient } = await import('@supabase/supabase-js')
+    
+    // Use service role for real API to bypass RLS
+    const supabase = createClient(
+      'https://kifcevffaputepvpjpip.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
+    )
 
     const { bookingId, updates } = await request.json()
 
     if (!bookingId) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 })
+    }
+
+    // First, resolve booking ID if it's a booking code
+    let actualBookingId = bookingId
+    if (bookingId.startsWith('REQ')) {
+      console.log('🔍 Looking up booking by code:', bookingId)
+      const { data: booking, error: bookingError } = await supabase
+        .from('bookings')
+        .select('id')
+        .eq('booking_code', bookingId)
+        .single()
+      
+      if (bookingError || !booking) {
+        console.error('❌ Booking not found:', bookingError)
+        return NextResponse.json({ error: 'Booking not found' }, { status: 404 })
+      }
+      
+      actualBookingId = booking.id
+      console.log('✅ Found booking UUID:', actualBookingId)
     }
 
     // Update booking
@@ -183,7 +209,7 @@ export async function PATCH(request: NextRequest) {
         ...updates,
         updated_at: new Date().toISOString()
       })
-      .eq('id', bookingId)
+      .eq('id', actualBookingId)
       .select()
       .single()
 
@@ -191,6 +217,8 @@ export async function PATCH(request: NextRequest) {
       console.error('Error updating booking:', updateError)
       return NextResponse.json({ error: 'Failed to update booking' }, { status: 500 })
     }
+
+    console.log('✅ Booking updated successfully:', updatedBooking.id)
 
     return NextResponse.json({
       success: true,
