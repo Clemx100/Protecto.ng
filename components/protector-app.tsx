@@ -2119,7 +2119,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             </button>
             <div className="text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
-                <Shield className="h-8 w-8 text-blue-400" />
+                <img 
+                  src="/protector-logo.svg" 
+                  alt="Protector.NG" 
+                  className="h-10 w-10"
+                />
                 <h1 className="text-2xl font-bold text-white">Protector.Ng</h1>
               </div>
               <h2 className="text-lg font-medium text-gray-300">
@@ -3021,7 +3025,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           <div className="flex-1 flex flex-col justify-center items-center p-6 space-y-8">
             <div className="text-center space-y-4">
               <div className="flex items-center justify-center gap-2 mb-6">
-                <Shield className="h-8 w-8 text-white" />
+                <img 
+                  src="/protector-logo.svg" 
+                  alt="Protector.NG" 
+                  className="h-10 w-10"
+                />
                 <h1 className="text-2xl font-bold">Protector.ng</h1>
               </div>
 
@@ -3110,7 +3118,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <Shield className="h-6 w-6 text-white" />
+                <img 
+                  src="/protector-logo.svg" 
+                  alt="Protector.NG" 
+                  className="h-8 w-8"
+                />
                 <h1 className="text-xl font-bold">Protector.ng</h1>
               </div>
               {user && (

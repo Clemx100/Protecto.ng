@@ -1,15 +1,55 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="192" height="192" viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background Circle with padding -->
-  <circle cx="96" cy="96" r="76.8" fill="#1e40af"/>
+<svg width="192" height="192" viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="shieldGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#3a3a3a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1a1a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="borderGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c0c0c0;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#e8e8e8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a0a0a0;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="barGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#404040;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#2a2a2a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#404040;stop-opacity:1" />
+    </linearGradient>
+  </defs>
   
-  <!-- Shield Icon -->
-  <path d="M49.92 42.24 L96 34.56 L142.08 42.24 L142.08 80.64 C142.08 119.04 96 142.07999999999998 96 142.07999999999998 C96 142.07999999999998 49.92 119.04 49.92 80.64 Z" fill="white"/>
+  <!-- Safe Zone Background -->
+  <circle cx="96" cy="96" r="96" fill="#0f172a"/>
   
-  <!-- Security Symbol -->
-  <circle cx="96" cy="88.32000000000001" r="12.288" fill="#1e40af"/>
-  <path d="M83.712 88.32000000000001 L89.856 94.464 L108.288 76.03200000000001" stroke="white" stroke-width="3.072" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Outer Shield Border (Safe Zone) -->
+  <path d="M 30 40 Q 96 25 162 40 Q 172 50 172 70 Q 172 140 162 160 Q 157 170 152 175 Q 142 180 132 185 Q 122 190 112 185 Q 102 180 92 175 Q 82 170 72 165 Q 62 160 52 155 Q 47 150 42 140 Q 32 120 32 50 Q 32 40 30 40 Z" 
+        fill="url(#borderGradient)" 
+        stroke="#d0d0d0" 
+        stroke-width="3"/>
   
-  <!-- Text -->
-  <text x="96" y="134.39999999999998" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="18.432" font-weight="bold">P.NG</text>
+  <!-- Main Shield Body -->
+  <path d="M 35 45 Q 96 32 157 45 Q 167 55 167 75 Q 167 145 157 165 Q 152 175 147 180 Q 137 185 127 190 Q 117 185 107 180 Q 97 175 87 170 Q 77 165 67 160 Q 62 155 57 145 Q 47 125 47 55 Q 47 45 35 45 Z" 
+        fill="url(#shieldGradient)"/>
+  
+  <!-- Inner Shield Outline -->
+  <path d="M 40 50 Q 96 38 152 50 Q 162 60 162 80 Q 162 150 152 170 Q 147 180 142 185 Q 132 190 122 185 Q 112 180 102 175 Q 92 170 82 165 Q 72 160 67 150 Q 62 140 62 80 Q 62 60 40 50 Z" 
+        fill="none" 
+        stroke="#c0c0c0" 
+        stroke-width="2"/>
+  
+  <!-- Central Horizontal Bar -->
+  <rect x="52" y="120" width="88" height="24" rx="2" fill="url(#barGradient)" stroke="#505050" stroke-width="1"/>
+  
+  <!-- PROTECTOR.NG Text -->
+  <text x="96" y="137" font-family="Arial, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" fill="white">PROTECTOR.NG</text>
+  
+  <!-- Bottom Red Chevrons -->
+  <g fill="#dc2626">
+    <!-- Left Chevron -->
+    <path d="M 70 150 L 82 165 L 94 150 L 90 147 L 78 160 L 66 147 Z"/>
+    
+    <!-- Center Chevron -->
+    <path d="M 90 150 L 106 165 L 122 150 L 118 147 L 102 160 L 86 147 Z"/>
+    
+    <!-- Right Chevron -->
+    <path d="M 110 150 L 122 165 L 134 150 L 130 147 L 118 160 L 106 147 Z"/>
+  </g>
 </svg>
