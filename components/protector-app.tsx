@@ -3079,10 +3079,22 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               </span>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
-              <Shield className="h-6 w-6 text-white" />
-              <h1 className="text-xl font-bold">Protector.ng</h1>
-            </div>
+            <>
+              <div className="flex items-center gap-2">
+                <Shield className="h-6 w-6 text-white" />
+                <h1 className="text-xl font-bold">Protector.ng</h1>
+              </div>
+              {user && (
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={handleLogout}
+                  className="text-red-400 hover:text-red-300 hover:bg-red-950/30 text-xs"
+                >
+                  Logout
+                </Button>
+              )}
+            </>
           )}
         </div>
       </header>
@@ -4943,46 +4955,41 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               </Button>
             </div>
 
+            {/* User Welcome Card */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-6">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
+                  <span className="text-white text-2xl font-bold">
+                    {userProfile.firstName.charAt(0)}
+                    {userProfile.lastName.charAt(0)}
+                  </span>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-semibold text-white">
+                    Welcome, {userProfile.firstName}!
+                  </h3>
+                  <p className="text-blue-100 text-sm">{userProfile.email}</p>
+                  {user && user.email_confirmed_at && (
+                    <div className="flex items-center gap-1 mt-1 text-green-200 text-xs">
+                      <CheckCircle className="w-3 h-3" />
+                      <span>Verified Account</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Profile Information */}
             <div className="bg-gray-900 rounded-lg p-6 space-y-4">
               {/* Profile Header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center">
-                    <span className="text-white text-xl font-bold">
-                      {userProfile.firstName.charAt(0)}
-                      {userProfile.lastName.charAt(0)}
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-semibold text-white">
-                      {userProfile.firstName} {userProfile.lastName}
-                    </h3>
-                    <p className="text-gray-400">{userProfile.email}</p>
-                    {/* Email Verification Status */}
-                    {user && (
-                      <div className="mt-2">
-                        {user.email_confirmed_at ? (
-                          <div className="flex items-center gap-1 text-green-400 text-xs">
-                            <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                            <span>Email verified</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 text-yellow-400 text-xs">
-                            <div className="w-2 h-2 bg-yellow-400 rounded-full"></div>
-                            <span>Email verification pending</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Personal Information</h3>
                 {!isEditingProfile && (
                   <Button
                     onClick={startEditingProfile}
                     className="bg-gray-700 text-white hover:bg-gray-600 px-4 py-2 text-sm"
                   >
-                    Edit
+                    Edit Profile
                   </Button>
                 )}
               </div>
@@ -5144,6 +5151,20 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   </button>
                 </div>
               </div>
+
+              {/* Logout Section */}
+              <div className="bg-red-950/20 border border-red-900/30 rounded-lg p-4">
+                <h4 className="text-red-400 font-medium mb-2">Danger Zone</h4>
+                <p className="text-gray-400 text-sm mb-3">
+                  Once you logout, you'll need to sign in again to access your account.
+                </p>
+                <Button 
+                  onClick={handleLogout}
+                  className="w-full bg-red-600 text-white hover:bg-red-700 font-semibold py-3"
+                >
+                  Logout from Account
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -5209,8 +5230,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           )}
 
           <button
-            onClick={() => router.push('/account')}
-            className="flex flex-col items-center justify-center gap-1 text-gray-400 hover:text-blue-500"
+            onClick={() => setActiveTab('account')}
+            className={`flex flex-col items-center justify-center gap-1 ${
+              activeTab === "account" ? "text-blue-500" : "text-gray-400"
+            }`}
           >
             <User className="h-5 w-5" />
             <span className="text-xs">Account</span>
