@@ -664,8 +664,9 @@ export default function ProtectorApp() {
         if (session.user.email_confirmed_at) {
           setShowLoginForm(false)
           setIsLoggedIn(true)
-          // If we were on email verification step, move to profile
-          if (authStep === "email-verification") {
+          // If we were on email verification step AND this is not a fresh signup, move to profile
+          // For fresh signups, the callback route handles logout and redirect to login
+          if (authStep === "email-verification" && event !== "SIGNED_OUT") {
             setAuthStep("profile")
             setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
           }
@@ -773,6 +774,7 @@ export default function ProtectorApp() {
     const checkEmailVerification = () => {
       const urlParams = new URLSearchParams(window.location.search)
       const verified = urlParams.get('verified')
+      const email = urlParams.get('email')
       const type = urlParams.get('type')
       const error = urlParams.get('error')
       
@@ -783,7 +785,23 @@ export default function ProtectorApp() {
         return
       }
       
-      if (verified === 'true' || type === 'signup') {
+      if (verified === 'true') {
+        // Email was just verified - show login form with success message
+        setShowLoginForm(true)
+        setAuthStep("login")
+        setAuthSuccess("✅ Email verified successfully! Please log in with your credentials to continue.")
+        
+        // Pre-fill email if available
+        if (email) {
+          setAuthForm((prev) => ({ ...prev, email: decodeURIComponent(email) }))
+        }
+        
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname)
+        return
+      }
+      
+      if (type === 'signup') {
         // Clear URL parameters
         window.history.replaceState({}, document.title, window.location.pathname)
         setAuthSuccess("✅ Email verified successfully! Please complete your profile.")
@@ -1831,7 +1849,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           email: authForm.email.trim().toLowerCase(),
           password: authForm.password,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            emailRedirectTo: `${window.location.origin}/auth/callback?type=signup`,
             data: {
               first_name: authForm.firstName,
               last_name: authForm.lastName,

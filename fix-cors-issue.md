@@ -100,3 +100,4 @@ If you can't find the CORS settings in Supabase:
 
 Let me know what you find in the Supabase dashboard!
 
+
