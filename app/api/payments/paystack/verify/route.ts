@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
         "💰 Payment received! Client has paid for the protection service. Ready for deployment.",
         'system',
         'system',
-        { isSystemMessage: true, notifyOperator: true }
+        { isSystemMessage: true }
       )
 
       return NextResponse.json({
