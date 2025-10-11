@@ -3078,6 +3078,35 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 {selectedService === "car-only" ? "Call Instead" : "Book Protection"}
               </span>
             </div>
+          ) : activeTab === "account" || activeTab === "bookings" || activeTab === "chat" || activeTab === "operator" ? (
+            <div className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-3">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => setActiveTab("protector")} 
+                  className="text-white hover:bg-gray-800"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </Button>
+                <h2 className="text-lg font-semibold">
+                  {activeTab === "account" && "My Account"}
+                  {activeTab === "bookings" && "My Bookings"}
+                  {activeTab === "chat" && "Messages"}
+                  {activeTab === "operator" && "Operator Dashboard"}
+                </h2>
+              </div>
+              {user && (
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={handleLogout}
+                  className="text-red-400 hover:text-red-300 hover:bg-red-950/30 text-xs"
+                >
+                  Logout
+                </Button>
+              )}
+            </div>
           ) : (
             <>
               <div className="flex items-center gap-2">
