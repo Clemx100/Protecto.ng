@@ -551,55 +551,57 @@ export default function ProtectorApp() {
     }
   }
 
-  // Handle invoice approval
+  // Handle invoice approval - redirect to Paystack
   const handleApprovePayment = async () => {
     if (!selectedChatBooking || !chatInvoiceData || !user) return
 
     try {
       setIsSendingMessage(true)
       
-      // Send approval message
-      const approvalMessage = await unifiedChatService.sendMessage(
-        selectedChatBooking.id,
-        "✅ Payment approved! Please proceed with the service.",
-        'client',
-        user.id
-      )
+      // Prepare payment data
+      const paymentData = {
+        amount: chatInvoiceData.totalAmount,
+        email: user.email || 'client@protector.ng',
+        bookingId: selectedChatBooking.id,
+        customerName: `${user.user_metadata?.first_name || ''} ${user.user_metadata?.last_name || ''}`.trim() || 'Protector Client',
+        currency: 'NGN'
+      }
 
-      // Send status update message
-      const statusMessage = await unifiedChatService.sendMessage(
-        selectedChatBooking.id,
-        "🔄 Status updated: Payment approved → Ready for deployment",
-        'system',
-        user.id,
-        { isSystemMessage: true }
-      )
+      console.log('💳 Initiating Paystack payment:', paymentData)
 
-      // Add to local state
-      setChatMessages(prev => [...prev, approvalMessage, statusMessage])
-      
-      // Update booking status in localStorage
-      const storedBookings = JSON.parse(localStorage.getItem('user_bookings') || '[]')
-      const updatedBookings = storedBookings.map((booking: any) => 
-        booking.id === selectedChatBooking.id 
-          ? { 
-              ...booking, 
-              status: 'accepted',
-              payment_approved: true,
-              payment_approved_at: new Date().toISOString()
-            }
-          : booking
-      )
-      localStorage.setItem('user_bookings', JSON.stringify(updatedBookings))
-      
-      // Update selected booking state
-      setSelectedChatBooking({ ...selectedChatBooking, status: 'accepted' })
-      
-      setShowChatInvoice(false)
-      setChatInvoiceData(null)
+      // Create Paystack payment
+      const response = await fetch('/api/payments/paystack/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(paymentData),
+      })
+
+      const result = await response.json()
+
+      if (result.success && result.authorization_url) {
+        // Send message indicating payment is being processed
+        const paymentMessage = await unifiedChatService.sendMessage(
+          selectedChatBooking.id,
+          "💳 Redirecting to secure payment gateway...",
+          'client',
+          user.id
+        )
+        setChatMessages(prev => [...prev, paymentMessage])
+        
+        // Redirect to Paystack
+        window.open(result.authorization_url, '_blank')
+        
+        setShowChatInvoice(false)
+        setChatInvoiceData(null)
+      } else {
+        throw new Error(result.error || 'Failed to initialize payment')
+      }
       
     } catch (error: any) {
-      console.error("Error approving payment:", error)
+      console.error("Error initiating payment:", error)
+      alert(`Payment Error: ${error.message || 'Failed to process payment. Please try again.'}`)
     } finally {
       setIsSendingMessage(false)
     }

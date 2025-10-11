@@ -71,28 +71,28 @@ export class UnifiedChatService {
         }
       }
       
-      // If not found, try to fetch from API
-      try {
-        const response = await fetch(`/api/operator/bookings`)
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success) {
-            const booking = result.data.find((b: any) => b.database_id === bookingIdentifier)
-            if (booking) {
-              const mapping: BookingMapping = {
-                booking_code: booking.booking_code,
-                database_id: booking.database_id,
-                client_id: booking.client_id
-              }
-              this.bookingMappings.set(booking.booking_code, mapping)
-              this.saveBookingMappings()
-              return mapping
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Failed to fetch booking mapping:', error)
-      }
+      // If not found, try to fetch from API (DISABLED to prevent chat issues)
+      // try {
+      //   const response = await fetch(`/api/operator/bookings`)
+      // if (response.ok) {
+      //   const result = await response.json()
+      //   if (result.success) {
+      //       const booking = result.data.find((b: any) => b.database_id === bookingIdentifier)
+      //       if (booking) {
+      //         const mapping: BookingMapping = {
+      //           booking_code: booking.booking_code,
+      //           database_id: booking.database_id,
+      //           client_id: booking.client_id
+      //         }
+      //         this.bookingMappings.set(booking.booking_code, mapping)
+      //         this.saveBookingMappings()
+      //         return mapping
+      //       }
+      //     }
+      //   }
+      // } catch (error) {
+      //   console.error('Failed to fetch booking mapping:', error)
+      // }
       
       return null
     }
@@ -102,30 +102,30 @@ export class UnifiedChatService {
       return this.bookingMappings.get(bookingIdentifier)!
     }
 
-    // Try to find the mapping from API
-    try {
-      const response = await fetch(`/api/operator/bookings`)
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success) {
-          const booking = result.data.find((b: any) => 
-            b.booking_code === bookingIdentifier || b.database_id === bookingIdentifier
-          )
-          if (booking) {
-            const mapping: BookingMapping = {
-              booking_code: booking.booking_code,
-              database_id: booking.database_id,
-              client_id: booking.client_id
-            }
-            this.bookingMappings.set(booking.booking_code, mapping)
-            this.saveBookingMappings()
-            return mapping
-          }
-        }
-      }
-    } catch (error) {
-      console.error('Failed to fetch booking mapping:', error)
-    }
+    // Try to find the mapping from API (DISABLED to prevent chat issues)
+    // try {
+    //   const response = await fetch(`/api/operator/bookings`)
+    //   if (response.ok) {
+    //     const result = await response.json()
+    //     if (result.success) {
+    //       const booking = result.data.find((b: any) => 
+    //         b.booking_code === bookingIdentifier || b.database_id === bookingIdentifier
+    //       )
+    //       if (booking) {
+    //         const mapping: BookingMapping = {
+    //           booking_code: booking.booking_code,
+    //           database_id: booking.database_id,
+    //           client_id: booking.client_id
+    //         }
+    //         this.bookingMappings.set(booking.booking_code, mapping)
+    //         this.saveBookingMappings()
+    //         return mapping
+    //       }
+    //     }
+    //   }
+    // } catch (error) {
+    //   console.error('Failed to fetch booking mapping:', error)
+    // }
 
     return null
   }
@@ -219,12 +219,15 @@ export class UnifiedChatService {
 
   // Get messages for a booking
   async getMessages(bookingIdentifier: string): Promise<UnifiedChatMessage[]> {
+    console.log('🔍 Getting messages for booking:', bookingIdentifier)
+    
     const mapping = await this.getBookingMapping(bookingIdentifier)
     if (!mapping) {
       console.warn('Booking mapping not found, using identifier directly')
     }
 
     const bookingId = mapping?.database_id || bookingIdentifier
+    console.log('🔍 Using booking ID:', bookingId)
 
     try {
       // Try API first
@@ -233,6 +236,7 @@ export class UnifiedChatService {
         const result = await response.json()
         if (result.success) {
           const messages = result.data.map((msg: any) => this.convertToUnifiedMessage(msg, mapping))
+          console.log('📨 API returned', messages.length, 'messages')
           
           // Store in localStorage
           this.storeMessages(bookingId, messages)
@@ -244,7 +248,9 @@ export class UnifiedChatService {
     }
 
     // Fallback to localStorage
-    return this.getStoredMessages(bookingId)
+    const storedMessages = this.getStoredMessages(bookingId)
+    console.log('📨 localStorage returned', storedMessages.length, 'messages')
+    return storedMessages
   }
 
   // Subscribe to real-time messages
@@ -282,6 +288,8 @@ export class UnifiedChatService {
             const mapping = await this.getBookingMapping(bookingIdentifier)
             const unifiedMessage = this.convertToUnifiedMessage(msg, mapping)
             
+            console.log('📨 Converted message:', unifiedMessage)
+            
             // Store in localStorage
             this.storeMessage(unifiedMessage)
             
@@ -291,9 +299,9 @@ export class UnifiedChatService {
       .subscribe((status) => {
         console.log('📡 Subscription status:', status)
         if (status === 'SUBSCRIBED') {
-          console.log('✅ Real-time subscription active')
+          console.log('✅ Real-time subscription active for booking:', bookingIdentifier)
         } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Real-time subscription failed')
+          console.error('❌ Real-time subscription failed for booking:', bookingIdentifier)
         }
       })
 

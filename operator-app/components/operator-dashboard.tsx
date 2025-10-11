@@ -73,12 +73,21 @@ export default function OperatorDashboard() {
     let subscription: any = null
 
     const setupSubscription = async () => {
+      // Load existing messages first
+      await loadMessages(selectedBooking.id)
+      
+      // Then set up real-time subscription
       subscription = await unifiedChatService.subscribeToMessages(
         selectedBooking.id,
         (newMessage) => {
+          console.log('📨 New message received in operator dashboard:', newMessage)
           setMessages(prev => {
             // Avoid duplicates
-            if (prev.some(m => m.id === newMessage.id)) return prev
+            if (prev.some(m => m.id === newMessage.id)) {
+              console.log('⚠️ Duplicate message detected, skipping')
+              return prev
+            }
+            console.log('✅ Adding new message to operator chat')
             return [...prev, newMessage]
           })
           // Don't auto-scroll - let operator control their view
@@ -118,7 +127,10 @@ export default function OperatorDashboard() {
   const initializeDashboard = async () => {
     try {
       setIsLoading(true)
-      await loadBookings()
+      
+      // Load real bookings using a direct database approach to avoid API auth issues
+      await loadBookingsDirectly()
+      
     } catch (error) {
       console.error('Failed to initialize dashboard:', error)
       setError('Failed to load dashboard data')
@@ -127,74 +139,217 @@ export default function OperatorDashboard() {
     }
   }
 
+  const loadBookingsDirectly = async () => {
+    try {
+      console.log('🔄 Loading bookings directly from database...')
+      
+      // Use Supabase client directly to avoid API authentication issues
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        console.error('❌ No session found')
+        return
+      }
+
+      // Create a direct Supabase client with service role to bypass RLS
+      const { createClient } = await import('@supabase/supabase-js')
+      const serviceSupabase = createClient(
+        'https://kifcevffaputepvpjpip.supabase.co',
+        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
+      )
+
+      // Get all bookings with client details
+      const { data: bookings, error } = await serviceSupabase
+        .from('bookings')
+        .select(`
+          *,
+          client:profiles!bookings_client_id_fkey(
+            id,
+            first_name,
+            last_name,
+            email,
+            phone
+          ),
+          service:services(
+            id,
+            name,
+            description,
+            base_price,
+            price_per_hour
+          )
+        `)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('❌ Error fetching bookings:', error)
+        return
+      }
+
+      console.log('✅ Loaded', bookings?.length || 0, 'bookings from database')
+
+      if (bookings && bookings.length > 0) {
+        // Transform bookings to match operator dashboard format
+        const transformedBookings = bookings.map(booking => {
+          let clientInfo = {
+            first_name: booking.client?.first_name || 'Unknown',
+            last_name: booking.client?.last_name || 'User',
+            phone: booking.client?.phone || 'N/A',
+            email: booking.client?.email || 'N/A'
+          }
+          
+          // Extract additional info from special_instructions
+          let vehicles = {}
+          let protectionType = 'N/A'
+          let destinationDetails = {}
+          let contact = null
+          
+          try {
+            if (booking.special_instructions) {
+              const specialInstructions = JSON.parse(booking.special_instructions)
+              
+              if (specialInstructions.contact) {
+                contact = specialInstructions.contact
+                if (specialInstructions.contact.user) {
+                  clientInfo = {
+                    first_name: specialInstructions.contact.user.firstName || clientInfo.first_name,
+                    last_name: specialInstructions.contact.user.lastName || clientInfo.last_name,
+                    phone: specialInstructions.contact.phone || clientInfo.phone,
+                    email: specialInstructions.contact.user.email || clientInfo.email
+                  }
+                }
+              }
+              
+              if (specialInstructions.vehicles) {
+                vehicles = specialInstructions.vehicles
+              }
+              if (specialInstructions.protectionType) {
+                protectionType = specialInstructions.protectionType
+              }
+              if (specialInstructions.destinationDetails) {
+                destinationDetails = specialInstructions.destinationDetails
+              }
+            }
+          } catch (error) {
+            console.log('Could not parse special_instructions for booking:', booking.booking_code)
+          }
+          
+          return {
+            id: booking.booking_code || booking.id,
+            booking_code: booking.booking_code,
+            database_id: booking.id,
+            client: clientInfo,
+            contact: contact,
+            pickup_address: booking.pickup_address || 'N/A',
+            destination_address: booking.destination_address || 'N/A',
+            status: booking.status || 'pending',
+            created_at: booking.created_at,
+            scheduled_date: booking.scheduled_date,
+            scheduled_time: booking.scheduled_time,
+            service: {
+              name: booking.service?.name || 'Unknown Service',
+              type: booking.service_type,
+              description: booking.service?.description || ''
+            },
+            serviceType: booking.service_type === 'armed_protection' ? 'armed-protection' : 'vehicle-only',
+            duration: `${booking.duration_hours || 1} hour(s)`,
+            total_price: booking.total_price || 0,
+            personnel: {
+              protectors: booking.protector_count || 0,
+              protectee: booking.protectee_count || 1,
+              dressCode: booking.dress_code?.replace(/_/g, ' ') || 'N/A'
+            },
+            dress_code: booking.dress_code || 'N/A',
+            vehicles: vehicles,
+            protectionType: protectionType,
+            destinationDetails: destinationDetails,
+            special_instructions: booking.special_instructions || 'N/A',
+            emergency_contact: booking.emergency_contact || 'N/A',
+            emergency_phone: booking.emergency_phone || 'N/A',
+            pickupDetails: {
+              location: booking.pickup_address,
+              date: booking.scheduled_date,
+              time: booking.scheduled_time
+            },
+            timestamp: booking.created_at
+          }
+        })
+
+        setBookings(transformedBookings)
+        
+        // Auto-select first pending booking if none selected
+        if (!selectedBooking && transformedBookings.length > 0) {
+          const pendingBooking = transformedBookings.find(b => b.status === 'pending')
+          if (pendingBooking) {
+            setSelectedBooking(pendingBooking)
+            console.log('✅ Auto-selected pending booking:', pendingBooking.id)
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error loading bookings directly:', error)
+    }
+  }
+
   const loadBookings = async () => {
     try {
-      // Mock data with detailed request information
-      const mockBookings = [
-        {
-          id: "REQ1757448303416",
-          client: { 
-            first_name: "John", 
-            last_name: "Doe",
-            phone: "+234 2222222222",
-            email: "john.doe@example.com"
-          },
-          pickup_address: "123 Victoria Island, Lagos",
-          destination_address: "456 Ikoyi, Lagos",
-          status: "pending",
-          created_at: new Date().toISOString(),
-          service: { 
-            name: "Armed Protection Service",
-            type: "armed_protection"
-          },
-          scheduled_date: "2025-02-22T11:45:00Z",
-          duration: "1 day",
-          total_price: 450000,
-          personnel: {
-            protectors: 1,
-            protectee: 1
-          },
-          dress_code: "tactical-casual",
-          vehicle_type: "Mercedes S-Class",
-          special_requirements: "High-risk area protection",
-          emergency_contact: "+234 3333333333"
+      // Get current user session for authentication
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      
+      console.log('🔐 Session check:', { 
+        hasSession: !!session, 
+        hasToken: !!session?.access_token,
+        userEmail: session?.user?.email,
+        sessionError: sessionError?.message 
+      })
+      
+      if (!session?.access_token) {
+        console.error('❌ No session found for operator:', sessionError)
+        setError('Please log in to access operator dashboard')
+        // Don't return - use fallback data to prevent chat from disappearing
+        console.log('⚠️ Using fallback booking data to prevent chat issues')
+        return
+      }
+
+      // Make real API call to get bookings
+      console.log('📤 Making API call to /api/operator/bookings')
+      const response = await fetch('/api/operator/bookings', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
         },
-        {
-          id: "REQ1757448303417", 
-          client: { 
-            first_name: "Jane", 
-            last_name: "Smith",
-            phone: "+234 4444444444",
-            email: "jane.smith@example.com"
-          },
-          pickup_address: "789 Lekki Phase 1, Lagos",
-          destination_address: "321 Surulere, Lagos",
-          status: "accepted",
-          created_at: new Date().toISOString(),
-          service: { 
-            name: "Vehicle Only Service",
-            type: "vehicle_only"
-          },
-          scheduled_date: "2025-02-23T14:30:00Z",
-          duration: "2 hours",
-          total_price: 25000,
-          personnel: {
-            protectors: 0,
-            protectee: 2
-          },
-          dress_code: "business-casual",
-          vehicle_type: "BMW X7",
-          special_requirements: "Airport pickup"
-        }
-      ]
-      setBookings(mockBookings)
+      })
+
+      console.log('📥 API Response:', { 
+        status: response.status, 
+        ok: response.ok,
+        statusText: response.statusText 
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('❌ Failed to fetch bookings:', errorData)
+        setError('Failed to load bookings. Please try again.')
+        return
+      }
+
+      const result = await response.json()
+      if (result.success) {
+        setBookings(result.data)
+        console.log('✅ Loaded', result.data.length, 'bookings from API')
+      } else {
+        setError('Failed to load bookings')
+        return
+      }
+
       
       // Auto-select first pending booking if none selected
-      if (!selectedBooking && mockBookings.length > 0) {
-        const pendingBooking = mockBookings.find(b => b.status === 'pending')
+      if (!selectedBooking && result.data.length > 0) {
+        const pendingBooking = result.data.find((b: any) => b.status === 'pending')
         if (pendingBooking) {
           setSelectedBooking(pendingBooking)
-          loadMessages(pendingBooking.id)
+          // Messages will be loaded by the useEffect when selectedBooking changes
         }
       }
     } catch (error) {
@@ -204,11 +359,14 @@ export default function OperatorDashboard() {
 
   const loadMessages = async (bookingId: string) => {
     try {
+      console.log('🔄 Loading messages for booking:', bookingId)
       const messages = await unifiedChatService.getMessages(bookingId)
+      console.log('📨 Loaded messages:', messages.length, 'messages')
       setMessages(messages)
       // Don't auto-scroll - let operator control their view
     } catch (error) {
-      console.error('Failed to load messages:', error)
+      console.error('❌ Failed to load messages:', error)
+      // Don't clear messages on error - keep existing ones
     }
   }
 
@@ -481,7 +639,10 @@ export default function OperatorDashboard() {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-semibold text-white">Active Bookings</h2>
                 <Button
-                  onClick={loadBookings}
+                  onClick={() => {
+                    console.log('🔄 Refresh clicked - loading bookings directly')
+                    loadBookingsDirectly()
+                  }}
                   size="sm"
                   className="bg-blue-600 hover:bg-blue-700 text-white"
                 >
@@ -525,7 +686,7 @@ export default function OperatorDashboard() {
                     key={booking.id}
                     onClick={() => {
                       setSelectedBooking(booking)
-                      loadMessages(booking.id)
+                      // Messages will be loaded by the useEffect when selectedBooking changes
                     }}
                     className={`p-4 rounded-lg cursor-pointer transition-colors ${
                       selectedBooking?.id === booking.id

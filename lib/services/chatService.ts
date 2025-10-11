@@ -150,22 +150,24 @@ export class ChatService {
       if (!response.ok && bookingId.startsWith('REQ')) {
         console.log('Booking code detected, trying to find database ID...')
         try {
-          const bookingsResponse = await fetch('/api/operator/bookings')
-          if (bookingsResponse.ok) {
-            const bookingsData = await bookingsResponse.json()
-            if (bookingsData.success) {
-              const booking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
-              if (booking && booking.database_id) {
-                console.log('Found database ID for booking code:', booking.database_id)
-                response = await fetch(`/api/operator/messages?bookingId=${booking.database_id}`, {
-                  method: 'GET',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
-                })
-              }
-            }
-          }
+          // DISABLED to prevent chat issues
+          console.log('⚠️ Skipping booking lookup to prevent chat disappearing')
+          // const bookingsResponse = await fetch('/api/operator/bookings')
+          // if (bookingsResponse.ok) {
+          //   const bookingsData = await bookingsResponse.json()
+          //   if (bookingsData.success) {
+          //     const booking = bookingsData.data.find((b: any) => b.booking_code === bookingId)
+          //     if (booking && booking.database_id) {
+          //       console.log('Found database ID for booking code:', booking.database_id)
+          //       response = await fetch(`/api/operator/messages?bookingId=${booking.database_id}`, {
+          //         method: 'GET',
+          //         headers: {
+          //           'Content-Type': 'application/json',
+          //         },
+          //       })
+          //     }
+          //   }
+          // }
         } catch (error) {
           console.log('Failed to find database ID:', error)
         }
