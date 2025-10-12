@@ -114,6 +114,12 @@ function HomePageContent() {
                 >
                   Request Protection
                 </Link>
+                <Link 
+                  href="/history"
+                  className="px-4 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-colors font-medium text-center"
+                >
+                  Booking History
+                </Link>
               </nav>
             </div>
           )}

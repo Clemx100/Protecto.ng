@@ -199,7 +199,7 @@ export class AdminAnalyticsAPI {
         .select(`
           *,
           client:profiles(first_name, last_name),
-          service:services(name, description),
+          service:services(name, type),
           ratings:ratings_reviews(rating)
         `)
         .gte('created_at', startDate)

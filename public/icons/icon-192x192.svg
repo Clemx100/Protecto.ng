@@ -1,81 +1,15 @@
-<svg width="192" height="192" viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
-  <!-- Main shield with metallic border -->
-  <defs>
-    <!-- Gradient for metallic border -->
-    <linearGradient id="metallicBorder" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#e8e8e8;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#c0c0c0;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#a8a8a8;stop-opacity:1" />
-    </linearGradient>
-    
-    <!-- Gradient for dark olive green background -->
-    <linearGradient id="oliveGreen" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#2d3a2d;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1a2a1a;stop-opacity:1" />
-    </linearGradient>
-    
-    <!-- Gradient for red chevrons -->
-    <linearGradient id="redChevron" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#ff4444;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#cc2222;stop-opacity:1" />
-    </linearGradient>
-    
-    <!-- Drop shadow filter -->
-    <filter id="dropshadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="3" dy="3" stdDeviation="3" flood-color="#000000" flood-opacity="0.3"/>
-    </filter>
-  </defs>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="192" height="192" viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="96" cy="96" r="96" fill="#1e40af"/>
   
-  <!-- Outer shield border (metallic) -->
-  <path d="M 24 48 
-           L 96 24 
-           L 168 48 
-           L 168 168 
-           L 96 192 
-           L 24 168 
-           Z" 
-        fill="url(#metallicBorder)" 
-        stroke="#ffffff" 
-        stroke-width="3" 
-        filter="url(#dropshadow)"/>
+  <!-- Shield Icon -->
+  <path d="M57.599999999999994 38.400000000000006 L96 28.799999999999997 L134.39999999999998 38.400000000000006 L134.39999999999998 76.80000000000001 C134.39999999999998 115.19999999999999 96 153.60000000000002 96 153.60000000000002 C96 153.60000000000002 57.599999999999994 115.19999999999999 57.599999999999994 76.80000000000001 Z" fill="white"/>
   
-  <!-- Inner shield body (dark olive green) -->
-  <path d="M 36 60 
-           L 96 36 
-           L 156 60 
-           L 156 156 
-           L 96 180 
-           L 36 156 
-           Z" 
-        fill="url(#oliveGreen)" 
-        stroke="url(#metallicBorder)" 
-        stroke-width="4"/>
+  <!-- Security Symbol -->
+  <circle cx="96" cy="86.4" r="15.36" fill="#1e40af"/>
+  <path d="M80.64 86.4 L88.32000000000001 94.08 L111.35999999999999 71.03999999999999" stroke="white" stroke-width="3.84" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   
-  <!-- Inner shield outline (metallic) -->
-  <path d="M 48 72 
-           L 96 48 
-           L 144 72 
-           L 144 144 
-           L 96 168 
-           L 48 144 
-           Z" 
-        fill="none" 
-        stroke="url(#metallicBorder)" 
-        stroke-width="3"/>
-  
-  <!-- Central banner (dark grey/black) -->
-  <rect x="60" y="108" width="72" height="18" rx="3" fill="#1a1a1a" stroke="url(#metallicBorder)" stroke-width="1" filter="url(#dropshadow)"/>
-  
-  <!-- PROTECTOR.NG text -->
-  <text x="96" y="120" font-family="Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" fill="white">PROTECTOR.NG</text>
-  
-  <!-- Red chevrons at bottom -->
-  <!-- Left chevron -->
-  <path d="M 84 132 L 90 138 L 84 144 Z" fill="url(#redChevron)" filter="url(#dropshadow)"/>
-  
-  <!-- Center chevron (larger) -->
-  <path d="M 90 126 L 96 144 L 90 162 Z" fill="url(#redChevron)" filter="url(#dropshadow)"/>
-  
-  <!-- Right chevron -->
-  <path d="M 102 132 L 108 138 L 102 144 Z" fill="url(#redChevron)" filter="url(#dropshadow)"/>
+  <!-- Text -->
+  <text x="96" y="144" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="23.04" font-weight="bold">P.NG</text>
 </svg>

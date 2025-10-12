@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     // Check services table
     const { data: services, error: servicesError } = await supabase
       .from('services')
-      .select('id, name, description, base_price, price_per_hour')
+      .select('id, name, type, base_price, price_per_hour')
       .limit(10)
     
     if (servicesError) {
