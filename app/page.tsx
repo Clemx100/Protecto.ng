@@ -75,7 +75,7 @@ function HomePageContent() {
                 <span>Download App</span>
               </button>
               <Link 
-                href="/client"
+                href="/app"
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
               >
                 Request Protection
@@ -109,7 +109,7 @@ function HomePageContent() {
                   <span>Download App</span>
                 </button>
                 <Link 
-                  href="/client"
+                  href="/app"
                   className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium text-center"
                 >
                   Request Protection
@@ -141,7 +141,7 @@ function HomePageContent() {
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12 items-center">
             <Link 
-              href="/client"
+              href="/app"
               className="px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white text-lg font-semibold rounded-lg transition-colors flex items-center justify-center space-x-2 shadow-lg hover:shadow-blue-500/25"
             >
               <Shield className="h-6 w-6" />
@@ -568,7 +568,7 @@ function HomePageContent() {
             <div>
               <h4 className="text-lg font-semibold text-white mb-4">Quick Access</h4>
               <div className="space-y-2">
-                <Link href="/client" className="block text-sm text-gray-300 hover:text-white transition-colors">
+                <Link href="/app" className="block text-sm text-gray-300 hover:text-white transition-colors">
                   Request Protection
                 </Link>
                 <Link href="/operator" className="block text-sm text-gray-300 hover:text-white transition-colors">

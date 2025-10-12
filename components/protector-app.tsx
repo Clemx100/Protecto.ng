@@ -666,7 +666,7 @@ export default function ProtectorApp() {
           
           // Fallback: Check for last visited location
           const lastVisitedLocation = sessionStorage.getItem('lastVisitedLocation')
-          if (lastVisitedLocation && lastVisitedLocation !== '/client') {
+          if (lastVisitedLocation && lastVisitedLocation !== '/app') {
             console.log('🔄 Redirecting to last visited location:', lastVisitedLocation)
             sessionStorage.removeItem('lastVisitedLocation')
             router.push(lastVisitedLocation)
