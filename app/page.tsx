@@ -571,9 +571,6 @@ function HomePageContent() {
                 <Link href="/client" className="block text-sm text-gray-300 hover:text-white transition-colors">
                   Request Protection
                 </Link>
-                <Link href="/history" className="block text-sm text-gray-300 hover:text-white transition-colors">
-                  Booking History
-                </Link>
                 <Link href="/operator" className="block text-sm text-gray-300 hover:text-white transition-colors">
                   Operator Dashboard
                 </Link>

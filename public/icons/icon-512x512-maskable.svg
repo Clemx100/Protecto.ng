@@ -1,15 +1,77 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background Circle with padding -->
-  <circle cx="256" cy="256" r="204.8" fill="#1e40af"/>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background for maskable icon -->
+  <rect width="512" height="512" fill="#1a2a1a" rx="112"/>
   
-  <!-- Shield Icon -->
-  <path d="M133.12 112.64 L256 92.16000000000001 L378.88 112.64 L378.88 215.04000000000002 C378.88 317.44 256 378.88000000000005 256 378.88000000000005 C256 378.88000000000005 133.12 317.44 133.12 215.04000000000002 Z" fill="white"/>
+  <defs>
+    <!-- Gradient for metallic border -->
+    <linearGradient id="metallicBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e8e8e8;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#c0c0c0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#a8a8a8;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Gradient for dark olive green background -->
+    <linearGradient id="oliveGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d3a2d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a2a1a;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Gradient for red chevrons -->
+    <linearGradient id="redChevron" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ff4444;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#cc2222;stop-opacity:1" />
+    </linearGradient>
+  </defs>
   
-  <!-- Security Symbol -->
-  <circle cx="256" cy="235.52000000000004" r="32.768" fill="#1e40af"/>
-  <path d="M223.232 235.52000000000004 L239.61599999999999 251.904 L288.76800000000003 202.752" stroke="white" stroke-width="8.192" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Outer shield border (metallic) -->
+  <path d="M 64 128 
+           L 256 64 
+           L 448 128 
+           L 448 448 
+           L 256 512 
+           L 64 448 
+           Z" 
+        fill="url(#metallicBorder)" 
+        stroke="#ffffff" 
+        stroke-width="8"/>
   
-  <!-- Text -->
-  <text x="256" y="358.40000000000003" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-size="49.152" font-weight="bold">P.NG</text>
+  <!-- Inner shield body (dark olive green) -->
+  <path d="M 96 160 
+           L 256 96 
+           L 416 160 
+           L 416 416 
+           L 256 480 
+           L 96 416 
+           Z" 
+        fill="url(#oliveGreen)" 
+        stroke="url(#metallicBorder)" 
+        stroke-width="12"/>
+  
+  <!-- Inner shield outline (metallic) -->
+  <path d="M 128 192 
+           L 256 128 
+           L 384 192 
+           L 384 384 
+           L 256 448 
+           L 128 384 
+           Z" 
+        fill="none" 
+        stroke="url(#metallicBorder)" 
+        stroke-width="8"/>
+  
+  <!-- Central banner (dark grey/black) -->
+  <rect x="160" y="288" width="192" height="48" rx="8" fill="#1a1a1a" stroke="url(#metallicBorder)" stroke-width="3"/>
+  
+  <!-- PROTECTOR.NG text -->
+  <text x="256" y="320" font-family="Arial, sans-serif" font-size="28" font-weight="bold" text-anchor="middle" fill="white">PROTECTOR.NG</text>
+  
+  <!-- Red chevrons at bottom -->
+  <!-- Left chevron -->
+  <path d="M 224 352 L 240 368 L 224 384 Z" fill="url(#redChevron)"/>
+  
+  <!-- Center chevron (larger) -->
+  <path d="M 240 336 L 256 384 L 240 432 Z" fill="url(#redChevron)"/>
+  
+  <!-- Right chevron -->
+  <path d="M 272 352 L 288 368 L 272 384 Z" fill="url(#redChevron)"/>
 </svg>

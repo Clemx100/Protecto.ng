@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare } from "lucide-react"
+import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare, Download, Settings, Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { unifiedChatService } from "@/lib/services/unifiedChatService"
@@ -1242,6 +1242,16 @@ export default function ProtectorApp() {
     setSelectedService("armed-protection")
     setActiveTab("booking")
     setBookingStep(1)
+  }
+
+  const handleDownloadApp = () => {
+    // For now, show a modal with download options
+    // In the future, this could link to app stores or direct downloads
+    alert("📱 PROTECTOR.NG Mobile App\n\n• iOS: Coming soon to App Store\n• Android: Coming soon to Google Play\n• PWA: Already available! Add to home screen for app-like experience\n\nFor now, you can use the web version which works great on mobile!")
+  }
+
+  const handleLearnMore = () => {
+    setActiveTab("about")
   }
 
   const handleBookCarOnly = () => {
@@ -3086,7 +3096,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 {selectedService === "car-only" ? "Call Instead" : "Book Protection"}
               </span>
             </div>
-          ) : activeTab === "account" || activeTab === "bookings" || activeTab === "chat" || activeTab === "operator" ? (
+          ) : activeTab === "account" || activeTab === "bookings" || activeTab === "chat" || activeTab === "about" || activeTab === "operator" ? (
             <div className="flex items-center justify-between w-full">
               <div className="flex items-center gap-3">
                 <Button 
@@ -3101,6 +3111,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   {activeTab === "account" && "My Account"}
                   {activeTab === "bookings" && "My Bookings"}
                   {activeTab === "chat" && "Messages"}
+                  {activeTab === "about" && "About PROTECTOR.NG"}
                   {activeTab === "operator" && "Operator Dashboard"}
                 </h2>
               </div>
@@ -3171,18 +3182,24 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 <div className="space-y-3 mb-6">
                   <Button
                     onClick={handleBookService}
-                    className="w-full !bg-white !text-black hover:!bg-gray-100 hover:!text-black font-semibold px-6 py-3 rounded-full border border-gray-200"
-                    style={{ backgroundColor: "white", color: "black" }}
+                    className="w-full bg-blue-600 text-white hover:bg-blue-700 font-semibold px-6 py-3 rounded-full"
                   >
                     <Shield className="h-4 w-4 mr-2" />
-                    Book a Protector
+                    Request Protection
                   </Button>
                   <Button
-                    onClick={handleBookCarOnly}
-                    className="w-full bg-transparent border-2 border-white !text-white hover:!bg-white hover:!text-black font-semibold px-6 py-3 rounded-full transition-colors"
+                    onClick={handleDownloadApp}
+                    className="w-full bg-green-600 text-white hover:bg-green-700 font-semibold px-6 py-3 rounded-full"
                   >
-                    <Phone className="h-4 w-4 mr-2" />
-                    Call Instead
+                    <Download className="h-4 w-4 mr-2" />
+                    Download App
+                  </Button>
+                  <Button
+                    onClick={handleLearnMore}
+                    className="w-full bg-gray-700 border border-gray-600 text-white hover:bg-gray-600 font-semibold px-6 py-3 rounded-full"
+                  >
+                    <Settings className="h-4 w-4 mr-2" />
+                    Learn More
                   </Button>
                 </div>
               </div>
@@ -5210,6 +5227,141 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           </div>
         )}
 
+        {/* About Tab */}
+        {activeTab === "about" && (
+          <div className="p-4 space-y-6">
+            {/* Hero Section */}
+            <div className="text-center space-y-4">
+              <div className="flex items-center justify-center gap-2">
+                <img 
+                  src="/protector-logo.svg" 
+                  alt="Protector.NG" 
+                  className="h-12 w-12"
+                />
+                <h1 className="text-2xl font-bold text-white">PROTECTOR.NG</h1>
+              </div>
+              <p className="text-gray-300 text-lg">
+                Professional Armed Protection Services
+              </p>
+            </div>
+
+            {/* Mission Statement */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-white mb-3">Our Mission</h2>
+              <p className="text-blue-100 leading-relaxed">
+                To provide premium, on-demand private security services for Nigeria's elite. 
+                We deliver professional armed protection with real-time tracking and 24/7 emergency response.
+              </p>
+            </div>
+
+            {/* Services */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-white">Our Services</h2>
+              
+              <div className="space-y-3">
+                <div className="flex items-start gap-3 p-4 bg-gray-800 rounded-lg">
+                  <Shield className="h-6 w-6 text-blue-400 mt-1 flex-shrink-0" />
+                  <div>
+                    <h3 className="text-white font-semibold">Armed Protection</h3>
+                    <p className="text-gray-400 text-sm">
+                      Professional armed security personnel for maximum protection
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 p-4 bg-gray-800 rounded-lg">
+                  <Car className="h-6 w-6 text-green-400 mt-1 flex-shrink-0" />
+                  <div>
+                    <h3 className="text-white font-semibold">Bulletproof Vehicles</h3>
+                    <p className="text-gray-400 text-sm">
+                      Armored sedans and SUVs with B6/B7 protection levels
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3 p-4 bg-gray-800 rounded-lg">
+                  <MessageSquare className="h-6 w-6 text-purple-400 mt-1 flex-shrink-0" />
+                  <div>
+                    <h3 className="text-white font-semibold">Real-time Communication</h3>
+                    <p className="text-gray-400 text-sm">
+                      Live chat and tracking for seamless coordination
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Features */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-white">Why Choose Us</h2>
+              
+              <div className="grid grid-cols-1 gap-3">
+                <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-sm">Licensed and certified professionals</span>
+                </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-sm">24/7 emergency response</span>
+                </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-sm">Real-time GPS tracking</span>
+                </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-sm">Secure payment processing</span>
+                </div>
+                
+                <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+                  <span className="text-gray-300 text-sm">Discrete and professional service</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Contact */}
+            <div className="bg-gray-800 rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-white mb-4">Get In Touch</h2>
+              
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <Phone className="h-5 w-5 text-blue-400" />
+                  <span className="text-gray-300">+234 712 000 5328</span>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <MessageSquare className="h-5 w-5 text-green-400" />
+                  <span className="text-gray-300">24/7 Live Chat Support</span>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <CheckCircle className="h-5 w-5 text-purple-400" />
+                  <span className="text-gray-300">Emergency Response Available</span>
+                </div>
+              </div>
+            </div>
+
+            {/* App Download */}
+            <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-lg p-6 text-center">
+              <h2 className="text-xl font-semibold text-white mb-3">Download Our App</h2>
+              <p className="text-green-100 mb-4">
+                Get instant access to protection services on your mobile device
+              </p>
+              <Button 
+                onClick={handleDownloadApp}
+                className="bg-white text-green-700 hover:bg-gray-100 font-semibold px-6 py-2"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download App
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Account Tab */}
         {activeTab === "cars" && (
           <div className="p-4 space-y-6">
@@ -5255,6 +5407,16 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           >
             <MessageSquare className="h-5 w-5" />
             <span className="text-xs">Chat</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("about")}
+            className={`flex flex-col items-center justify-center gap-1 ${
+              activeTab === "about" ? "text-blue-500" : "text-gray-400"
+            }`}
+          >
+            <Info className="h-5 w-5" />
+            <span className="text-xs">About</span>
           </button>
 
           {/* Operator Dashboard Tab - Only visible to operators */}
