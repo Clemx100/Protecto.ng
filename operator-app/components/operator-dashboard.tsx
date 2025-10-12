@@ -152,11 +152,8 @@ export default function OperatorDashboard() {
       }
 
       // Create a direct Supabase client with service role to bypass RLS
-      const { createClient } = await import('@supabase/supabase-js')
-      const serviceSupabase = createClient(
-        'https://kifcevffaputepvpjpip.supabase.co',
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-      )
+      const { createServiceRoleClient } = await import('@/lib/config/database')
+      const serviceSupabase = createServiceRoleClient()
 
       // Get all bookings with client details
       const { data: bookings, error } = await serviceSupabase

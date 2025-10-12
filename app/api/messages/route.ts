@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-// Initialize Supabase with service role for bypassing RLS
-const supabase = createClient(
-  'https://kifcevffaputepvpjpip.supabase.co',
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-)
+// Initialize Supabase with centralized configuration
+import { createServiceRoleClient } from '@/lib/config/database'
+const supabase = createServiceRoleClient()
 
 // GET /api/messages?bookingId=xxx
 // Fetch all messages for a booking from Supabase
