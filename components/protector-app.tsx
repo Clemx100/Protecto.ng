@@ -266,20 +266,25 @@ export default function ProtectorApp() {
       setBookingHistory(history)
       
       // Save to localStorage as fallback
-      const allBookings = [...active, ...history]
-      localStorage.setItem(`bookings_${user.id}`, JSON.stringify(allBookings))
+      if (typeof window !== 'undefined') {
+        const allBookings = [...active, ...history]
+        localStorage.setItem(`bookings_${user.id}`, JSON.stringify(allBookings))
+      }
     } catch (error) {
       console.error('Error loading bookings:', error)
       // Fallback to localStorage
-      const stored = localStorage.getItem(`bookings_${user.id}`)
-      if (stored) {
-        const storedBookings = JSON.parse(stored)
-        setActiveBookings(storedBookings.filter((b: BookingDisplay) => 
-          ['accepted', 'en-route', 'arrived', 'in-service'].includes(b.status)
-        ))
-        setBookingHistory(storedBookings.filter((b: BookingDisplay) => 
-          ['completed', 'cancelled'].includes(b.status)
-        ))
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem(`bookings_${user.id}`)
+        if (stored) {
+          const storedBookings = JSON.parse(stored)
+          setActiveBookings(storedBookings.filter((b: BookingDisplay) => 
+            ['accepted', 'en-route', 'arrived', 'in-service'].includes(b.status)
+          ))
+          setBookingHistory(storedBookings.filter((b: BookingDisplay) => 
+            ['completed', 'cancelled'].includes(b.status)
+          ))
+          console.log('📱 Loaded bookings from localStorage:', storedBookings.length)
+        }
       }
     } finally {
       setIsLoadingBookings(false)
@@ -434,11 +439,13 @@ export default function ProtectorApp() {
       } else {
         console.log('⚠️ No bookings available to load messages from')
         // As fallback, try localStorage
-        const storedMessages = localStorage.getItem('chat_messages')
-        if (storedMessages) {
-          const messages = JSON.parse(storedMessages)
-          setChatMessages(messages)
-          console.log('📱 Loaded chat messages from localStorage:', messages.length)
+        if (typeof window !== 'undefined') {
+          const storedMessages = localStorage.getItem('chat_messages')
+          if (storedMessages) {
+            const messages = JSON.parse(storedMessages)
+            setChatMessages(messages)
+            console.log('📱 Loaded chat messages from localStorage:', messages.length)
+          }
         }
       }
     } catch (error) {
@@ -591,7 +598,9 @@ export default function ProtectorApp() {
         setChatMessages(prev => [...prev, paymentMessage])
         
         // Redirect to Paystack
-        window.open(result.authorization_url, '_blank')
+        if (typeof window !== 'undefined') {
+          window.open(result.authorization_url, '_blank')
+        }
         
         setShowChatInvoice(false)
         setChatInvoiceData(null)
@@ -622,12 +631,14 @@ export default function ProtectorApp() {
     }
 
     // Store in localStorage
-    try {
-      const existingMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]')
-      const updatedMessages = [...existingMessages, summaryMessage]
-      localStorage.setItem('chat_messages', JSON.stringify(updatedMessages))
-    } catch (error) {
-      console.error('Failed to store in localStorage:', error)
+    if (typeof window !== 'undefined') {
+      try {
+        const existingMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]')
+        const updatedMessages = [...existingMessages, summaryMessage]
+        localStorage.setItem('chat_messages', JSON.stringify(updatedMessages))
+      } catch (error) {
+        console.error('Failed to store in localStorage:', error)
+      }
     }
 
     console.log('📋 Created booking summary message:', summaryMessage.id)
@@ -644,21 +655,23 @@ export default function ProtectorApp() {
       
       if (session?.user) {
         // Check for stored redirect path and navigate to it
-        const redirectPath = sessionStorage.getItem('redirectAfterAuth')
-        if (redirectPath) {
-          console.log('🔄 Redirecting to stored path:', redirectPath)
-          sessionStorage.removeItem('redirectAfterAuth')
-          router.push(redirectPath)
-          return
-        }
-        
-        // Fallback: Check for last visited location
-        const lastVisitedLocation = sessionStorage.getItem('lastVisitedLocation')
-        if (lastVisitedLocation && lastVisitedLocation !== '/client') {
-          console.log('🔄 Redirecting to last visited location:', lastVisitedLocation)
-          sessionStorage.removeItem('lastVisitedLocation')
-          router.push(lastVisitedLocation)
-          return
+        if (typeof window !== 'undefined') {
+          const redirectPath = sessionStorage.getItem('redirectAfterAuth')
+          if (redirectPath) {
+            console.log('🔄 Redirecting to stored path:', redirectPath)
+            sessionStorage.removeItem('redirectAfterAuth')
+            router.push(redirectPath)
+            return
+          }
+          
+          // Fallback: Check for last visited location
+          const lastVisitedLocation = sessionStorage.getItem('lastVisitedLocation')
+          if (lastVisitedLocation && lastVisitedLocation !== '/client') {
+            console.log('🔄 Redirecting to last visited location:', lastVisitedLocation)
+            sessionStorage.removeItem('lastVisitedLocation')
+            router.push(lastVisitedLocation)
+            return
+          }
         }
         // Check if email is verified
         if (session.user.email_confirmed_at) {
@@ -772,6 +785,8 @@ export default function ProtectorApp() {
   useEffect(() => {
     // Check for email verification success in URL
     const checkEmailVerification = () => {
+      if (typeof window === 'undefined') return
+      
       const urlParams = new URLSearchParams(window.location.search)
       const verified = urlParams.get('verified')
       const email = urlParams.get('email')
@@ -1167,7 +1182,7 @@ export default function ProtectorApp() {
         type: 'signup',
         email: verificationEmail,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`
+          emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : '/auth/callback'
         }
       })
       
@@ -1246,9 +1261,10 @@ export default function ProtectorApp() {
 
   const handleBookCarOnly = () => {
     // Initiate phone call to +234 712 000 5328
-    window.location.href = 'tel:+2347120005328'
+    if (typeof window !== 'undefined') {
+      window.location.href = 'tel:+2347120005328'
+    }
   }
-
 
   const storeBookingInSupabase = async (payload: any) => {
     try {
@@ -1408,16 +1424,18 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       console.log('✅ Bookings list refreshed')
 
       // FALLBACK: Store in localStorage as backup
-      const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
-      const updatedMessages = [...existingMessages, systemMessage]
-      localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
-      console.log('System message stored in localStorage as backup')
+      if (typeof window !== 'undefined') {
+        const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
+        const updatedMessages = [...existingMessages, systemMessage]
+        localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
+        console.log('System message stored in localStorage as backup')
 
-      // Store booking in localStorage for operator dashboard fallback
-      const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-      const updatedBookings = [payload, ...existingBookings]
-      localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
-      console.log('Booking stored in localStorage as backup')
+        // Store booking in localStorage for operator dashboard fallback
+        const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+        const updatedBookings = [payload, ...existingBookings]
+        localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
+        console.log('Booking stored in localStorage as backup')
+      }
 
       // Return the created booking so the caller can use the database ID
       return createdBooking
@@ -1426,15 +1444,17 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       console.error('❌ Failed to store in Supabase, falling back to localStorage:', error)
       
       // FALLBACK: Store in localStorage if Supabase fails
-      const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
-      const updatedMessages = [...existingMessages, systemMessage]
-      localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
-      console.log('System message stored in localStorage (fallback)')
+      if (typeof window !== 'undefined') {
+        const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
+        const updatedMessages = [...existingMessages, systemMessage]
+        localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
+        console.log('System message stored in localStorage (fallback)')
 
-      const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-      const updatedBookings = [payload, ...existingBookings]
-      localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
-      console.log('Booking stored in localStorage (fallback)')
+        const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
+        const updatedBookings = [payload, ...existingBookings]
+        localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
+        console.log('Booking stored in localStorage (fallback)')
+      }
       
       // Return the payload as fallback
       return payload
@@ -1850,7 +1870,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           email: authForm.email.trim().toLowerCase(),
           password: authForm.password,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback?type=signup`,
+            emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback?type=signup` : '/auth/callback?type=signup',
             data: {
               first_name: authForm.firstName,
               last_name: authForm.lastName,
@@ -3079,35 +3099,6 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 {selectedService === "car-only" ? "Call Instead" : "Book Protection"}
               </span>
             </div>
-          ) : activeTab === "account" || activeTab === "bookings" || activeTab === "chat" || activeTab === "operator" ? (
-            <div className="flex items-center justify-between w-full">
-              <div className="flex items-center gap-3">
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => setActiveTab("protector")} 
-                  className="text-white hover:bg-gray-800"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-                <h2 className="text-lg font-semibold">
-                  {activeTab === "account" && "My Account"}
-                  {activeTab === "bookings" && "My Bookings"}
-                  {activeTab === "chat" && "Messages"}
-                  {activeTab === "operator" && "Operator Dashboard"}
-                </h2>
-              </div>
-              {user && (
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={handleLogout}
-                  className="text-red-400 hover:text-red-300 hover:bg-red-950/30 text-xs"
-                >
-                  Logout
-                </Button>
-              )}
-            </div>
           ) : (
             <>
               <div className="flex items-center gap-2">
@@ -3160,10 +3151,18 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 <div className="space-y-3 mb-6">
                   <Button
                     onClick={handleBookService}
-                    className="w-full bg-blue-600 text-white hover:bg-blue-700 font-semibold px-6 py-3 rounded-full"
+                    className="w-full !bg-white !text-black hover:!bg-gray-100 hover:!text-black font-semibold px-6 py-3 rounded-full border border-gray-200"
+                    style={{ backgroundColor: "white", color: "black" }}
                   >
                     <Shield className="h-4 w-4 mr-2" />
-                    Request Protection
+                    Book a Protector
+                  </Button>
+                  <Button
+                    onClick={handleBookCarOnly}
+                    className="w-full bg-transparent border-2 border-white !text-white hover:!bg-white hover:!text-black font-semibold px-6 py-3 rounded-full transition-colors"
+                  >
+                    <Phone className="h-4 w-4 mr-2" />
+                    Call Instead
                   </Button>
                 </div>
               </div>
@@ -5191,7 +5190,6 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           </div>
         )}
 
-
         {/* Account Tab */}
         {activeTab === "cars" && (
           <div className="p-4 space-y-6">
@@ -5229,17 +5227,17 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             <span className="text-xs">Bookings</span>
           </button>
 
-            <button
-              onClick={() => setActiveTab("chat")}
-              className={`flex flex-col items-center justify-center gap-1 ${
-                activeTab === "chat" ? "text-blue-500" : "text-gray-400"
-              }`}
-            >
-              <MessageSquare className="h-5 w-5" />
-              <span className="text-xs">Chat</span>
-            </button>
+          <button
+            onClick={() => setActiveTab("chat")}
+            className={`flex flex-col items-center justify-center gap-1 ${
+              activeTab === "chat" ? "text-blue-500" : "text-gray-400"
+            }`}
+          >
+            <MessageSquare className="h-5 w-5" />
+            <span className="text-xs">Chat</span>
+          </button>
 
-            {/* Operator Dashboard Tab - Only visible to operators */}
+          {/* Operator Dashboard Tab - Only visible to operators */}
           {userRole === "agent" && (
             <button
               onClick={() => setActiveTab("operator")}
