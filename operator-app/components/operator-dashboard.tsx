@@ -52,6 +52,10 @@ export default function OperatorDashboard() {
   // Payment tracking
   const [paymentApproved, setPaymentApproved] = useState<{ [bookingId: string]: boolean }>({})
   
+  // New booking notifications
+  const [newBookingCount, setNewBookingCount] = useState(0)
+  const [lastBookingCount, setLastBookingCount] = useState(0)
+  
   // Initialize dashboard
   useEffect(() => {
     initializeDashboard()
@@ -103,6 +107,86 @@ export default function OperatorDashboard() {
       }
     }
   }, [user, selectedBooking])
+
+  // Subscribe to real-time booking updates
+  useEffect(() => {
+    if (!user) return
+
+    console.log('🔔 Setting up real-time booking subscription for operator...')
+
+    // Subscribe to new bookings
+    const bookingSubscription = supabase
+      .channel('operator-bookings')
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT, UPDATE, DELETE
+          schema: 'public',
+          table: 'bookings'
+        },
+        async (payload) => {
+          console.log('📨 Real-time booking event:', payload.eventType, payload.new)
+
+          if (payload.eventType === 'INSERT') {
+            // New booking created
+            console.log('🆕 NEW BOOKING DETECTED! Reloading bookings...')
+            
+            // Play notification sound
+            if (typeof window !== 'undefined') {
+              try {
+                const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBjGH0fPTgjMGHm7A7+OZUQ0PT6Ln8bllHAU8ltryxnMiBSl+zPLaizsIGGS56+ibUQwNTKXh8LJnGwY7ktDyyH0pBSl4yPDdk0EIFV23yeyoVxYLSpjb8L9pIgU2jNDzzHwqBSh2xvDek0EIFV63yOyoVxYLS5jb8L9pIgU2jNDzzHwqBSh2xvDek0EIFV63yOyoVxYLS5jb8L9pIgU2jNDzzHwqBSh2xvDek0EIFV63yOyoVxYLS5jb8L9pIgU2jNDzzHwqBSh2xvDek0EIFV63yOyoVxYLS5jb8L9pIgU2jNDzzHwqBSh2xvDek0EIFV63yOyoVxYLS5jb8L9pIgU2jNDzzHwqBQ==')
+                audio.volume = 0.5
+                audio.play().catch(e => console.log('Could not play sound:', e))
+              } catch (e) {
+                console.log('Audio not supported:', e)
+              }
+            }
+            
+            // Show browser notification if permitted
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification('🆕 New Booking Request!', {
+                body: `New protection booking from ${payload.new.pickup_address || 'client'}`,
+                icon: '/icon-192x192.png',
+                badge: '/icon-192x192.png'
+              })
+            }
+            
+            // Increment new booking counter
+            setNewBookingCount(prev => prev + 1)
+            
+            // Reload bookings
+            await loadBookingsDirectly()
+          } else if (payload.eventType === 'UPDATE') {
+            // Booking updated
+            console.log('🔄 Booking updated! Reloading bookings...')
+            await loadBookingsDirectly()
+          } else if (payload.eventType === 'DELETE') {
+            // Booking deleted
+            console.log('🗑️ Booking deleted! Reloading bookings...')
+            await loadBookingsDirectly()
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Booking subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Real-time booking updates active!')
+        }
+      })
+
+    return () => {
+      console.log('🔌 Unsubscribing from booking updates')
+      supabase.removeChannel(bookingSubscription)
+    }
+  }, [user])
+
+  // Track booking count changes
+  useEffect(() => {
+    if (bookings.length > lastBookingCount && lastBookingCount > 0) {
+      setNewBookingCount(prev => prev + (bookings.length - lastBookingCount))
+    }
+    setLastBookingCount(bookings.length)
+  }, [bookings.length])
 
   // Filter bookings based on search and status
   useEffect(() => {
@@ -607,8 +691,22 @@ export default function OperatorDashboard() {
               <h1 className="text-xl font-bold text-white">Protector.Ng Operator</h1>
             </div>
             <div className="flex items-center space-x-4">
-              <Bell className="h-6 w-6 text-white" />
+              {/* Notification Bell with Badge */}
+              <div className="relative">
+                <Bell className="h-6 w-6 text-white" />
+                {newBookingCount > 0 && (
+                  <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                    {newBookingCount > 9 ? '9+' : newBookingCount}
+                  </div>
+                )}
+              </div>
               <span className="text-white">Operator Dashboard</span>
+              <button
+                onClick={() => setNewBookingCount(0)}
+                className="text-xs text-gray-400 hover:text-white"
+              >
+                {newBookingCount > 0 ? `${newBookingCount} new` : ''}
+              </button>
             </div>
           </div>
         </div>
