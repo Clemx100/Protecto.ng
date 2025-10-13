@@ -1240,7 +1240,6 @@ export default function OperatorDashboard() {
           </div>
         </div>
       )}
-        </div>
       </div>
     </div>
   )
