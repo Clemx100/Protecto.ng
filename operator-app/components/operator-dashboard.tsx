@@ -187,54 +187,13 @@ export default function OperatorDashboard() {
     }
   }, [user])
 
-  // Track booking count changes (without causing scroll)
+  // Track booking count changes
   useEffect(() => {
     if (bookings.length > lastBookingCount && lastBookingCount > 0) {
       setNewBookingCount(prev => prev + (bookings.length - lastBookingCount))
     }
     setLastBookingCount(bookings.length)
   }, [bookings.length])
-
-  // CRITICAL: Completely prevent automatic scrolling
-  const userScrollPositionRef = useRef<number>(0)
-  const isUserScrollingRef = useRef<boolean>(false)
-
-  useEffect(() => {
-    const mainScroll = document.querySelector('.operator-content-scroll') as HTMLElement
-    if (!mainScroll) return
-
-    // Track when user manually scrolls
-    const handleUserScroll = () => {
-      isUserScrollingRef.current = true
-      userScrollPositionRef.current = mainScroll.scrollTop
-      
-      // Reset flag after scroll settles
-      setTimeout(() => {
-        isUserScrollingRef.current = false
-      }, 100)
-    }
-
-    mainScroll.addEventListener('scroll', handleUserScroll, { passive: true })
-
-    // Prevent ANY programmatic scroll attempts
-    const observer = new MutationObserver(() => {
-      // If we detect DOM changes but user didn't scroll, restore position
-      if (!isUserScrollingRef.current && userScrollPositionRef.current !== mainScroll.scrollTop) {
-        mainScroll.scrollTop = userScrollPositionRef.current
-      }
-    })
-
-    observer.observe(mainScroll, { 
-      childList: true, 
-      subtree: true, 
-      attributes: false 
-    })
-
-    return () => {
-      mainScroll.removeEventListener('scroll', handleUserScroll)
-      observer.disconnect()
-    }
-  }, [])
 
   // Filter bookings based on search and status
   useEffect(() => {
