@@ -27,7 +27,6 @@ export default function OperatorDashboard() {
   const [messages, setMessages] = useState<UnifiedChatMessage[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [user, setUser] = useState<any>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
   
   // Bookings and data
   const [bookings, setBookings] = useState<any[]>([])
@@ -180,13 +179,26 @@ export default function OperatorDashboard() {
     }
   }, [user])
 
-  // Track booking count changes
+  // Track booking count changes (without causing scroll)
   useEffect(() => {
     if (bookings.length > lastBookingCount && lastBookingCount > 0) {
       setNewBookingCount(prev => prev + (bookings.length - lastBookingCount))
     }
     setLastBookingCount(bookings.length)
   }, [bookings.length])
+
+  // Prevent auto-scroll on any updates
+  useEffect(() => {
+    // Store scroll position before any updates
+    const scrollableElement = document.querySelector('.operator-content-scroll')
+    if (scrollableElement) {
+      const scrollPos = scrollableElement.scrollTop
+      // Restore scroll position after render
+      requestAnimationFrame(() => {
+        scrollableElement.scrollTop = scrollPos
+      })
+    }
+  })
 
   // Filter bookings based on search and status
   useEffect(() => {
@@ -627,10 +639,6 @@ export default function OperatorDashboard() {
     }
   }
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-yellow-500/20 text-yellow-300'
@@ -717,7 +725,7 @@ export default function OperatorDashboard() {
       </div>
 
       {/* Main Content - Scrollable */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto operator-content-scroll" style={{ scrollBehavior: 'auto' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Error/Success Messages */}
         {error && (
@@ -1031,7 +1039,6 @@ export default function OperatorDashboard() {
                       </div>
                     </div>
                   ))}
-                  <div ref={messagesEndRef} />
                 </div>
 
                 {/* Message Input */}
