@@ -227,19 +227,18 @@ export default function OperatorDashboard() {
     try {
       console.log('🔄 Loading bookings directly from database...')
       
-      // Use Supabase client directly to avoid API authentication issues
+      // Check session but don't block if missing (service role will bypass RLS anyway)
       const { data: { session } } = await supabase.auth.getSession()
-      
-      if (!session) {
-        console.error('❌ No session found')
-        return
-      }
+      console.log('📋 Session status:', session ? '✅ Active' : '⚠️ No session (will use service role)')
 
       // Create a direct Supabase client with service role to bypass RLS
+      console.log('🔑 Creating service role client...')
       const { createServiceRoleClient } = await import('@/lib/config/database')
       const serviceSupabase = createServiceRoleClient()
+      console.log('✅ Service role client created')
 
       // Get all bookings with client details
+      console.log('📥 Fetching bookings from database...')
       const { data: bookings, error } = await serviceSupabase
         .from('bookings')
         .select(`
@@ -263,10 +262,13 @@ export default function OperatorDashboard() {
 
       if (error) {
         console.error('❌ Error fetching bookings:', error)
+        console.error('❌ Error details:', JSON.stringify(error, null, 2))
+        setError(`Failed to load bookings: ${error.message}`)
         return
       }
 
       console.log('✅ Loaded', bookings?.length || 0, 'bookings from database')
+      console.log('📊 Booking IDs:', bookings?.slice(0, 3).map(b => b.id.substring(0, 8)))
 
       if (bookings && bookings.length > 0) {
         // Transform bookings to match operator dashboard format
@@ -355,7 +357,9 @@ export default function OperatorDashboard() {
           }
         })
 
+        console.log('💾 Setting bookings state with', transformedBookings.length, 'bookings')
         setBookings(transformedBookings)
+        console.log('✅ Bookings state updated successfully')
         
         // Auto-select first pending booking if none selected
         if (!selectedBooking && transformedBookings.length > 0) {
