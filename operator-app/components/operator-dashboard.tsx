@@ -91,7 +91,15 @@ export default function OperatorDashboard() {
               return prev
             }
             console.log('✅ Adding new message to operator chat')
-            return [...prev, newMessage]
+            const updated = [...prev, newMessage]
+            
+            // CRITICAL: Save to localStorage immediately
+            if (typeof window !== 'undefined' && selectedBooking) {
+              localStorage.setItem(`operator_chat_${selectedBooking.id}`, JSON.stringify(updated))
+              console.log('💾 Operator messages backed up to localStorage')
+            }
+            
+            return updated
           })
           // Don't auto-scroll - let operator control their view
         }
@@ -485,9 +493,32 @@ export default function OperatorDashboard() {
   const loadMessages = async (bookingId: string) => {
     try {
       console.log('🔄 Loading messages for booking:', bookingId)
+      
+      // Try loading from localStorage first for instant display
+      if (typeof window !== 'undefined') {
+        const cached = localStorage.getItem(`operator_chat_${bookingId}`)
+        if (cached) {
+          try {
+            const cachedMessages = JSON.parse(cached)
+            setMessages(cachedMessages)
+            console.log('📱 Loaded', cachedMessages.length, 'messages from cache instantly')
+          } catch (e) {
+            console.warn('Failed to parse cached messages:', e)
+          }
+        }
+      }
+      
+      // Then fetch from database
       const messages = await unifiedChatService.getMessages(bookingId)
-      console.log('📨 Loaded messages:', messages.length, 'messages')
+      console.log('📨 Loaded messages:', messages.length, 'messages from database')
       setMessages(messages)
+      
+      // Save to localStorage for persistence
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`operator_chat_${bookingId}`, JSON.stringify(messages))
+        console.log('💾 Operator messages saved to localStorage')
+      }
+      
       // Don't auto-scroll - let operator control their view
     } catch (error) {
       console.error('❌ Failed to load messages:', error)

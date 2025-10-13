@@ -487,9 +487,22 @@ export default function ProtectorApp() {
       console.log('📥 Loading messages for booking:', booking.id)
       setSelectedChatBooking(booking)
       
-      // Refresh bookings list to show the new booking
-      console.log('🔄 Refreshing bookings list first...')
-      await loadBookings()
+      // REMOVED: await loadBookings() - This was causing unnecessary re-renders and clearing chat
+      // Bookings are already loaded, no need to refresh again
+      
+      // Try loading from localStorage first for instant display
+      if (typeof window !== 'undefined') {
+        const cached = localStorage.getItem(`chat_messages_${booking.id}`)
+        if (cached) {
+          try {
+            const cachedMessages = JSON.parse(cached)
+            setChatMessages(cachedMessages)
+            console.log('📱 Loaded', cachedMessages.length, 'messages from cache instantly')
+          } catch (e) {
+            console.warn('Failed to parse cached messages:', e)
+          }
+        }
+      }
       
       // Load messages using unified service
       const messages = await unifiedChatService.getMessages(booking.id)
@@ -499,6 +512,12 @@ export default function ProtectorApp() {
       if (messages && messages.length > 0) {
         setChatMessages(messages)
         console.log('📥 Loaded', messages.length, 'messages from database')
+        
+        // Save to localStorage for persistence
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(messages))
+          console.log('💾 Messages saved to localStorage as backup')
+        }
       } else {
         console.log('📥 No database messages found, preserving existing messages')
         // Don't clear existing messages - they might be the immediate summary
@@ -519,8 +538,21 @@ export default function ProtectorApp() {
           
           setChatMessages(prev => {
             const exists = prev.some(msg => msg.id === newMessage.id)
-            if (exists) return prev
-            return [...prev, newMessage]
+            if (exists) {
+              console.log('⚠️ Duplicate message detected, skipping')
+              return prev
+            }
+            
+            const updated = [...prev, newMessage]
+            console.log('✅ Added new message, total:', updated.length)
+            
+            // CRITICAL: Save to localStorage immediately to prevent loss
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(updated))
+              console.log('💾 Messages backed up to localStorage')
+            }
+            
+            return updated
           })
           
           // Check for invoice in new message
@@ -538,7 +570,24 @@ export default function ProtectorApp() {
         const pollInterval = setInterval(async () => {
           try {
             const updatedMessages = await unifiedChatService.getMessages(booking.id)
-            setChatMessages(updatedMessages)
+            
+            // CRITICAL: MERGE messages instead of replacing to prevent disappearing
+            setChatMessages(prev => {
+              const messageMap = new Map(prev.map(m => [m.id, m]))
+              updatedMessages.forEach(m => messageMap.set(m.id, m))
+              const merged = Array.from(messageMap.values()).sort((a, b) => 
+                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              )
+              console.log('🔄 Polling: Merged', updatedMessages.length, 'new with', prev.length, 'existing =', merged.length, 'total')
+              
+              // Save merged messages to localStorage
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(merged))
+                console.log('💾 Polling: Messages backed up to localStorage')
+              }
+              
+              return merged
+            })
             
             // Check for new invoice data
             const invoiceMessage = updatedMessages.find(msg => msg.has_invoice && msg.invoice_data)
