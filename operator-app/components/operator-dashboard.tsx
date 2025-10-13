@@ -685,9 +685,9 @@ export default function OperatorDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      {/* Header */}
-      <div className="bg-black/20 backdrop-blur-lg border-b border-white/10">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 overflow-hidden">
+      {/* Header - Fixed */}
+      <div className="bg-black/20 backdrop-blur-lg border-b border-white/10 flex-shrink-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
@@ -716,8 +716,9 @@ export default function OperatorDashboard() {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Main Content - Scrollable */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Error/Success Messages */}
         {error && (
           <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-6">
@@ -930,7 +931,7 @@ export default function OperatorDashboard() {
                 </div>
 
                 {/* Messages */}
-                <div className="h-96 overflow-y-auto p-6 space-y-4">
+                <div className="h-96 overflow-y-auto p-6 space-y-4 scroll-smooth">
                   {messages.map((message) => (
                     <div
                       key={message.id}
@@ -1239,6 +1240,8 @@ export default function OperatorDashboard() {
           </div>
         </div>
       )}
+        </div>
+      </div>
     </div>
   )
 }
