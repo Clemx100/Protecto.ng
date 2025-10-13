@@ -187,18 +187,46 @@ export default function OperatorDashboard() {
     setLastBookingCount(bookings.length)
   }, [bookings.length])
 
-  // Prevent auto-scroll on any updates
+  // CRITICAL: Completely prevent automatic scrolling
+  const userScrollPositionRef = useRef<number>(0)
+  const isUserScrollingRef = useRef<boolean>(false)
+
   useEffect(() => {
-    // Store scroll position before any updates
-    const scrollableElement = document.querySelector('.operator-content-scroll')
-    if (scrollableElement) {
-      const scrollPos = scrollableElement.scrollTop
-      // Restore scroll position after render
-      requestAnimationFrame(() => {
-        scrollableElement.scrollTop = scrollPos
-      })
+    const mainScroll = document.querySelector('.operator-content-scroll') as HTMLElement
+    if (!mainScroll) return
+
+    // Track when user manually scrolls
+    const handleUserScroll = () => {
+      isUserScrollingRef.current = true
+      userScrollPositionRef.current = mainScroll.scrollTop
+      
+      // Reset flag after scroll settles
+      setTimeout(() => {
+        isUserScrollingRef.current = false
+      }, 100)
     }
-  })
+
+    mainScroll.addEventListener('scroll', handleUserScroll, { passive: true })
+
+    // Prevent ANY programmatic scroll attempts
+    const observer = new MutationObserver(() => {
+      // If we detect DOM changes but user didn't scroll, restore position
+      if (!isUserScrollingRef.current && userScrollPositionRef.current !== mainScroll.scrollTop) {
+        mainScroll.scrollTop = userScrollPositionRef.current
+      }
+    })
+
+    observer.observe(mainScroll, { 
+      childList: true, 
+      subtree: true, 
+      attributes: false 
+    })
+
+    return () => {
+      mainScroll.removeEventListener('scroll', handleUserScroll)
+      observer.disconnect()
+    }
+  }, [])
 
   // Filter bookings based on search and status
   useEffect(() => {
@@ -939,7 +967,7 @@ export default function OperatorDashboard() {
                 </div>
 
                 {/* Messages */}
-                <div className="h-96 overflow-y-auto p-6 space-y-4 scroll-smooth">
+                <div className="h-96 overflow-y-auto p-6 space-y-4">
                   {messages.map((message) => (
                     <div
                       key={message.id}
