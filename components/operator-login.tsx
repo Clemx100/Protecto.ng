@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Shield, Eye, EyeOff, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
+import { fallbackAuth } from "@/lib/services/fallbackAuth"
 
 interface OperatorLoginProps {
   onLoginSuccess: (user: any) => void
@@ -24,17 +25,61 @@ export default function OperatorLogin({ onLoginSuccess }: OperatorLoginProps) {
     setError("")
 
     try {
+      console.log('🔐 Attempting operator login for:', email)
+
+      // Try Supabase authentication first
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       })
 
       if (error) {
-        setError(error.message)
-        return
+        console.error('❌ Supabase auth error:', error.message)
+        
+        // Only use fallback for network/connection errors, NOT invalid credentials
+        const isNetworkError = error.message?.toLowerCase().includes('fetch') || 
+                              error.message?.toLowerCase().includes('network') ||
+                              error.message?.toLowerCase().includes('connection')
+        
+        if (isNetworkError) {
+          console.log('🔄 Network error detected, trying fallback auth...')
+          
+          // Fallback to mock authentication ONLY for network issues
+          const result = await fallbackAuth.signInWithPassword(email, password)
+          
+          if (result.error) {
+            setError(result.error)
+            return
+          }
+
+          if (result.user) {
+            // Check if user has operator/admin role
+            if (fallbackAuth.hasRole(result.user, ['admin', 'agent', 'operator'])) {
+              // Convert mock user to expected format
+              const mockUser = {
+                id: result.user.id,
+                email: result.user.email,
+                user_metadata: {
+                  full_name: result.user.full_name || 'Operator'
+                }
+              }
+              onLoginSuccess(mockUser)
+              return
+            } else {
+              setError(`Access denied. Your account has role '${result.user.role}'. Only operators, admins, and agents can access this dashboard.`)
+              return
+            }
+          }
+        } else {
+          // For authentication errors (wrong password), show error immediately
+          setError('Invalid email or password. Please check your credentials and try again.')
+          return
+        }
       }
 
       if (data.user) {
+        console.log('✅ Supabase auth successful, checking role...')
+        
         // Check if user has operator/admin role
         const { data: profile } = await supabase
           .from('profiles')
@@ -42,16 +87,23 @@ export default function OperatorLogin({ onLoginSuccess }: OperatorLoginProps) {
           .eq('id', data.user.id)
           .single()
 
+        console.log('👤 User profile:', profile)
+
         if (profile && (profile.role === 'admin' || profile.role === 'agent' || profile.role === 'operator')) {
+          console.log('✅ User has valid operator role:', profile.role)
           onLoginSuccess(data.user)
+          return
         } else {
           // User logged in successfully but doesn't have operator role
-          // Log them out and show error
+          console.log('❌ User does not have operator role:', profile?.role)
           await supabase.auth.signOut()
           setError(`Access denied. Your account has role '${profile?.role || 'unknown'}'. Only operators, admins, and agents can access this dashboard.`)
+          return
         }
       }
-    } catch (err) {
+
+    } catch (err: any) {
+      console.error('❌ Unexpected login error:', err)
       setError("Login failed. Please try again.")
     } finally {
       setIsLoading(false)

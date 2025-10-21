@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Payment Notification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .danger {
+            background: #f44336;
+        }
+        .danger:hover {
+            background: #da190b;
+        }
+        .warning {
+            background: #ff9800;
+        }
+        .warning:hover {
+            background: #e68900;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e8f5e9;
+            border-radius: 5px;
+            display: none;
+        }
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Payment Notification Test</h1>
+        <p>This page tests the payment notification system by simulating Paystack callback redirects.</p>
+
+        <div class="test-section">
+            <h3>✅ Test 1: Successful Payment</h3>
+            <p>Simulates: <code>/?payment=success&booking=test-booking-123</code></p>
+            <button onclick="testSuccessPayment()">Test Success Notification</button>
+            <div id="success-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>❌ Test 2: Failed Payment</h3>
+            <p>Simulates: <code>/?payment=failed</code></p>
+            <button class="danger" onclick="testFailedPayment()">Test Failed Notification</button>
+            <div id="failed-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>⚠️ Test 3: Payment Error</h3>
+            <p>Simulates: <code>/?payment=error</code></p>
+            <button class="warning" onclick="testErrorPayment()">Test Error Notification</button>
+            <div id="error-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Current URL Parameters</h3>
+            <p>Current URL: <code id="current-url"></code></p>
+            <p>Payment: <code id="payment-param">none</code></p>
+            <p>Booking: <code id="booking-param">none</code></p>
+            <button onclick="checkCurrentParams()">Refresh URL Check</button>
+        </div>
+
+        <hr style="margin: 30px 0;">
+
+        <div class="test-section">
+            <h3>📋 How to Test in Your App</h3>
+            <ol>
+                <li>Open your app: <code>http://localhost:3000</code></li>
+                <li>In the browser address bar, manually add: <code>?payment=success&booking=test123</code></li>
+                <li>Press Enter - you should see the success alert</li>
+                <li>Click OK - you should be switched to Messages tab</li>
+                <li>Check that URL is cleaned (no parameters left)</li>
+            </ol>
+            <button onclick="openAppWithParams()">Open App with Test Parameters</button>
+        </div>
+    </div>
+
+    <script>
+        // Update current URL display
+        function checkCurrentParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            document.getElementById('current-url').textContent = window.location.href;
+            document.getElementById('payment-param').textContent = urlParams.get('payment') || 'none';
+            document.getElementById('booking-param').textContent = urlParams.get('booking') || 'none';
+        }
+
+        function testSuccessPayment() {
+            // Simulate redirect with success parameters
+            const newUrl = window.location.pathname + '?payment=success&booking=test-booking-123';
+            window.history.pushState({}, '', newUrl);
+            
+            // Show what happened
+            const result = document.getElementById('success-result');
+            result.style.display = 'block';
+            result.innerHTML = `
+                <strong>✅ URL Updated!</strong><br>
+                New URL: ${window.location.href}<br>
+                <br>
+                <strong>In your app, this should trigger:</strong><br>
+                • Alert: "🎉 Payment Successful!"<br>
+                • Switch to Messages tab<br>
+                • Clear URL parameters<br>
+                <br>
+                <em>Note: This test page only simulates the URL change. 
+                Open your actual app at localhost:3000 to see the real behavior.</em>
+            `;
+            
+            checkCurrentParams();
+        }
+
+        function testFailedPayment() {
+            const newUrl = window.location.pathname + '?payment=failed';
+            window.history.pushState({}, '', newUrl);
+            
+            const result = document.getElementById('failed-result');
+            result.style.display = 'block';
+            result.style.background = '#ffebee';
+            result.innerHTML = `
+                <strong>❌ URL Updated!</strong><br>
+                New URL: ${window.location.href}<br>
+                <br>
+                <strong>In your app, this should trigger:</strong><br>
+                • Alert: "❌ Payment Failed"<br>
+                • Clear URL parameters<br>
+            `;
+            
+            checkCurrentParams();
+        }
+
+        function testErrorPayment() {
+            const newUrl = window.location.pathname + '?payment=error';
+            window.history.pushState({}, '', newUrl);
+            
+            const result = document.getElementById('error-result');
+            result.style.display = 'block';
+            result.style.background = '#fff3e0';
+            result.innerHTML = `
+                <strong>⚠️ URL Updated!</strong><br>
+                New URL: ${window.location.href}<br>
+                <br>
+                <strong>In your app, this should trigger:</strong><br>
+                • Alert: "⚠️ Payment Error"<br>
+                • Clear URL parameters<br>
+            `;
+            
+            checkCurrentParams();
+        }
+
+        function openAppWithParams() {
+            window.open('http://localhost:3000/?payment=success&booking=test-booking-123', '_blank');
+        }
+
+        // Initialize on load
+        checkCurrentParams();
+    </script>
+</body>
+</html>
+
+
+

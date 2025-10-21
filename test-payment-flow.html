@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Payment Flow - PROTECTOR.NG</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #fff;
+        }
+        .container {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #00d9ff;
+            margin-top: 0;
+        }
+        label {
+            display: block;
+            margin: 15px 0 5px;
+            color: #a0aec0;
+            font-size: 14px;
+        }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #2d3748;
+            border-radius: 8px;
+            background: #1a202c;
+            color: #fff;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            margin-top: 20px;
+            background: linear-gradient(135deg, #00d9ff, #0099cc);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 8px;
+            background: #2d3748;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .error {
+            background: #fc8181;
+            color: #1a202c;
+        }
+        .success {
+            background: #68d391;
+            color: #1a202c;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #00d9ff;
+        }
+        .booking-option {
+            padding: 10px;
+            background: #2d3748;
+            margin: 5px 0;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Test Payment Flow</h1>
+        <p style="color: #a0aec0;">Test Paystack payment integration with your bookings</p>
+
+        <label>Select Booking:</label>
+        <select id="bookingSelect">
+            <option value="">Loading bookings...</option>
+        </select>
+        <div id="bookingDetails" style="margin-top: 10px; padding: 10px; background: #2d3748; border-radius: 6px; display: none;">
+            <small style="color: #a0aec0;">Booking details will appear here</small>
+        </div>
+
+        <label>Amount (NGN):</label>
+        <input type="number" id="amount" value="100000" placeholder="100000">
+
+        <label>Email:</label>
+        <input type="email" id="email" value="test@example.com" placeholder="customer@example.com">
+
+        <label>Customer Name:</label>
+        <input type="text" id="customerName" value="Test Customer" placeholder="John Doe">
+
+        <button onclick="testPayment()" id="payBtn">💳 Test Payment</button>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        let bookings = [];
+
+        // Load bookings from Supabase
+        async function loadBookings() {
+            try {
+                const response = await fetch('/api/bookings');
+                if (response.ok) {
+                    const data = await response.json();
+                    bookings = data.bookings || [];
+                    
+                    const select = document.getElementById('bookingSelect');
+                    if (bookings.length === 0) {
+                        select.innerHTML = '<option value="">No bookings available</option>';
+                        return;
+                    }
+                    
+                    select.innerHTML = '<option value="">Select a booking...</option>';
+                    bookings.forEach(booking => {
+                        const option = document.createElement('option');
+                        option.value = booking.id;
+                        option.textContent = `${booking.booking_code || booking.id.substring(0, 8)} - ${booking.status} - ₦${(booking.total_price || 0).toLocaleString()}`;
+                        select.appendChild(option);
+                    });
+                    
+                    select.addEventListener('change', (e) => {
+                        const selectedBooking = bookings.find(b => b.id === e.target.value);
+                        const details = document.getElementById('bookingDetails');
+                        
+                        if (selectedBooking) {
+                            details.style.display = 'block';
+                            details.innerHTML = `
+                                <strong>Booking Details:</strong><br>
+                                ID: ${selectedBooking.id}<br>
+                                Code: ${selectedBooking.booking_code || 'N/A'}<br>
+                                Status: ${selectedBooking.status}<br>
+                                Amount: ₦${(selectedBooking.total_price || 0).toLocaleString()}<br>
+                                From: ${selectedBooking.pickup_address || 'N/A'}<br>
+                                To: ${selectedBooking.destination_address || 'N/A'}<br>
+                                Client ID: ${selectedBooking.client_id}
+                            `;
+                            
+                            // Auto-fill amount
+                            document.getElementById('amount').value = selectedBooking.total_price || 100000;
+                        } else {
+                            details.style.display = 'none';
+                        }
+                    });
+                } else {
+                    console.error('Failed to load bookings:', await response.text());
+                    document.getElementById('bookingSelect').innerHTML = '<option value="">Failed to load bookings</option>';
+                }
+            } catch (error) {
+                console.error('Error loading bookings:', error);
+                document.getElementById('bookingSelect').innerHTML = '<option value="">Error loading bookings</option>';
+            }
+        }
+
+        async function testPayment() {
+            const bookingId = document.getElementById('bookingSelect').value;
+            const amount = document.getElementById('amount').value;
+            const email = document.getElementById('email').value;
+            const customerName = document.getElementById('customerName').value;
+            const resultDiv = document.getElementById('result');
+            const payBtn = document.getElementById('payBtn');
+
+            if (!bookingId) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = '❌ Please select a booking first!';
+                return;
+            }
+
+            if (!amount || !email || !customerName) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = '❌ Please fill in all fields!';
+                return;
+            }
+
+            try {
+                payBtn.disabled = true;
+                resultDiv.className = 'result loading';
+                resultDiv.textContent = '⏳ Processing payment request...';
+
+                const paymentData = {
+                    bookingId,
+                    amount: parseFloat(amount),
+                    email,
+                    customerName,
+                    currency: 'NGN'
+                };
+
+                console.log('📤 Sending payment request:', paymentData);
+
+                const response = await fetch('/api/payments/paystack/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(paymentData)
+                });
+
+                const result = await response.json();
+                
+                console.log('📥 Payment response:', result);
+
+                if (response.ok && result.success) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+✅ Payment Initialized Successfully!
+
+Authorization URL: ${result.authorization_url}
+Reference: ${result.reference}
+Amount: ₦${result.amount.toLocaleString()}
+
+Opening payment page in new window...`;
+                    
+                    // Open payment page
+                    setTimeout(() => {
+                        window.open(result.authorization_url, '_blank');
+                    }, 1000);
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.innerHTML = `
+❌ Payment Failed
+
+Status: ${response.status}
+Error: ${result.error || 'Unknown error'}
+${result.details ? '\nDetails: ' + result.details : ''}
+${result.bookingId ? '\nBooking ID: ' + result.bookingId : ''}
+
+Full Response:
+${JSON.stringify(result, null, 2)}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+❌ Request Failed
+
+Error: ${error.message}
+
+Make sure the dev server is running!`;
+                console.error('Payment error:', error);
+            } finally {
+                payBtn.disabled = false;
+            }
+        }
+
+        // Load bookings on page load
+        loadBookings();
+    </script>
+</body>
+</html>
+

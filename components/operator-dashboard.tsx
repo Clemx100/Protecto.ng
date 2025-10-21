@@ -154,8 +154,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             }
           })
           
-          // Scroll to bottom when new message arrives
-          setTimeout(() => scrollToBottom(), 100)
+          // Don't auto-scroll - let operator control their view
+          // setTimeout(() => scrollToBottom(), 100)
         }
       )
       
@@ -261,7 +261,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             const updatedClientMessages = [...clientMessages, chatMessage]
             localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedClientMessages))
             
-            scrollToBottom()
+            // Don't auto-scroll - let operator control their view
+            // scrollToBottom()
           }
         }
       )
@@ -346,7 +347,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           // The API already provides id (booking_code) and database_id (UUID)
           // Don't overwrite database_id!
           // Add additional fields for compatibility
-          payment_approved: booking.payment_approved || false,
+          payment_approved: booking.status === 'paid', // Check status instead of non-existent column
           vehicles: booking.vehicles || {},
           protectionType: booking.protectionType || 'N/A',
           destinationDetails: booking.destinationDetails || {},
@@ -361,7 +362,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         // Update payment approval status
         const paymentStatus: { [bookingId: string]: boolean } = {}
         transformedBookings.forEach((booking: any) => {
-          paymentStatus[booking.id] = booking.payment_approved || false
+          paymentStatus[booking.id] = booking.status === 'paid' // Check status instead of non-existent column
         })
           setPaymentApproved(paymentStatus)
           
@@ -428,7 +429,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           vehicle_type: 'N/A',
           special_requirements: 'N/A',
           emergency_contact: booking.emergency_contact || 'N/A',
-          payment_approved: false,
+          payment_approved: booking.status === 'paid', // Check status
           vehicles: {},
           protectionType: 'N/A',
           destinationDetails: {}
@@ -495,7 +496,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     try {
       const messages = await chatService.getMessages(bookingId)
       setMessages(messages)
-      scrollToBottom()
+      // Don't auto-scroll - let operator control their view
+      // scrollToBottom()
     } catch (error) {
       console.error('Failed to load messages:', error)
       setError('Failed to load messages')
@@ -532,7 +534,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           const message = result.data
           // Add to local state
           setMessages(prev => [...prev, message])
-          scrollToBottom()
+          // Don't auto-scroll - let operator control their view
+          // scrollToBottom()
           setSuccess('Message sent successfully!')
         } else {
           throw new Error(result.error || 'Failed to send message')
@@ -625,11 +628,17 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           setShowInvoiceModal(true)
           return // Don't send message yet, wait for invoice confirmation
         case "deploy":
-          // Only allow deploy if payment is approved
-          if (!paymentApproved[selectedBooking.id]) {
-            setError("Payment must be approved before deploying team")
+          // Check if payment is approved (status is paid)
+          const isPaymentConfirmed = paymentApproved[selectedBooking.id] || 
+                                     selectedBooking.status === 'paid'
+          
+          if (!isPaymentConfirmed) {
+            setError("Payment must be confirmed before deploying team. Please wait for payment verification.")
+            setActionLoading(null)
             return
           }
+          
+          console.log('✅ Payment confirmed, deploying team...')
           message = "🚀 Protection team deployed! They are preparing for departure."
           systemMessage = "Protection team deployed"
           newStatus = "en_route"
@@ -805,7 +814,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       }
 
       setSuccess(`Action completed: ${action}`)
-      scrollToBottom()
+      // Don't auto-scroll - let operator control their view
+      // scrollToBottom()
     } catch (error) {
       console.error(`Failed to ${action} booking:`, error)
       const errorMessage = error instanceof Error ? error.message : String(error)
@@ -897,7 +907,8 @@ Please review and approve the payment to proceed with your service.`
         
         setShowInvoiceModal(false)
         setSuccess("Invoice sent successfully!")
-        scrollToBottom()
+        // Don't auto-scroll - let operator control their view
+        // scrollToBottom()
         
         // Refresh messages to ensure sync
         setTimeout(() => {
@@ -929,6 +940,7 @@ Please review and approve the payment to proceed with your service.`
         return 'bg-yellow-500/20 text-yellow-300'
       case 'accepted':
       case 'confirmed':
+      case 'paid':
         return 'bg-blue-500/20 text-blue-300'
       case 'en_route':
         return 'bg-purple-500/20 text-purple-300'
@@ -945,7 +957,7 @@ Please review and approve the payment to proceed with your service.`
     }
   }
 
-  const getStatusActions = (status: string, hasPaymentApproved: boolean = false) => {
+  const getStatusActions = (status: string, hasPaymentApproved: boolean = false, hasInvoice: boolean = false) => {
     // Normalize status to lowercase for comparison
     const normalizedStatus = status.toLowerCase().replace(/\s+/g, '_')
     
@@ -963,11 +975,19 @@ Please review and approve the payment to proceed with your service.`
           return [
             { action: 'deploy', label: 'Deploy Team', color: 'bg-purple-600 hover:bg-purple-700' }
           ]
+        } else if (hasInvoice) {
+          // Invoice sent, waiting for payment - no action buttons
+          return []
         } else {
           return [
             { action: 'invoice', label: 'Send Invoice', color: 'bg-blue-600 hover:bg-blue-700' }
           ]
         }
+      case 'paid':
+        // Payment confirmed - ready to deploy
+        return [
+          { action: 'deploy', label: 'Deploy Team', color: 'bg-purple-600 hover:bg-purple-700' }
+        ]
       case 'en_route':
         return [
           { action: 'arrived', label: 'Mark Arrived', color: 'bg-green-600 hover:bg-green-700' }
@@ -1314,7 +1334,11 @@ Please review and approve the payment to proceed with your service.`
                 <div className="p-6 border-b border-white/10">
                   <h4 className="text-lg font-semibold text-white mb-4">Operator Actions</h4>
                   <div className="flex flex-wrap gap-3">
-                    {getStatusActions(selectedBooking.status, paymentApproved[selectedBooking.id]).map(({ action, label, color }) => (
+                    {getStatusActions(
+                      selectedBooking.status, 
+                      paymentApproved[selectedBooking.id],
+                      messages.some(msg => msg.has_invoice || msg.message_type === 'invoice')
+                    ).map(({ action, label, color }) => (
                       <Button
                         key={action}
                         onClick={() => handleOperatorAction(action)}
@@ -1337,14 +1361,25 @@ Please review and approve the payment to proceed with your service.`
                   </div>
                   
                   {/* Payment Status Indicator */}
-                  {paymentApproved[selectedBooking.id] && (
+                  {paymentApproved[selectedBooking.id] ? (
                     <div className="mt-4 p-3 bg-green-500/20 border border-green-500/50 rounded-lg">
                       <div className="flex items-center space-x-2">
                         <div className="w-2 h-2 bg-green-400 rounded-full"></div>
                         <span className="text-green-300 text-sm font-medium">Payment Approved</span>
                       </div>
                     </div>
-                  )}
+                  ) : messages.some(msg => msg.has_invoice || msg.message_type === 'invoice') && 
+                      (selectedBooking.status === 'accepted' || selectedBooking.status === 'confirmed') ? (
+                    <div className="mt-4 p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+                        <span className="text-yellow-300 text-sm font-medium">Waiting for Payment</span>
+                      </div>
+                      <div className="text-xs text-yellow-200 mt-1">
+                        Invoice sent - awaiting client payment confirmation
+                      </div>
+                    </div>
+                  ) : null}
                   
                   {/* Status Information */}
                   <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
@@ -1466,7 +1501,8 @@ Please review and approve the payment to proceed with your service.`
                                   status: 'sent'
                                 }
                                 setMessages(prev => [...prev, paymentMsg])
-                                scrollToBottom()
+                                // Don't auto-scroll - let operator control their view
+                                // scrollToBottom()
                               }}
                               size="sm"
                               className="mt-3 bg-green-600 hover:bg-green-700 text-white w-full"

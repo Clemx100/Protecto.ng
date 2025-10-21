@@ -26,7 +26,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Valid status values
-    const validStatuses = ['pending', 'accepted', 'deployed', 'en_route', 'arrived', 'in_service', 'completed', 'cancelled']
+    const validStatuses = ['pending', 'accepted', 'paid', 'deployed', 'en_route', 'arrived', 'in_service', 'completed', 'cancelled']
     if (!validStatuses.includes(status)) {
       return NextResponse.json({ error: 'Invalid status value' }, { status: 400 })
     }
@@ -98,6 +98,7 @@ export async function PATCH(request: NextRequest) {
     const statusMessages = {
       'pending': '⏳ Your booking request has been received and is pending review.',
       'accepted': '✅ Your booking has been accepted by our team. We will contact you shortly.',
+      'paid': '💰 Payment received and confirmed! Your service will now be processed.',
       'en_route': '🚗 Your security team is now en route to your location.',
       'arrived': '📍 Your security team has arrived at your location.',
       'in_service': '🛡️ Security service is now active. Your protection team is on duty.',
@@ -201,6 +202,7 @@ export async function POST(request: NextRequest) {
     const statusMessages = {
       'pending': '⏳ Your booking request has been received and is pending review.',
       'accepted': '✅ Your booking has been accepted by our team. We will contact you shortly.',
+      'paid': '💰 Payment received and confirmed! Your service will now be processed.',
       'en_route': '🚗 Your security team is now en route to your location.',
       'arrived': '📍 Your security team has arrived at your location.',
       'in_service': '🛡️ Security service is now active. Your protection team is on duty.',

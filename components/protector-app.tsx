@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare } from "lucide-react"
+import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
+import { fallbackAuth } from "@/lib/services/fallbackAuth"
 import { unifiedChatService } from "@/lib/services/unifiedChatService"
+import ChatBookingSelector from "./chat-booking-selector"
 
 interface BookingDisplay {
   id: string
+  booking_code?: string
   type: string
   protectorName?: string
   vehicleType?: string
@@ -23,11 +26,22 @@ interface BookingDisplay {
   date: string
   duration: string
   rating?: number
+  // Raw data for modals
+  service_type?: string
+  scheduled_date?: string
+  scheduled_time?: string
+  total_price?: number
 }
 
 export default function ProtectorApp() {
   const router = useRouter()
   const supabase = createClient()
+
+  // Check if we should use mock database
+  const shouldUseMockDatabase = () => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+    return url.includes('localhost') || url.includes('mock')
+  }
 
   const [activeTab, setActiveTab] = useState("protector")
   const [userRole, setUserRole] = useState("client") // "client", "agent", "admin"
@@ -110,7 +124,7 @@ export default function ProtectorApp() {
   const [showCurrentDestinationSuggestions, setShowCurrentDestinationSuggestions] = useState(false)
   const [customDurationUnit, setCustomDurationUnit] = useState("days")
 
-  const [showLoginForm, setShowLoginForm] = useState(false)
+  const [showLoginForm, setShowLoginForm] = useState(true)
   const [isLogin, setIsLogin] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [authStep, setAuthStep] = useState("login") // "login", "register", "credentials", "email-verification", "profile-completion", "profile"
@@ -214,10 +228,80 @@ export default function ProtectorApp() {
   const [bookingHistory, setBookingHistory] = useState<BookingDisplay[]>([])
   const [isLoadingBookings, setIsLoadingBookings] = useState(false)
 
-  const [showHistory, setShowHistory] = useState(false)
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false)
 
   const [userLocation, setUserLocation] = useState("Lagos")
+  
+  // Contact and Cancel booking states
+  const [showContactModal, setShowContactModal] = useState(false)
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [bookingToCancel, setBookingToCancel] = useState<any>(null)
+
+  // Handle contact options
+  const handleContact = (booking: any) => {
+    setShowContactModal(true)
+  }
+
+  // Handle cancel booking
+  const handleCancelBooking = (booking: any) => {
+    setBookingToCancel(booking)
+    setShowCancelModal(true)
+  }
+
+  // Process booking cancellation
+  const processBookingCancellation = async () => {
+    if (!bookingToCancel || !user) return
+
+    try {
+      // Check if payment was made (you can add payment status check here)
+      const hasPayment = bookingToCancel.total_price > 0 // Simple check, you can enhance this
+      
+      if (hasPayment) {
+        // Show refund warning
+        const confirmRefund = window.confirm(
+          `⚠️ Payment Refund Notice\n\n` +
+          `You have made a payment of ₦${bookingToCancel.total_price?.toLocaleString()} for this booking.\n\n` +
+          `If you cancel now, 20% of the total amount (₦${Math.round(bookingToCancel.total_price * 0.2).toLocaleString()}) will be deducted as a cancellation fee.\n\n` +
+          `The remaining amount will be refunded to your account within 3-5 business days.\n\n` +
+          `Do you want to proceed with the cancellation?`
+        )
+        
+        if (!confirmRefund) {
+          setShowCancelModal(false)
+          setBookingToCancel(null)
+          return
+        }
+      }
+
+      // Update booking status to cancelled
+      const { error } = await supabase
+        .from('bookings')
+        .update({ 
+          status: 'cancelled',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', bookingToCancel.id)
+
+      if (error) {
+        throw error
+      }
+
+      // Reload bookings to reflect the change
+      await loadBookings()
+      
+      // Show success message
+      alert(hasPayment 
+        ? `✅ Booking cancelled successfully!\n\nYour refund will be processed within 3-5 business days.\nDeduction: ₦${Math.round(bookingToCancel.total_price * 0.2).toLocaleString()}\nRefund: ₦${Math.round(bookingToCancel.total_price * 0.8).toLocaleString()}`
+        : `✅ Booking cancelled successfully!`
+      )
+
+      setShowCancelModal(false)
+      setBookingToCancel(null)
+    } catch (error) {
+      console.error('Error cancelling booking:', error)
+      alert('❌ Failed to cancel booking. Please try again or contact support.')
+    }
+  }
 
   // Load bookings function
   const loadBookings = async () => {
@@ -278,10 +362,10 @@ export default function ProtectorApp() {
         if (stored) {
           const storedBookings = JSON.parse(stored)
           setActiveBookings(storedBookings.filter((b: BookingDisplay) => 
-            ['accepted', 'en-route', 'arrived', 'in-service'].includes(b.status)
+            ['Accepted', 'En Route', 'Arrived', 'In Service'].includes(b.status)
           ))
           setBookingHistory(storedBookings.filter((b: BookingDisplay) => 
-            ['completed', 'cancelled'].includes(b.status)
+            ['Completed', 'Cancelled'].includes(b.status)
           ))
           console.log('📱 Loaded bookings from localStorage:', storedBookings.length)
         }
@@ -295,12 +379,13 @@ export default function ProtectorApp() {
   const transformBookings = (bookings: any[]): BookingDisplay[] => {
     return bookings.map(booking => ({
       id: booking.id,
+      booking_code: booking.booking_code,
       type: formatServiceType(booking.service_type),
       protectorName: booking.assigned_agent?.name || 'TBD',
       vehicleType: booking.assigned_vehicle?.model || 'TBD',
       status: formatStatus(booking.status),
       estimatedArrival: calculateETA(booking.status),
-      pickupLocation: booking.pickup_address,
+      pickupLocation: booking.pickup_address || 'TBD',
       destination: booking.destination_address || 'TBD',
       startTime: formatTime(booking.scheduled_time),
       protectorImage: booking.assigned_agent?.profile_image || '/images/business-formal-agent.png',
@@ -311,26 +396,40 @@ export default function ProtectorApp() {
       cost: `₦${booking.total_price?.toLocaleString() || '0'}`,
       date: formatDate(booking.scheduled_date),
       duration: `${booking.duration_hours || 0}h`,
-      rating: booking.assigned_agent?.rating || 5
+      rating: booking.assigned_agent?.rating || 5,
+      // Include raw data for modals
+      service_type: booking.service_type,
+      scheduled_date: booking.scheduled_date,
+      scheduled_time: booking.scheduled_time,
+      total_price: booking.total_price
     }))
   }
 
   // Helper functions
   const formatServiceType = (serviceType: string): string => {
-    return serviceType?.replace('_', '-') || 'unknown'
+    if (!serviceType) return 'Unknown Service'
+    
+    const serviceMap: { [key: string]: string } = {
+      'armed-protection': 'Armed Protection',
+      'car-only': 'Car Only',
+      'armed_protection': 'Armed Protection',
+      'car_only': 'Car Only'
+    }
+    
+    return serviceMap[serviceType] || serviceType.replace(/[_-]/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
   }
 
   const formatStatus = (status: string): string => {
     const statusMap: { [key: string]: string } = {
-      'pending': 'pending',
-      'accepted': 'accepted',
-      'en_route': 'en-route',
-      'arrived': 'arrived',
-      'in_service': 'in-service',
-      'completed': 'completed',
-      'cancelled': 'cancelled'
+      'pending': 'Pending',
+      'accepted': 'Accepted',
+      'en_route': 'En Route',
+      'arrived': 'Arrived',
+      'in_service': 'In Service',
+      'completed': 'Completed',
+      'cancelled': 'Cancelled'
     }
-    return statusMap[status] || status
+    return statusMap[status] || 'Unknown'
   }
 
   const calculateETA = (status: string): string => {
@@ -395,11 +494,12 @@ export default function ProtectorApp() {
     loadUser()
   }, [])
 
-  // Load bookings when user is available
+  // Load bookings and profile when user is available
   useEffect(() => {
     if (user?.id) {
-      console.log('👤 User authenticated, loading bookings...')
+      console.log('👤 User authenticated, loading bookings and profile...')
       loadBookings()
+      loadUserProfile(user.id)
     }
   }, [user?.id])
   
@@ -408,6 +508,14 @@ export default function ProtectorApp() {
     if (activeTab === 'bookings' && user?.id) {
       console.log('📑 Bookings tab opened, refreshing...')
       loadBookings()
+    }
+  }, [activeTab, user?.id])
+
+  // Refresh history when switching to history tab
+  useEffect(() => {
+    if (activeTab === 'history' && user?.id) {
+      console.log('📚 History tab opened, refreshing...')
+      loadBookings() // Same function loads both active bookings and history
     }
   }, [activeTab, user?.id])
 
@@ -608,15 +716,44 @@ export default function ProtectorApp() {
   }
 
   // Handle invoice approval - redirect to Paystack
-  const handleApprovePayment = async () => {
-    if (!selectedChatBooking || !chatInvoiceData || !user) return
+  const handleApprovePayment = async (invoiceData?: any) => {
+    // Use passed invoice data or fall back to state
+    const invoice = invoiceData || chatInvoiceData
+    
+    console.log('💳 handleApprovePayment called with:', {
+      hasInvoiceDataParam: !!invoiceData,
+      hasChatInvoiceData: !!chatInvoiceData,
+      hasSelectedBooking: !!selectedChatBooking,
+      hasUser: !!user,
+      invoiceAmount: invoice?.totalAmount,
+      bookingId: selectedChatBooking?.id
+    })
+    
+    if (!selectedChatBooking || !invoice || !user) {
+      console.error('❌ Missing required data for payment:', {
+        hasSelectedBooking: !!selectedChatBooking,
+        hasInvoiceData: !!invoice,
+        hasUser: !!user,
+        selectedBookingId: selectedChatBooking?.id,
+        invoiceAmount: invoice?.totalAmount
+      })
+      alert('Payment Error: Missing booking or invoice information. Please refresh and try again.')
+      return
+    }
 
     try {
       setIsSendingMessage(true)
       
+      // Validate booking ID format
+      if (!selectedChatBooking.id) {
+        console.error('❌ Booking ID is missing')
+        alert('Payment Error: Invalid booking. Please refresh and try again.')
+        return
+      }
+
       // Prepare payment data
       const paymentData = {
-        amount: chatInvoiceData.totalAmount,
+        amount: invoice.totalAmount,
         email: user.email || 'client@protector.ng',
         bookingId: selectedChatBooking.id,
         customerName: `${user.user_metadata?.first_name || ''} ${user.user_metadata?.last_name || ''}`.trim() || 'Protector Client',
@@ -624,6 +761,12 @@ export default function ProtectorApp() {
       }
 
       console.log('💳 Initiating Paystack payment:', paymentData)
+      console.log('🔍 Selected chat booking details:', {
+        id: selectedChatBooking.id,
+        booking_code: selectedChatBooking.booking_code,
+        status: selectedChatBooking.status,
+        fullBooking: selectedChatBooking
+      })
 
       // Create Paystack payment
       const response = await fetch('/api/payments/paystack/create', {
@@ -634,32 +777,66 @@ export default function ProtectorApp() {
         body: JSON.stringify(paymentData),
       })
 
+      console.log('📊 Payment API response status:', response.status)
+      console.log('📊 Response OK?', response.ok)
+      
       const result = await response.json()
+      console.log('📊 Payment API response data:', JSON.stringify(result, null, 2))
+      console.log('📊 Response success check:', {
+        hasSuccess: !!result.success,
+        successValue: result.success,
+        hasAuthUrl: !!result.authorization_url,
+        authUrl: result.authorization_url,
+        hasError: !!result.error,
+        errorMessage: result.error
+      })
 
       if (result.success && result.authorization_url) {
-        // Send message indicating payment is being processed
-        const paymentMessage = await unifiedChatService.sendMessage(
-          selectedChatBooking.id,
-          "💳 Redirecting to secure payment gateway...",
-          'client',
-          user.id
-        )
-        setChatMessages(prev => [...prev, paymentMessage])
+        console.log('✅ Payment initialization successful! Opening Paystack...')
+        console.log('🔗 Authorization URL:', result.authorization_url)
         
-        // Redirect to Paystack
+        // Redirect to Paystack FIRST (before sending message to avoid delays)
         if (typeof window !== 'undefined') {
-          window.open(result.authorization_url, '_blank')
+          console.log('🌐 Opening payment window...')
+          const paymentWindow = window.open(result.authorization_url, '_blank')
+          if (!paymentWindow) {
+            console.warn('⚠️ Popup blocked! Trying direct navigation...')
+            window.location.href = result.authorization_url
+          } else {
+            console.log('✅ Payment window opened successfully')
+          }
+        }
+        
+        // Send message indicating payment is being processed (non-blocking)
+        try {
+          const paymentMessage = await unifiedChatService.sendMessage(
+            selectedChatBooking.id,
+            "💳 Redirecting to secure payment gateway...",
+            'client',
+            user.id
+          )
+          setChatMessages(prev => [...prev, paymentMessage])
+        } catch (msgError) {
+          console.warn('⚠️ Failed to send payment message (non-critical):', msgError)
         }
         
         setShowChatInvoice(false)
         setChatInvoiceData(null)
       } else {
-        throw new Error(result.error || 'Failed to initialize payment')
+        const errorDetails = result.details ? `\n\nDetails: ${result.details}` : ''
+        const bookingInfo = result.bookingId ? `\n\nBooking ID: ${result.bookingId}` : ''
+        throw new Error(`${result.error || 'Failed to initialize payment'}${errorDetails}${bookingInfo}`)
       }
       
     } catch (error: any) {
-      console.error("Error initiating payment:", error)
-      alert(`Payment Error: ${error.message || 'Failed to process payment. Please try again.'}`)
+      console.error("❌ Error initiating payment:", error)
+      console.error("❌ Full error object:", JSON.stringify(error, null, 2))
+      console.error("❌ Error stack:", error.stack)
+      
+      // Show detailed error
+      const errorMessage = error.message || 'Failed to process payment. Please try again.'
+      console.log(`🚨 Showing error alert: ${errorMessage}`)
+      alert(`Payment Error: ${errorMessage}`)
     } finally {
       setIsSendingMessage(false)
     }
@@ -734,6 +911,7 @@ export default function ProtectorApp() {
           }
         } else {
           // User exists but email not verified
+          setShowLoginForm(true)
           setVerificationEmail(session.user.email || "")
           setAuthStep("email-verification")
           setEmailVerificationSent(true)
@@ -832,8 +1010,8 @@ export default function ProtectorApp() {
   const durationOptions = ["1 day", "2 days", "3 days", "1 week", "2 weeks", "1 month"]
 
   useEffect(() => {
-    // Check for email verification success in URL
-    const checkEmailVerification = () => {
+    // Check for email verification success and payment status in URL
+    const checkURLParameters = () => {
       if (typeof window === 'undefined') return
       
       const urlParams = new URLSearchParams(window.location.search)
@@ -841,6 +1019,80 @@ export default function ProtectorApp() {
       const email = urlParams.get('email')
       const type = urlParams.get('type')
       const error = urlParams.get('error')
+      const paymentStatus = urlParams.get('payment')
+      const bookingId = urlParams.get('booking')
+      
+      // Check for payment status first
+      if (paymentStatus === 'success' && bookingId) {
+        console.log('✅ Payment success detected in URL for booking:', bookingId)
+        
+        // Switch to messages tab immediately
+        setActiveTab('messages')
+        
+        // Fetch the specific booking and open its chat
+        setTimeout(async () => {
+          try {
+            console.log('🔍 Fetching booking directly:', bookingId)
+            
+            // Fetch the booking directly from database
+            const { data: booking, error } = await supabase
+              .from('bookings')
+              .select('*')
+              .eq('id', bookingId)
+              .single()
+            
+            if (error) {
+              console.error('❌ Error fetching booking:', error)
+              throw error
+            }
+            
+            if (booking) {
+              console.log('📱 Auto-opening chat for paid booking:', booking.id)
+              
+              // Load all bookings to refresh the list
+              await loadBookings()
+              
+              // Set the selected booking and load messages
+              setSelectedChatBooking(booking)
+              await loadMessagesForBooking(booking.id)
+              
+              // Show success message after chat is loaded
+              setTimeout(() => {
+                alert('🎉 Payment Successful!\n\nYour payment has been received and confirmed.\n\nYou can see the payment confirmation message in the chat below.')
+              }, 800)
+            } else {
+              // Booking not found, still show success
+              alert('🎉 Payment Successful!\n\nYour payment has been received and confirmed.\n\nYour protection service request is now being processed.')
+            }
+          } catch (error) {
+            console.error('Error loading booking after payment:', error)
+            // Still show success message
+            alert('🎉 Payment Successful!\n\nYour payment has been received and confirmed.\n\nYour protection service request is now being processed.')
+          }
+        }, 300)
+        
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname)
+        return
+      }
+      
+      if (paymentStatus === 'failed') {
+        console.log('❌ Payment failed detected in URL')
+        alert('❌ Payment Failed\n\nYour payment could not be processed.\n\nPlease try again or contact support if the problem persists.')
+        
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname)
+        return
+      }
+      
+      if (paymentStatus === 'error') {
+        console.log('❌ Payment error detected in URL')
+        alert('⚠️ Payment Error\n\nThere was an error processing your payment.\n\nPlease try again or contact support.')
+        
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname)
+        return
+      }
       
       if (error === 'auth_callback_error') {
         setAuthError('Email verification failed. Please try again.')
@@ -872,7 +1124,10 @@ export default function ProtectorApp() {
         // The auth state change listener will handle the rest
       }
     }
+    
+    checkURLParameters()
 
+    
     // Get initial session
     const getInitialSession = async () => {
       try {
@@ -904,8 +1159,7 @@ export default function ProtectorApp() {
       }
     }
 
-    // Check for verification first, then get session
-    checkEmailVerification()
+    // Check URL parameters first, then get session
     getInitialSession()
 
     // Listen for auth changes
@@ -976,26 +1230,57 @@ export default function ProtectorApp() {
 
   const loadUserProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
+      // Try Supabase first
+      try {
+        const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
 
-      if (error) {
-        console.error("Error loading profile:", error)
-        return
-      }
+        if (error) {
+          throw error
+        }
 
-      if (data) {
-        setUserProfile({
-          email: data.email || "",
-          firstName: data.first_name || "",
-          lastName: data.last_name || "",
-          phone: data.phone || "",
-          address: data.address || "",
-          emergencyContact: data.emergency_contact || "",
-          emergencyPhone: data.emergency_phone || "",
-        })
+        if (data) {
+          setUserProfile({
+            email: data.email || "",
+            firstName: data.first_name || "",
+            lastName: data.last_name || "",
+            phone: data.phone || "",
+            address: data.address || "",
+            emergencyContact: data.emergency_contact || "",
+            emergencyPhone: data.emergency_phone || "",
+          })
+          return
+        }
+      } catch (supabaseError) {
+        console.log('🔄 Supabase profile load failed, using fallback...', supabaseError.message)
+        
+        // Fallback: Use user data from auth
+        if (user) {
+          setUserProfile({
+            email: user.email || "",
+            firstName: user.user_metadata?.first_name || "",
+            lastName: user.user_metadata?.last_name || "",
+            phone: user.user_metadata?.phone || "",
+            address: user.user_metadata?.address || "",
+            emergencyContact: user.user_metadata?.emergency_contact || "",
+            emergencyPhone: user.user_metadata?.emergency_phone || "",
+          })
+        }
       }
     } catch (error) {
       console.error("Error loading user profile:", error)
+      
+      // Final fallback: Use basic user data
+      if (user) {
+        setUserProfile({
+          email: user.email || "",
+          firstName: user.user_metadata?.first_name || "User",
+          lastName: user.user_metadata?.last_name || "",
+          phone: "",
+          address: "",
+          emergencyContact: "",
+          emergencyPhone: "",
+        })
+      }
     }
   }
 
@@ -1868,6 +2153,38 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
     try {
       if (authStep === "login") {
+        // Use mock database if configured
+        if (shouldUseMockDatabase()) {
+          console.log('🔄 Using mock database for client authentication')
+          const result = await fallbackAuth.signInWithPassword(
+            authForm.email.trim().toLowerCase(),
+            authForm.password
+          )
+          
+          if (result.error) {
+            throw new Error(result.error)
+          }
+          
+          setAuthSuccess("Login successful! Welcome back.")
+          setShowLoginForm(false)
+          
+          // Clear form
+          setAuthForm({
+            email: "",
+            password: "",
+            confirmPassword: "",
+            phone: "",
+            firstName: "",
+            lastName: "",
+            address: "",
+            emergencyContact: "",
+            emergencyPhone: "",
+            bvnNumber: ""
+          })
+          
+          return
+        }
+
         const { data, error } = await supabase.auth.signInWithPassword({
           email: authForm.email.trim().toLowerCase(), // Normalize email for consistency
           password: authForm.password,
@@ -1913,6 +2230,38 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         return
       } else if (authStep === "credentials") {
         console.log('Processing credentials for user:', authForm.email)
+        
+        // Use mock database if configured
+        if (shouldUseMockDatabase()) {
+          console.log('🔄 Using mock database for client registration')
+          const result = await fallbackAuth.signInWithPassword(
+            authForm.email.trim().toLowerCase(),
+            authForm.password
+          )
+          
+          if (result.error) {
+            throw new Error(result.error)
+          }
+          
+          setAuthSuccess("Registration successful! Welcome to Protector.Ng")
+          setShowLoginForm(false)
+          
+          // Clear form
+          setAuthForm({
+            email: "",
+            password: "",
+            confirmPassword: "",
+            phone: "",
+            firstName: "",
+            lastName: "",
+            address: "",
+            emergencyContact: "",
+            emergencyPhone: "",
+            bvnNumber: ""
+          })
+          
+          return
+        }
         
         // Now actually create the user account with BVN
         const { data, error } = await supabase.auth.signUp({
@@ -3134,6 +3483,17 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     )
   }
 
+  // Show login form if user is not authenticated or if explicitly requested
+  if (showLoginForm || !user || !isLoggedIn || !user.email_confirmed_at) {
+    return (
+      <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+        <div className="flex-1 flex items-center justify-center">
+          {renderLoginForm()}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
       {/* Header */}
@@ -3170,10 +3530,6 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       </header>
 
       <main className="flex-1 pt-20 pb-24">
-        {/* Login Form Overlay */}
-        {showLoginForm && <div className="absolute inset-0 z-50">{renderLoginForm()}</div>}
-
-
         {/* Home/Protector Tab */}
         {activeTab === "protector" && (
           <div className="relative min-h-screen">
@@ -4423,20 +4779,22 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         {/* Bookings Tab */}
         {activeTab === "bookings" && !showChatThread && (
           <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="p-4 border-b border-gray-800">
-              <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-semibold text-white">
-                  {showHistory ? "Booking History" : "Active Bookings"}
-                </h2>
-                <Button
-                  onClick={() => setShowHistory(!showHistory)}
-                  className="bg-gray-700 text-white hover:bg-gray-600 px-4 py-2 text-sm"
-                >
-                  {showHistory ? "Active" : "History"}
-                </Button>
-              </div>
+        {/* Header */}
+        <div className="p-4 border-b border-gray-800">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-white">Active Bookings</h2>
+              <p className="text-gray-400 text-sm">Your current protection requests</p>
             </div>
+            <Button
+              onClick={() => setActiveTab("history")}
+              variant="outline"
+              className="bg-gray-800 text-white border-gray-700 hover:bg-gray-700"
+            >
+              History
+            </Button>
+          </div>
+        </div>
 
               {/* Content */}
               <div className="flex-1 overflow-y-auto">
@@ -4449,7 +4807,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                       <p className="text-gray-400">Please wait while we fetch your bookings.</p>
                     </div>
                   </div>
-                ) : !showHistory ? (
+                ) : (
                   // Active Bookings with Map
                   activeBookings.length > 0 ? (
                   <div className="space-y-4">
@@ -4550,8 +4908,18 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                           >
                             View Chat
                           </Button>
-                          <Button className="flex-1 bg-gray-700 text-white hover:bg-gray-600">Contact</Button>
-                          <Button className="flex-1 bg-red-600 text-white hover:bg-red-700">Cancel</Button>
+                          <Button 
+                            onClick={() => handleContact(booking)}
+                            className="flex-1 bg-gray-700 text-white hover:bg-gray-600"
+                          >
+                            Contact
+                          </Button>
+                          <Button 
+                            onClick={() => handleCancelBooking(booking)}
+                            className="flex-1 bg-red-600 text-white hover:bg-red-700"
+                          >
+                            Cancel
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -4574,77 +4942,99 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                     </div>
                   </div>
                 )
-              ) : (
-                // Booking History
-                bookingHistory.length > 0 ? (
-                  <div className="p-4 space-y-4">
-                    {bookingHistory.map((booking) => (
-                    <div key={booking.id} className="bg-gray-900 rounded-lg p-4 space-y-3">
-                      {/* Header */}
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
-                          <span className="text-gray-400 text-sm capitalize">{booking.type.replace("-", " ")}</span>
-                        </div>
-                        <span className="text-white font-semibold">{booking.cost}</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* History Tab */}
+        {activeTab === "history" && (
+          <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-800">
+              <h2 className="text-2xl font-semibold text-white">Booking History</h2>
+              <p className="text-gray-400 text-sm">Your completed protection services</p>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto">
+              {isLoadingBookings ? (
+                // Loading State
+                <div className="p-4">
+                  <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+                    <h3 className="text-xl font-semibold text-white">Loading history...</h3>
+                    <p className="text-gray-400">Please wait while we fetch your booking history.</p>
+                  </div>
+                </div>
+              ) : bookingHistory.length > 0 ? (
+                <div className="p-4 space-y-4">
+                  {bookingHistory.map((booking) => (
+                  <div key={booking.id} className="bg-gray-900 rounded-lg p-4 space-y-3">
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                        <span className="text-gray-400 text-sm capitalize">{booking.type.replace("-", " ")}</span>
+                      </div>
+                      <span className="text-white font-semibold">{booking.cost}</span>
+                    </div>
+
+                    {/* Service Info */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-white font-semibold">{booking.protectorName || booking.vehicleType}</h3>
+                        <p className="text-gray-400 text-sm">
+                          {booking.date} • {booking.duration}
+                        </p>
                       </div>
 
-                      {/* Service Info */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="text-white font-semibold">{booking.protectorName || booking.vehicleType}</h3>
-                          <p className="text-gray-400 text-sm">
-                            {booking.date} • {booking.duration}
-                          </p>
-                        </div>
-
-                        {/* Rating */}
-                        <div className="flex items-center space-x-1">
-                          {[...Array(5)].map((_, i) => (
-                            <span
-                              key={i}
-                              className={`text-sm ${i < (booking.rating || 0) ? "text-yellow-400" : "text-gray-600"}`}
-                            >
-                              ★
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex space-x-3 pt-2">
-                        <Button 
-                          onClick={() => handleChatNavigation(booking)}
-                          className="flex-1 bg-blue-600 text-white hover:bg-blue-700 text-sm"
-                        >
-                          View Chat
-                        </Button>
-                        <Button className="flex-1 bg-gray-700 text-white hover:bg-gray-600 text-sm">Book Again</Button>
-                        <Button className="flex-1 bg-transparent border border-gray-600 text-gray-300 hover:bg-gray-800 text-sm">
-                          Receipt
-                        </Button>
+                      {/* Rating */}
+                      <div className="flex items-center space-x-1">
+                        {[...Array(5)].map((_, i) => (
+                          <span
+                            key={i}
+                            className={`text-sm ${i < (booking.rating || 0) ? "text-yellow-400" : "text-gray-600"}`}
+                          >
+                            ★
+                          </span>
+                        ))}
                       </div>
                     </div>
-                  ))}
-                  </div>
-                ) : (
-                  // No Booking History
-                  <div className="p-4">
-                    <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
-                      <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto">
-                        <Calendar className="h-8 w-8 text-gray-400" />
-                      </div>
-                      <h3 className="text-xl font-semibold text-white">No Booking History</h3>
-                      <p className="text-gray-400">You haven't completed any protection services yet.</p>
+
+                    {/* Actions */}
+                    <div className="flex space-x-3 pt-2">
                       <Button 
-                        onClick={() => setActiveTab("protector")}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
+                        onClick={() => handleChatNavigation(booking)}
+                        className="flex-1 bg-blue-600 text-white hover:bg-blue-700 text-sm"
                       >
-                        Book Your First Service
+                        View Chat
+                      </Button>
+                      <Button className="flex-1 bg-gray-700 text-white hover:bg-gray-600 text-sm">Book Again</Button>
+                      <Button className="flex-1 bg-transparent border border-gray-600 text-gray-300 hover:bg-gray-800 text-sm">
+                        Receipt
                       </Button>
                     </div>
                   </div>
-                )
+                ))}
+                </div>
+              ) : (
+                // No Booking History
+                <div className="p-4">
+                  <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
+                    <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mx-auto">
+                      <Calendar className="h-8 w-8 text-gray-400" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-white">No Booking History</h3>
+                    <p className="text-gray-400">You haven't completed any protection services yet.</p>
+                    <Button 
+                      onClick={() => setActiveTab("protector")}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg"
+                    >
+                      Book Your First Service
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -4680,36 +5070,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               </div>
 
               {/* Booking Selector */}
-              <select
-                value={selectedChatBooking?.id || ''}
-                onChange={(e) => {
-                  const booking = [...activeBookings, ...bookingHistory].find(b => b.id === e.target.value)
-                  if (booking) {
-                    loadMessagesForBooking(booking)
-                  }
-                }}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-              >
-                <option value="">Select a booking to chat</option>
-                {activeBookings.length > 0 && (
-                  <optgroup label="Active Bookings">
-                    {activeBookings.map(booking => (
-                      <option key={booking.id} value={booking.id}>
-                        {booking.pickupLocation} → {booking.destination || 'N/A'} ({booking.date})
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {bookingHistory.length > 0 && (
-                  <optgroup label="Past Bookings">
-                    {bookingHistory.map(booking => (
-                      <option key={booking.id} value={booking.id}>
-                        {booking.pickupLocation} → {booking.destination || 'N/A'} ({booking.date})
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+              <ChatBookingSelector
+                selectedBooking={selectedChatBooking}
+                activeBookings={activeBookings}
+                bookingHistory={bookingHistory}
+                onBookingSelect={loadMessagesForBooking}
+                className="w-full"
+              />
             </div>
 
             {/* Messages */}
@@ -4810,7 +5177,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                                 </div>
                               </div>
                               <Button
-                                onClick={handleApprovePayment}
+                                onClick={() => handleApprovePayment(msg.invoice_data)}
                                 size="sm"
                                 className="mt-3 bg-green-600 hover:bg-green-700 text-white text-xs px-4 py-2 w-full"
                                 disabled={isSendingMessage}
@@ -5276,6 +5643,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             <span className="text-xs">Bookings</span>
           </button>
 
+
           <button
             onClick={() => setActiveTab("chat")}
             className={`flex flex-col items-center justify-center gap-1 ${
@@ -5427,6 +5795,81 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
               >
                 Send Invoice
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Modal */}
+      {showContactModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-semibold text-white mb-4">Contact Support</h3>
+            <p className="text-gray-300 mb-6">How would you like to contact us?</p>
+            
+            <div className="space-y-3">
+              <Button
+                onClick={() => {
+                  window.open('tel:+2347120005328', '_self')
+                  setShowContactModal(false)
+                }}
+                className="w-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center gap-2"
+              >
+                <Phone className="h-4 w-4" />
+                Call Us (+234 712 000 5328)
+              </Button>
+              
+              <Button
+                onClick={() => {
+                  window.open('mailto:Operator@protector.ng?subject=Booking Support Request', '_blank')
+                  setShowContactModal(false)
+                }}
+                className="w-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center gap-2"
+              >
+                <Mail className="h-4 w-4" />
+                Send Email (Operator@protector.ng)
+              </Button>
+            </div>
+            
+            <Button
+              onClick={() => setShowContactModal(false)}
+              className="w-full mt-4 bg-gray-700 text-white hover:bg-gray-600"
+            >
+              Close
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Booking Modal */}
+      {showCancelModal && bookingToCancel && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-semibold text-white mb-4">Cancel Booking</h3>
+            <div className="mb-6">
+              <p className="text-gray-300 mb-2">Booking ID: #{bookingToCancel.booking_code || bookingToCancel.id}</p>
+              <p className="text-gray-300 mb-2">Service: {formatServiceType(bookingToCancel.service_type) || 'Protection Service'}</p>
+              <p className="text-gray-300 mb-2">Date: {formatDate(bookingToCancel.scheduled_date)} at {formatTime(bookingToCancel.scheduled_time)}</p>
+              <p className="text-gray-300">Amount: ₦{bookingToCancel.total_price?.toLocaleString() || '0'}</p>
+            </div>
+            
+            <div className="space-y-3">
+              <Button
+                onClick={processBookingCancellation}
+                className="w-full bg-red-600 text-white hover:bg-red-700"
+              >
+                Confirm Cancellation
+              </Button>
+              
+              <Button
+                onClick={() => {
+                  setShowCancelModal(false)
+                  setBookingToCancel(null)
+                }}
+                className="w-full bg-gray-700 text-white hover:bg-gray-600"
+              >
+                Keep Booking
               </Button>
             </div>
           </div>

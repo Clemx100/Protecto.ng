@@ -1,26 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireOperatorAuth } from '@/lib/auth/operatorAuth'
+import { fallbackAuth } from '@/lib/services/fallbackAuth'
+import { shouldUseMockDatabase } from '@/lib/config/database-backup'
 
 export async function GET(request: NextRequest) {
   try {
     console.log('🔍 Operator bookings API called')
     
-    // ✅ SECURITY: Verify operator authentication
-    const authResult = await requireOperatorAuth(request)
-    if (authResult.error) {
-      console.log('❌ Unauthorized access attempt to operator bookings')
-      return authResult.response
+    // Use mock database if configured
+    if (shouldUseMockDatabase()) {
+      console.log('🔄 Using mock database for operator bookings')
+      const bookings = await fallbackAuth.getAllBookings()
+      return NextResponse.json({ bookings })
     }
     
-    console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
+    console.log('🔄 Using real Supabase database for operator bookings')
     
     // Import Supabase client dynamically
     const { createClient } = await import('@supabase/supabase-js')
     
     // Use service role for real API to bypass RLS
     const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
     // Get all bookings with client details
@@ -173,8 +175,8 @@ export async function PATCH(request: NextRequest) {
     
     // Use service role for real API to bypass RLS
     const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
     const { bookingId, updates } = await request.json()

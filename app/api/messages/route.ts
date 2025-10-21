@@ -3,7 +3,11 @@ import { createClient } from '@supabase/supabase-js'
 
 // Initialize Supabase with centralized configuration
 import { createServiceRoleClient } from '@/lib/config/database'
+import { fallbackAuth } from '@/lib/services/fallbackAuth'
+import { shouldUseMockDatabase } from '@/lib/config/database-backup'
+
 const supabase = createServiceRoleClient()
+const useMockDatabase = shouldUseMockDatabase()
 
 // GET /api/messages?bookingId=xxx
 // Fetch all messages for a booking from Supabase
@@ -20,6 +24,13 @@ export async function GET(request: NextRequest) {
     }
 
     console.log('📥 Fetching messages for booking:', bookingIdentifier)
+
+    // Use mock database if configured
+    if (useMockDatabase) {
+      console.log('🔄 Using mock database for messages')
+      const messages = await fallbackAuth.getBookingMessages(bookingIdentifier)
+      return NextResponse.json({ messages })
+    }
 
     // Check if it's a UUID or booking code
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingIdentifier)
@@ -130,6 +141,18 @@ export async function POST(request: NextRequest) {
       hasInvoice,
       messageLength: messageContent.length
     })
+
+    // Use mock database if configured
+    if (useMockDatabase) {
+      console.log('🔄 Using mock database for sending message')
+      const result = await fallbackAuth.sendMessage({
+        sender_id: senderId || 'mock-user',
+        sender_type: senderType || 'client',
+        message: messageContent,
+        booking_id: bookingId
+      })
+      return NextResponse.json({ success: true, data: result })
+    }
 
     // Check if it's a UUID or booking code
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)

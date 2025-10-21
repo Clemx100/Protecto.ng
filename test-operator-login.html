@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Operator Login Test</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        .container {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        input {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background: #333;
+            color: white;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <h1>🔐 Operator Login Test</h1>
+    
+    <div class="container">
+        <h2>Test Operator Login</h2>
+        <input type="email" id="email" placeholder="Email" value="admin@protector.ng">
+        <input type="password" id="password" placeholder="Password" value="admin123">
+        <button onclick="testLogin()">Test Login</button>
+        <button onclick="testAPI()">Test API Call</button>
+        <button onclick="logout()">Logout</button>
+    </div>
+
+    <div class="container">
+        <h2>Results</h2>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        // Initialize Supabase
+        const supabaseUrl = 'https://kifcevffaputepvpjpip.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3OTQ0NzYsImV4cCI6MjA3NTM3MDQ3Nn0.YuVbfSbrDUy2nPigODzCcaOWTEXaJlPrVGE1L0C3y6g';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+        
+        let currentSession = null;
+
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = type;
+            div.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+            results.appendChild(div);
+            results.scrollTop = results.scrollHeight;
+        }
+
+        async function testLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            log('🔐 Attempting login...', 'info');
+            
+            try {
+                const { data, error } = await supabase.auth.signInWithPassword({
+                    email: email,
+                    password: password
+                });
+                
+                if (error) {
+                    log(`❌ Login failed: ${error.message}`, 'error');
+                    return;
+                }
+                
+                currentSession = data.session;
+                log(`✅ Login successful! User ID: ${data.user.id}`, 'success');
+                log(`🔑 Session token: ${data.session.access_token.substring(0, 30)}...`, 'info');
+                
+                // Check user profile
+                const { data: profile, error: profileError } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', data.user.id)
+                    .single();
+                
+                if (profileError) {
+                    log(`❌ Profile error: ${profileError.message}`, 'error');
+                } else {
+                    log(`👤 Profile found - Role: ${profile.role}`, 'success');
+                }
+                
+            } catch (err) {
+                log(`❌ Login error: ${err.message}`, 'error');
+            }
+        }
+
+        async function testAPI() {
+            if (!currentSession) {
+                log('❌ No session found. Please login first.', 'error');
+                return;
+            }
+            
+            log('🔄 Testing operator bookings API...', 'info');
+            
+            try {
+                const response = await fetch('/api/operator/bookings', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${currentSession.access_token}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log(`✅ API call successful! Found ${data.data?.length || 0} bookings`, 'success');
+                    log(`📊 Response: ${JSON.stringify(data, null, 2)}`, 'info');
+                } else {
+                    log(`❌ API call failed: ${response.status} - ${data.message || data.error}`, 'error');
+                }
+                
+            } catch (err) {
+                log(`❌ API error: ${err.message}`, 'error');
+            }
+        }
+
+        async function logout() {
+            try {
+                await supabase.auth.signOut();
+                currentSession = null;
+                log('🚪 Logged out successfully', 'info');
+            } catch (err) {
+                log(`❌ Logout error: ${err.message}`, 'error');
+            }
+        }
+
+        // Auto-test on load
+        window.onload = function() {
+            log('🚀 Operator Login Test Page Loaded', 'info');
+            log('📝 Click "Test Login" to authenticate with admin@protector.ng', 'info');
+        };
+    </script>
+</body>
+</html>
+
+
+
+
+
+

@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest } from 'next/server'
+import { fallbackAuth } from '@/lib/services/fallbackAuth'
+import { shouldUseMockDatabase } from '@/lib/config/database-backup'
 
 // Initialize Supabase client with service role for admin operations
 const getSupabaseAdmin = () => {
@@ -20,6 +22,26 @@ export async function verifyOperatorAuth(request: NextRequest): Promise<{
   error?: string
 }> {
   try {
+    // Use mock database if configured
+    if (shouldUseMockDatabase()) {
+      console.log('🔄 Using mock database for operator authentication')
+      // For mock database, we'll allow any request with a token
+      const authHeader = request.headers.get('authorization')
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        return {
+          isAuthorized: true,
+          userId: 'operator-1',
+          role: 'operator'
+        }
+      }
+      return {
+        isAuthorized: false,
+        userId: null,
+        role: null,
+        error: 'No authorization token provided'
+      }
+    }
+
     // Get authorization header
     const authHeader = request.headers.get('authorization')
     

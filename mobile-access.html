@@ -2,453 +2,249 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="theme-color" content="#667eea">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Protector.Ng">
-    <meta name="mobile-web-app-capable" content="yes">
-    <title>Protector.Ng - Mobile Access</title>
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-    <link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;Protector.Ng&quot;,&quot;short_name&quot;:&quot;Protector&quot;,&quot;theme_color&quot;:&quot;#667eea&quot;,&quot;background_color&quot;:&quot;#667eea&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxOTIiIGhlaWdodD0iMTkyIiByeD0iMjQiIGZpbGw9IiM2NjdlZWEiLz4KPHN2ZyB4PSI0OCIgeT0iNDgiIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+CjxwYXRoIGQ9Ik0xMiAyMkMxNy41MjI4IDIyIDIyIDE3LjUyMjggMjIgMTJDMjIgNi40NzcxNSAxNy41MjI4IDIgMTIgMkM2LjQ3NzE1IDIgMiA2LjQ3NzE1IDIgMTJDMiAxNy41MjI4IDYuNDc3MTUgMjIgMTIgMjJaIi8+CjxwYXRoIGQ9Ik0xMiA2VjEyTDE2IDE0Ii8+Cjwvc3ZnPgo8L3N2Zz4K&quot;,&quot;sizes&quot;:&quot;192x192&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PROTECTOR.NG - Mobile Access</title>
     <style>
         * {
+            margin: 0;
+            padding: 0;
             box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            max-width: 100%;
-            margin: 0;
-            padding: 10px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
             color: white;
             min-height: 100vh;
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
         }
         
         .container {
             background: rgba(255, 255, 255, 0.1);
-            padding: 20px;
-            border-radius: 15px;
             backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px;
             text-align: center;
-            margin: 0 auto;
             max-width: 500px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.2);
         }
         
-        h1 {
+        .logo {
+            font-size: 2.5rem;
+            font-weight: bold;
             margin-bottom: 10px;
-            font-size: clamp(1.8rem, 5vw, 2.5rem);
-            font-weight: 700;
+            background: linear-gradient(45deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
         .subtitle {
-            margin-bottom: 25px;
-            opacity: 0.9;
+            color: #a1a1aa;
+            margin-bottom: 30px;
             font-size: 1.1rem;
         }
         
-        .qr-container {
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px auto;
-            display: inline-block;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+        .info-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 25px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
         
-        .urls {
+        .info-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #60a5fa;
+        }
+        
+        .url-box {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 1.1rem;
+            word-break: break-all;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .qr-container {
             margin: 20px 0;
         }
         
-        .url {
-            background: rgba(255, 255, 255, 0.2);
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 8px;
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-            word-break: break-all;
-            font-size: 0.9rem;
-            line-height: 1.4;
-        }
-        
-        .copy-btn {
-            background: #4CAF50;
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            margin: 8px 0 0 0;
-            font-size: 0.9rem;
-            font-weight: 600;
-            min-height: 44px;
-            min-width: 44px;
-            transition: all 0.2s ease;
-            display: block;
-            width: 100%;
-            max-width: 200px;
-            margin: 8px auto 0 auto;
-        }
-        
-        .copy-btn:hover, .copy-btn:active {
-            background: #45a049;
-            transform: translateY(-1px);
-        }
-        
-        .copy-btn:active {
-            transform: translateY(0);
-        }
-        
-        .instructions {
-            text-align: left;
-            margin-top: 25px;
-            background: rgba(255, 255, 255, 0.1);
-            padding: 20px;
+        .qr-code {
+            width: 200px;
+            height: 200px;
             border-radius: 10px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .steps {
+            text-align: left;
+            margin: 20px 0;
         }
         
         .step {
-            margin: 15px 0;
-            padding: 15px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            font-size: 0.95rem;
-            line-height: 1.5;
-        }
-        
-        .step strong {
-            display: block;
-            margin-bottom: 5px;
-            color: #fff;
-            font-weight: 600;
-        }
-        
-        .mobile-hint {
-            background: rgba(255, 255, 255, 0.15);
-            padding: 12px;
-            border-radius: 8px;
-            margin: 15px 0;
-            font-size: 0.9rem;
-            text-align: center;
-            border-left: 4px solid #4CAF50;
-        }
-        
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-            background: #4CAF50;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-        
-        .server-status {
             margin: 10px 0;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .step-number {
+            font-weight: bold;
+            color: #3b82f6;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
             font-size: 0.9rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            font-weight: 600;
+            margin: 10px 0;
         }
         
-        /* Mobile-specific improvements */
+        .status.running {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+        
+        .copy-btn {
+            background: linear-gradient(45deg, #3b82f6, #8b5cf6);
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin: 10px;
+            transition: transform 0.2s;
+        }
+        
+        .copy-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .footer {
+            margin-top: 30px;
+            color: #a1a1aa;
+            font-size: 0.9rem;
+        }
+        
         @media (max-width: 480px) {
-            body {
-                padding: 5px;
-            }
-            
             .container {
-                padding: 15px;
-                margin: 0;
+                padding: 20px;
+                margin: 10px;
             }
             
-            .qr-container {
-                padding: 10px;
+            .logo {
+                font-size: 2rem;
             }
             
-            .url {
-                font-size: 0.8rem;
+            .url-box {
+                font-size: 0.9rem;
                 padding: 12px;
-            }
-            
-            .copy-btn {
-                padding: 14px 20px;
-                font-size: 1rem;
-            }
-        }
-        
-        /* Touch improvements */
-        @media (hover: none) and (pointer: coarse) {
-            .copy-btn:hover {
-                background: #4CAF50;
-                transform: none;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🛡️ Protector.Ng</h1>
-        <p class="subtitle">Mobile Development Access</p>
+        <div class="logo">🛡️ PROTECTOR.NG</div>
+        <div class="subtitle">Mobile Access Portal</div>
         
-        <div class="server-status">
-            <span class="status-indicator"></span>
-            <span id="status-text">Checking server status...</span>
+        <div class="status running">🟢 Server Running</div>
+        
+        <div class="info-card">
+            <div class="info-title">📱 Access from Your Phone</div>
+            
+            <div class="url-box" id="mobileUrl">
+                http://192.168.1.142:3000
+            </div>
+            
+            <button class="copy-btn" onclick="copyUrl()">📋 Copy URL</button>
         </div>
         
-        <div class="qr-container">
-            <canvas id="qrcode"></canvas>
-        </div>
-        
-        <div class="mobile-hint">
-            📱 <strong>Mobile Tip:</strong> Tap and hold the QR code to save it to your photos, then scan it with your camera app!
-        </div>
-        
-        <div class="urls">
-            <h3>Access URLs:</h3>
-            <div class="url">
-                <strong>Client App:</strong><br>
-                <span id="client-url">http://192.168.1.142:3000</span>
-                <button class="copy-btn" onclick="copyToClipboard('client-url')">📋 Copy Client URL</button>
-            </div>
-            <div class="url">
-                <strong>Operator Dashboard:</strong><br>
-                <span id="operator-url">http://192.168.1.142:3000/operator</span>
-                <button class="copy-btn" onclick="copyToClipboard('operator-url')">📋 Copy Operator URL</button>
-            </div>
-        </div>
-        
-        <div class="instructions">
-            <h3>📱 How to Access on Your Phone:</h3>
-            <div class="step">
-                <strong>1. Connect to Same WiFi:</strong><br>
-                Make sure your phone is connected to the same WiFi network as your computer. Check your phone's WiFi settings to confirm.
-            </div>
-            <div class="step">
-                <strong>2. Scan QR Code:</strong><br>
-                Open your phone's camera app and point it at the QR code above. Most modern phones will automatically detect and offer to open the link.
-            </div>
-            <div class="step">
-                <strong>3. Or Type URL Manually:</strong><br>
-                Open your phone's browser (Chrome, Safari, etc.) and type one of the URLs above. Make sure to include the full address.
-            </div>
-            <div class="step">
-                <strong>4. Test the App:</strong><br>
-                Try creating an account, completing your profile, and testing the booking flow on mobile! The app is fully responsive.
-            </div>
-            <div class="step">
-                <strong>5. Add to Home Screen (Optional):</strong><br>
-                On iOS: Tap the share button and "Add to Home Screen". On Android: Tap the menu and "Add to Home Screen".
+        <div class="info-card">
+            <div class="info-title">📋 Setup Instructions</div>
+            
+            <div class="steps">
+                <div class="step">
+                    <span class="step-number">1.</span> Connect your phone to the same WiFi network as this computer
+                </div>
+                <div class="step">
+                    <span class="step-number">2.</span> Open your phone's web browser (Chrome, Safari, etc.)
+                </div>
+                <div class="step">
+                    <span class="step-number">3.</span> Type or scan the URL above
+                </div>
+                <div class="step">
+                    <span class="step-number">4.</span> Start using PROTECTOR.NG on your phone!
+                </div>
             </div>
         </div>
         
-        <div class="instructions">
-            <h3>🔧 Testing & Development:</h3>
-            <div class="step">
-                <strong>API Test Page:</strong><br>
-                <a href="http://192.168.1.142:3000/test-operator" target="_blank" style="color: #4CAF50; text-decoration: underline;">http://192.168.1.142:3000/test-operator</a><br>
-                Test all API endpoints and real-time communication.
+        <div class="info-card">
+            <div class="info-title">📱 QR Code Access</div>
+            <div class="qr-container">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=http://192.168.1.142:3000" 
+                     alt="QR Code" class="qr-code">
             </div>
-            <div class="step">
-                <strong>Demo Operator Dashboard:</strong><br>
-                <a href="http://192.168.1.142:3000/operator/demo" target="_blank" style="color: #4CAF50; text-decoration: underline;">http://192.168.1.142:3000/operator/demo</a><br>
-                Test operator dashboard functionality without authentication.
-            </div>
-            <div class="step">
-                <strong>Real Operator Dashboard:</strong><br>
-                <a href="http://192.168.1.142:3000/operator" target="_blank" style="color: #4CAF50; text-decoration: underline;">http://192.168.1.142:3000/operator</a><br>
-                Full operator dashboard with authentication (requires operator account).
-            </div>
+            <p style="color: #a1a1aa; font-size: 0.9rem;">
+                Scan this QR code with your phone's camera
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p>🛡️ PROTECTOR.NG - Your Personal Security Solution</p>
+            <p>Make sure both devices are on the same WiFi network</p>
         </div>
     </div>
 
     <script>
-        // Generate QR code for client app
-        const clientUrl = 'http://192.168.1.142:3000';
-        const operatorUrl = 'http://192.168.1.142:3000/operator';
-        
-        // Generate QR code with better mobile optimization
-        QRCode.toCanvas(document.getElementById('qrcode'), clientUrl, {
-            width: 250,
-            height: 250,
-            margin: 2,
-            color: {
-                dark: '#000000',
-                light: '#FFFFFF'
-            },
-            errorCorrectionLevel: 'M'
-        }, function (error) {
-            if (error) {
-                console.error('QR code generation error:', error);
-                document.getElementById('qrcode').innerHTML = '<p>QR Code unavailable</p>';
-            } else {
-                console.log('QR code generated successfully!');
-            }
-        });
-
-        // Enhanced copy to clipboard function with mobile support
-        function copyToClipboard(elementId) {
-            const element = document.getElementById(elementId);
-            const text = element.textContent.trim();
-            
-            // Show visual feedback
-            const button = event.target;
-            const originalText = button.textContent;
-            button.textContent = '✓ Copied!';
-            button.style.background = '#45a049';
-            
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(function() {
-                    console.log('URL copied to clipboard!');
-                    setTimeout(() => {
-                        button.textContent = originalText;
-                        button.style.background = '#4CAF50';
-                    }, 2000);
-                }).catch(function(err) {
-                    console.error('Failed to copy: ', err);
-                    fallbackCopyTextToClipboard(text);
-                });
-            } else {
-                // Fallback for older browsers or non-secure contexts
-                fallbackCopyTextToClipboard(text);
-            }
-        }
-
-        // Fallback copy function
-        function fallbackCopyTextToClipboard(text) {
-            const textArea = document.createElement('textarea');
-            textArea.value = text;
-            textArea.style.position = 'fixed';
-            textArea.style.left = '-999999px';
-            textArea.style.top = '-999999px';
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            
-            try {
-                const successful = document.execCommand('copy');
-                if (successful) {
-                    console.log('Fallback: URL copied to clipboard!');
-                } else {
-                    console.error('Fallback: Unable to copy');
-                    showMobileCopyInstructions(text);
-                }
-            } catch (err) {
-                console.error('Fallback: Unable to copy', err);
-                showMobileCopyInstructions(text);
-            }
-            
-            document.body.removeChild(textArea);
-        }
-
-        // Show mobile copy instructions
-        function showMobileCopyInstructions(text) {
-            const modal = document.createElement('div');
-            modal.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.8);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 1000;
-            `;
-            
-            modal.innerHTML = `
-                <div style="background: white; color: black; padding: 20px; border-radius: 10px; max-width: 90%; text-align: center;">
-                    <h3>Copy URL Manually</h3>
-                    <p>Select and copy this URL:</p>
-                    <input type="text" value="${text}" readonly style="width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ccc; border-radius: 5px;">
-                    <button onclick="this.parentElement.parentElement.remove()" style="background: #4CAF50; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">Close</button>
-                </div>
-            `;
-            
-            document.body.appendChild(modal);
-        }
-
-        // Server status checking with visual feedback
-        function checkServerStatus() {
-            const statusText = document.getElementById('status-text');
-            const statusIndicator = document.querySelector('.status-indicator');
-            
-            fetch(clientUrl, { 
-                method: 'HEAD',
-                mode: 'no-cors',
-                cache: 'no-cache'
-            })
-            .then(response => {
-                statusText.textContent = 'Server is running ✅';
-                statusIndicator.style.background = '#4CAF50';
-            })
-            .catch(error => {
-                statusText.textContent = 'Server might be down ⚠️';
-                statusIndicator.style.background = '#ff9800';
-            });
-        }
-
-        // Check server status on load and every 30 seconds
-        checkServerStatus();
-        setInterval(checkServerStatus, 30000);
-
-        // Add mobile-specific event listeners
-        document.addEventListener('DOMContentLoaded', function() {
-            // Add touch feedback for buttons
-            const buttons = document.querySelectorAll('.copy-btn');
-            buttons.forEach(button => {
-                button.addEventListener('touchstart', function() {
-                    this.style.transform = 'scale(0.95)';
-                });
+        function copyUrl() {
+            const url = document.getElementById('mobileUrl').textContent;
+            navigator.clipboard.writeText(url).then(() => {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Copied!';
+                btn.style.background = 'linear-gradient(45deg, #22c55e, #16a34a)';
                 
-                button.addEventListener('touchend', function() {
-                    this.style.transform = 'scale(1)';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = 'linear-gradient(45deg, #3b82f6, #8b5cf6)';
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy: ', err);
+                alert('Failed to copy URL. Please copy manually: ' + url);
+            });
+        }
+        
+        // Auto-refresh every 30 seconds to check server status
+        setInterval(() => {
+            fetch('http://192.168.1.142:3000')
+                .then(response => {
+                    if (response.ok) {
+                        document.querySelector('.status').className = 'status running';
+                        document.querySelector('.status').textContent = '🟢 Server Running';
+                    }
+                })
+                .catch(() => {
+                    document.querySelector('.status').className = 'status running';
+                    document.querySelector('.status').textContent = '🟡 Server Starting...';
                 });
-            });
-
-            // Add QR code tap to copy functionality
-            const qrContainer = document.querySelector('.qr-container');
-            qrContainer.addEventListener('click', function() {
-                if (navigator.clipboard) {
-                    navigator.clipboard.writeText(clientUrl).then(() => {
-                        alert('Client URL copied to clipboard!');
-                    });
-                }
-            });
-        });
-
-        // Handle mobile orientation changes
-        window.addEventListener('orientationchange', function() {
-            setTimeout(function() {
-                // Regenerate QR code on orientation change for better display
-                const canvas = document.getElementById('qrcode');
-                if (canvas) {
-                    canvas.width = 250;
-                    canvas.height = 250;
-                    QRCode.toCanvas(canvas, clientUrl, {
-                        width: 250,
-                        height: 250,
-                        margin: 2,
-                        color: {
-                            dark: '#000000',
-                            light: '#FFFFFF'
-                        }
-                    });
-                }
-            }, 100);
-        });
+        }, 30000);
     </script>
 </body>
 </html>
-
