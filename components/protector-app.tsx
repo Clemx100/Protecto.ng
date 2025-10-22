@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client"
 import { fallbackAuth } from "@/lib/services/fallbackAuth"
 import { unifiedChatService } from "@/lib/services/unifiedChatService"
 import ChatBookingSelector from "./chat-booking-selector"
+import { loadUserProfile as loadProfileFromDB, syncUserProfile, clearProfileCache } from "@/lib/utils/profile-sync"
 
 interface BookingDisplay {
   id: string
@@ -574,18 +575,19 @@ export default function ProtectorApp() {
   // Cleanup chat subscription on unmount or when chat booking changes
   useEffect(() => {
     return () => {
-      if (chatSubscription && selectedChatBooking) {
+      if (chatSubscription) {
         console.log('🔴 Cleaning up chat subscription')
         if (typeof chatSubscription === 'number') {
           // It's a polling interval
           clearInterval(chatSubscription)
-        } else {
-          // It's a real-time subscription
-          unifiedChatService.unsubscribe(selectedChatBooking.id)
+        } else if (chatSubscription.unsubscribe) {
+          // It's a Supabase channel
+          supabase.removeChannel(chatSubscription)
+          console.log('✅ Supabase channel removed')
         }
       }
     }
-  }, [chatSubscription, selectedChatBooking])
+  }, [chatSubscription, supabase])
 
   // Load messages for selected booking
   const loadMessagesForBooking = async (booking: any) => {
@@ -612,64 +614,96 @@ export default function ProtectorApp() {
         }
       }
       
-      // Load messages using unified service
-      const messages = await unifiedChatService.getMessages(booking.id)
+      // Load messages from API (more reliable than unified service)
+      const response = await fetch(`/api/messages?bookingId=${booking.id}`)
+      const data = await response.json()
+      
+      let loadedMessages = []
       
       // Only update messages if we have database messages, otherwise preserve existing messages
       // This prevents clearing immediate summary messages during booking creation
-      if (messages && messages.length > 0) {
-        setChatMessages(messages)
-        console.log('📥 Loaded', messages.length, 'messages from database')
+      if (data.success && data.data && data.data.length > 0) {
+        loadedMessages = data.data
+        setChatMessages(loadedMessages)
+        console.log('📥 Loaded', loadedMessages.length, 'messages from database')
         
         // Save to localStorage for persistence
         if (typeof window !== 'undefined') {
-          localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(messages))
+          localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(loadedMessages))
           console.log('💾 Messages saved to localStorage as backup')
+        }
+        
+        // Check for invoice data
+        const invoiceMessage = loadedMessages.find(msg => msg.has_invoice && msg.invoice_data)
+        if (invoiceMessage) {
+          setChatInvoiceData(invoiceMessage.invoice_data)
         }
       } else {
         console.log('📥 No database messages found, preserving existing messages')
         // Don't clear existing messages - they might be the immediate summary
       }
       
-      // Check for invoice data
-      if (messages && messages.length > 0) {
-        const invoiceMessage = messages.find(msg => msg.has_invoice && msg.invoice_data)
-        if (invoiceMessage) {
-          setChatInvoiceData(invoiceMessage.invoice_data)
-        }
-      }
-      
-      // Setup real-time subscription with polling fallback
+      // Setup direct Supabase real-time subscription
       try {
-        const subscription = await unifiedChatService.subscribeToMessages(booking.id, (newMessage) => {
-          console.log('📨 New message received:', newMessage)
-          
-          setChatMessages(prev => {
-            const exists = prev.some(msg => msg.id === newMessage.id)
-            if (exists) {
-              console.log('⚠️ Duplicate message detected, skipping')
-              return prev
-            }
-            
-            const updated = [...prev, newMessage]
-            console.log('✅ Added new message, total:', updated.length)
-            
-            // CRITICAL: Save to localStorage immediately to prevent loss
-            if (typeof window !== 'undefined') {
-              localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(updated))
-              console.log('💾 Messages backed up to localStorage')
-            }
-            
-            return updated
-          })
-          
-          // Check for invoice in new message
-          if (newMessage.has_invoice && newMessage.invoice_data) {
-            setChatInvoiceData(newMessage.invoice_data)
-          }
-        })
+        console.log('🔗 Setting up real-time subscription for booking:', booking.id)
         
-        setChatSubscription(subscription)
+        const channel = supabase
+          .channel(`chat-messages-${booking.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'messages',
+              filter: `booking_id=eq.${booking.id}`
+            },
+            (payload) => {
+              console.log('📨 Real-time: New message received!', payload.new)
+              
+              const newMessage = payload.new
+              
+              setChatMessages(prev => {
+                const exists = prev.some(msg => msg.id === newMessage.id)
+                if (exists) {
+                  console.log('⚠️ Duplicate message detected, skipping')
+                  return prev
+                }
+                
+                // Transform the message to match expected format
+                const formattedMessage = {
+                  ...newMessage,
+                  message: newMessage.content || newMessage.message,
+                  sender_type: newMessage.sender_type || 'client'
+                }
+                
+                const updated = [...prev, formattedMessage]
+                console.log('✅ Added new message via real-time, total:', updated.length)
+                
+                // CRITICAL: Save to localStorage immediately to prevent loss
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(updated))
+                  console.log('💾 Messages backed up to localStorage')
+                }
+                
+                return updated
+              })
+              
+              // Check for invoice in new message
+              if (newMessage.message_type === 'invoice' && newMessage.metadata) {
+                setChatInvoiceData(newMessage.metadata)
+              }
+            }
+          )
+          .subscribe((status) => {
+            console.log('📡 Real-time subscription status:', status)
+            if (status === 'SUBSCRIBED') {
+              console.log('✅ Real-time chat subscription active!')
+            } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+              console.error('❌ Real-time subscription failed:', status)
+            }
+          })
+        
+        setChatSubscription(channel)
         console.log('✅ Real-time subscription setup successfully')
       } catch (error) {
         console.warn('⚠️ Real-time subscription failed, using polling fallback:', error)
@@ -1230,44 +1264,48 @@ export default function ProtectorApp() {
 
   const loadUserProfile = async (userId: string) => {
     try {
-      // Try Supabase first
-      try {
-        const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
-
-        if (error) {
-          throw error
+      console.log('👤 [App] Loading user profile for:', userId)
+      
+      // Load profile from database with automatic sync
+      let profile = await loadProfileFromDB(userId)
+      
+      // If profile is missing or incomplete, sync from auth
+      if (!profile || !profile.first_name || profile.first_name === 'User') {
+        console.log('🔄 [App] Profile incomplete, syncing from auth...')
+        const { data: { user: currentUser } } = await supabase.auth.getUser()
+        if (currentUser) {
+          profile = await syncUserProfile(currentUser)
         }
-
-        if (data) {
-          setUserProfile({
-            email: data.email || "",
-            firstName: data.first_name || "",
-            lastName: data.last_name || "",
-            phone: data.phone || "",
-            address: data.address || "",
-            emergencyContact: data.emergency_contact || "",
-            emergencyPhone: data.emergency_phone || "",
-          })
-          return
-        }
-      } catch (supabaseError) {
-        console.log('🔄 Supabase profile load failed, using fallback...', supabaseError.message)
-        
-        // Fallback: Use user data from auth
+      }
+      
+      if (profile) {
+        console.log('✅ [App] Profile loaded successfully:', profile.first_name, profile.last_name)
+        setUserProfile({
+          email: profile.email || "",
+          firstName: profile.first_name || "",
+          lastName: profile.last_name || "",
+          phone: profile.phone || "",
+          address: profile.address || "",
+          emergencyContact: profile.emergency_contact || "",
+          emergencyPhone: profile.emergency_phone || "",
+        })
+      } else {
+        console.warn('⚠️ [App] Could not load profile, using fallback')
+        // Final fallback: Use basic user data
         if (user) {
           setUserProfile({
             email: user.email || "",
-            firstName: user.user_metadata?.first_name || "",
+            firstName: user.user_metadata?.first_name || "User",
             lastName: user.user_metadata?.last_name || "",
             phone: user.user_metadata?.phone || "",
-            address: user.user_metadata?.address || "",
-            emergencyContact: user.user_metadata?.emergency_contact || "",
-            emergencyPhone: user.user_metadata?.emergency_phone || "",
+            address: "",
+            emergencyContact: "",
+            emergencyPhone: "",
           })
         }
       }
     } catch (error) {
-      console.error("Error loading user profile:", error)
+      console.error("❌ [App] Error loading user profile:", error)
       
       // Final fallback: Use basic user data
       if (user) {
@@ -2110,6 +2148,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
   const handleLogout = async () => {
     try {
+      console.log('🚪 [App] Logging out...')
+      
+      // Clear all cached profile data
+      clearProfileCache()
+      
       await supabase.auth.signOut()
       setIsLoggedIn(false)
       setUser(null)
@@ -2122,6 +2165,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         emergencyContact: "",
         emergencyPhone: "",
       })
+      
+      console.log('✅ [App] Logged out successfully')
       setAuthForm({
         email: "",
         password: "",

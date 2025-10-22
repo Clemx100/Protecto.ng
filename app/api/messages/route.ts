@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       id: msg.id,
       booking_id: msg.booking_id,
       sender_id: msg.sender_id,
-      sender_type: msg.sender_type,
+      sender_type: msg.sender_type || msg.sender_role || 'client', // Support both column names, fallback to client
       message: msg.content || msg.message, // ✅ Use 'content' column first, fallback to 'message'
       message_type: msg.message_type || 'text',
       metadata: msg.metadata,
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
       is_read: false,
       status: 'sent',
       created_at: msg.created_at,
-      updated_at: msg.updated_at
+      updated_at: msg.updated_at || msg.created_at
     }))
 
     return NextResponse.json({
@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
     // Get the actual client ID from the booking
     const { data: booking } = await supabase
       .from('bookings')
-      .select('client_id')
+      .select('client_id, assigned_agent_id')
       .eq('id', actualBookingId)
       .single()
 
@@ -193,29 +193,46 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Insert message into messages table - try multiple column names
+    // Determine sender and recipient based on sender type
+    let actualSenderId = senderId
+    let recipientId = null
+    
+    if (senderType === 'client') {
+      // Client is sending to operator/agent
+      actualSenderId = senderId || booking.client_id
+      recipientId = booking.assigned_agent_id || booking.client_id // Fallback to client_id for compatibility
+    } else if (senderType === 'operator') {
+      // Operator is sending to client
+      actualSenderId = senderId || booking.assigned_agent_id || booking.client_id
+      recipientId = booking.client_id
+    } else {
+      // System message
+      actualSenderId = senderId || booking.client_id
+      recipientId = booking.client_id
+    }
+
+    // Insert message into messages table
     let newMessage, error;
     
-    // Try with 'message' column first
-    const insertData = {
+    // Prepare message data with all possible column variations for compatibility
+    const messageData: any = {
       booking_id: actualBookingId,
-      sender_id: senderId || booking.client_id,
-      recipient_id: senderType === 'client' ? booking.client_id : booking.client_id,
-      sender_type: senderType || 'client',
-      message_type: messageType,
-      metadata: invoiceData
+      sender_id: actualSenderId,
+      recipient_id: recipientId,
+      content: messageContent, // Primary column name
+      message_type: messageType
     };
-    
-    // Set both content and message columns for maximum compatibility
-    const testData = {
-      ...insertData,
-      content: messageContent,
-      message: messageContent
-    };
-    
+
+    // Add optional fields if provided
+    if (invoiceData) {
+      messageData.metadata = invoiceData
+    }
+
+    // Try inserting with current schema
+    console.log('💾 Inserting message into database...')
     const result = await supabase
       .from('messages')
-      .insert(testData)
+      .insert(messageData)
       .select()
       .single();
     
@@ -224,10 +241,16 @@ export async function POST(request: NextRequest) {
       newMessage = result.data;
       error = null;
       insertSuccessful = true;
-      console.log(`✅ Message inserted successfully`);
+      console.log(`✅ Message inserted successfully with ID: ${newMessage.id}`);
     } else {
       error = result.error;
       console.log(`❌ Failed to insert message:`, result.error.message);
+      
+      // If error mentions unknown column, provide helpful debug info
+      if (result.error.message.includes('column')) {
+        console.log('📋 Attempted to insert columns:', Object.keys(messageData));
+        console.log('💡 Tip: Check if messages table schema matches the insert data');
+      }
     }
 
     if (error) {
@@ -245,8 +268,8 @@ export async function POST(request: NextRequest) {
       id: newMessage.id,
       booking_id: newMessage.booking_id,
       sender_id: newMessage.sender_id,
-      sender_type: newMessage.sender_type,
-      message: newMessage.message || newMessage.content, // ✅ Use 'message' column, fallback to 'content'
+      sender_type: senderType || 'client', // Use the original senderType parameter
+      message: newMessage.content || newMessage.message, // ✅ Use 'content' column first, fallback to 'message'
       message_type: newMessage.message_type,
       metadata: newMessage.metadata,
       has_invoice: newMessage.message_type === 'invoice',
@@ -255,7 +278,7 @@ export async function POST(request: NextRequest) {
       is_read: false,
       status: 'sent',
       created_at: newMessage.created_at,
-      updated_at: newMessage.updated_at
+      updated_at: newMessage.updated_at || newMessage.created_at
     }
 
     return NextResponse.json({

@@ -20,6 +20,7 @@ import {
   LogOut
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { loadUserProfile, syncUserProfile, clearProfileCache, updateUserProfile, getCachedProfile } from '@/lib/utils/profile-sync'
 
 export default function AccountPage() {
   const router = useRouter()
@@ -40,112 +41,52 @@ export default function AccountPage() {
   useEffect(() => {
     const getUser = async () => {
       try {
-        // Check for cached user data first
-        const cachedUser = localStorage.getItem('user')
-        if (cachedUser) {
-          const userData = JSON.parse(cachedUser)
-          console.log('Using cached user data:', userData)
-          setUser(userData)
-          
-          // Set profile from cached data immediately
-          const cachedProfile = {
-            id: userData.id,
-            first_name: userData.user_metadata?.first_name || userData.user_metadata?.firstName || 'User',
-            last_name: userData.user_metadata?.last_name || userData.user_metadata?.lastName || '',
-            phone: userData.user_metadata?.phone || '',
-            email: userData.email
-          }
-          console.log('Setting cached profile:', cachedProfile)
+        console.log('👤 [Account] Loading user profile...')
+        
+        // Get current user
+        const { data: { user }, error } = await supabase.auth.getUser()
+        if (error || !user) {
+          console.log('❌ [Account] No authenticated user, redirecting')
+          router.push('/client')
+          return
+        }
+        
+        setUser(user)
+        console.log('✅ [Account] User authenticated:', user.email)
+        
+        // Try to get cached profile first for immediate display
+        const cachedProfile = getCachedProfile(user.id)
+        if (cachedProfile) {
+          console.log('✅ [Account] Using cached profile')
           setProfile(cachedProfile)
           setLoading(false)
         }
         
-        // Then verify with server in background
-        const { data: { user }, error } = await supabase.auth.getUser()
-        if (error || !user) {
-          router.push('/client') // Redirect to login if not authenticated
-          return
+        // Load fresh profile from database
+        let freshProfile = await loadUserProfile(user.id)
+        
+        // If profile doesn't exist or is incomplete, sync from auth
+        if (!freshProfile || !freshProfile.first_name || freshProfile.first_name === 'User') {
+          console.log('🔄 [Account] Profile incomplete, syncing from auth')
+          freshProfile = await syncUserProfile(user)
         }
         
-        console.log('Fresh user data from server:', user)
-        console.log('User metadata:', user.user_metadata)
-        console.log('User email:', user.email)
-        
-        // Update with fresh data
-        setUser(user)
-        localStorage.setItem('user', JSON.stringify(user))
-        
-        // Get user profile from profiles table
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single()
-        
-        if (profileError) {
-          console.log('Profile not found, using user data:', profileError.message)
-          // If no profile exists, create a basic one from user data
-          const fallbackProfile = {
-            id: user.id,
-            first_name: user.user_metadata?.first_name || user.user_metadata?.firstName || 'User',
-            last_name: user.user_metadata?.last_name || user.user_metadata?.lastName || '',
-            phone: user.user_metadata?.phone || '',
-            email: user.email
-          }
-          console.log('Setting fallback profile:', fallbackProfile)
-          setProfile(fallbackProfile)
+        if (freshProfile) {
+          console.log('✅ [Account] Profile loaded:', freshProfile)
+          setProfile(freshProfile)
         } else {
-          console.log('Profile found:', profile)
-          // Ensure profile has name data, fallback to user metadata if needed
-          const enhancedProfile = {
-            ...profile,
-            first_name: profile.first_name || user.user_metadata?.first_name || user.user_metadata?.firstName || 'User',
-            last_name: profile.last_name || user.user_metadata?.last_name || user.user_metadata?.lastName || '',
-            phone: profile.phone || user.user_metadata?.phone || '',
-            email: profile.email || user.email
-          }
-          console.log('Enhanced profile:', enhancedProfile)
-          setProfile(enhancedProfile)
-        }
-        
-        // If we still don't have a proper name, try to get it from the bookings table
-        const currentProfile = profile || {
-          id: user.id,
-          first_name: user.user_metadata?.first_name || user.user_metadata?.firstName || 'User',
-          last_name: user.user_metadata?.last_name || user.user_metadata?.lastName || '',
-          phone: user.user_metadata?.phone || '',
-          email: user.email
-        }
-        
-        if (!currentProfile.first_name || currentProfile.first_name === 'User') {
-          console.log('No proper name found, checking bookings table...')
-          try {
-            const { data: bookingData } = await supabase
-              .from('bookings')
-              .select('client:profiles!bookings_client_id_fkey(first_name, last_name)')
-              .eq('client_id', user.id)
-              .limit(1)
-              .single()
-            
-            if (bookingData?.client && Array.isArray(bookingData.client) && bookingData.client.length > 0) {
-              console.log('Found client data in bookings:', bookingData.client)
-              const clientData = bookingData.client[0]
-              const clientProfile = {
-                id: user.id,
-                first_name: clientData.first_name || 'User',
-                last_name: clientData.last_name || '',
-                phone: user.user_metadata?.phone || '',
-                email: user.email
-              }
-              console.log('Setting client profile from bookings:', clientProfile)
-              setProfile(clientProfile)
-            }
-          } catch (bookingError) {
-            console.log('No booking data found:', bookingError)
-          }
+          console.warn('⚠️ [Account] Could not load profile, using fallback')
+          // Absolute fallback
+          setProfile({
+            id: user.id,
+            email: user.email,
+            first_name: user.user_metadata?.first_name || 'User',
+            last_name: user.user_metadata?.last_name || '',
+            phone: user.user_metadata?.phone || ''
+          })
         }
       } catch (error) {
-        console.error('Error getting user:', error)
+        console.error('❌ [Account] Error loading profile:', error)
         router.push('/client')
       } finally {
         setLoading(false)
@@ -157,16 +98,20 @@ export default function AccountPage() {
 
   const handleLogout = async () => {
     try {
+      console.log('🚪 [Account] Logging out...')
+      
+      // Clear all cached data
+      clearProfileCache()
+      
       const { error } = await supabase.auth.signOut()
       if (error) {
-        console.error('Error logging out:', error.message)
+        console.error('❌ [Account] Error logging out:', error.message)
       } else {
-        // Clear localStorage and redirect to login
-        localStorage.clear()
+        console.log('✅ [Account] Logged out successfully')
         router.push('/client')
       }
     } catch (error) {
-      console.error('Logout error:', error)
+      console.error('❌ [Account] Logout error:', error)
     }
   }
 
@@ -185,43 +130,28 @@ export default function AccountPage() {
   const handleSaveProfile = async () => {
     setEditLoading(true)
     try {
-      // Update user email in Supabase auth if it changed
-      if (editForm.email !== profile.email) {
-        const { error: emailError } = await supabase.auth.updateUser({
-          email: editForm.email
-        })
-        if (emailError) {
-          console.error('Error updating email:', emailError.message)
-          alert('Error updating email: ' + emailError.message)
-          setEditLoading(false)
-          return
-        }
-      }
+      console.log('💾 [Account] Saving profile changes...')
+      
+      // Update profile using the sync utility
+      const updatedProfile = await updateUserProfile(user.id, {
+        first_name: editForm.first_name,
+        last_name: editForm.last_name,
+        phone: editForm.phone,
+        email: editForm.email
+      })
 
-      // Update profile in profiles table
-      const { data, error } = await supabase
-        .from('profiles')
-        .update({
-          first_name: editForm.first_name,
-          last_name: editForm.last_name,
-          phone: editForm.phone,
-          email: editForm.email
-        })
-        .eq('id', user.id)
-        .select()
-        .single()
-
-      if (error) {
-        console.error('Error updating profile:', error.message)
-        alert('Error updating profile: ' + error.message)
-      } else {
-        setProfile(data)
+      if (updatedProfile) {
+        setProfile(updatedProfile)
         setShowEditModal(false)
-        alert('Profile updated successfully!')
+        alert('✅ Profile updated successfully!')
+        console.log('✅ [Account] Profile saved successfully')
+      } else {
+        alert('❌ Error updating profile. Please try again.')
+        console.error('❌ [Account] Failed to save profile')
       }
     } catch (error) {
-      console.error('Profile update error:', error)
-      alert('Error updating profile')
+      console.error('❌ [Account] Profile update error:', error)
+      alert('❌ Error updating profile')
     } finally {
       setEditLoading(false)
     }
