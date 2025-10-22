@@ -2143,16 +2143,52 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     try {
       console.log('🚪 [App] Logging out...')
       
+      // Store user ID before clearing
+      const userId = user?.id
+      
       // Clear all cached data properly
-      if (user?.id) {
-        const { clearUserCache } = await import('@/lib/utils/data-sync')
-        clearUserCache(user.id)
+      if (userId) {
+        try {
+          const { clearUserCache } = await import('@/lib/utils/data-sync')
+          clearUserCache(userId)
+          console.log('✅ [App] User cache cleared')
+        } catch (e) {
+          console.warn('⚠️ [App] Error clearing user cache:', e)
+        }
       }
       
       // Clear all cached profile data
-      clearProfileCache()
+      try {
+        clearProfileCache()
+        console.log('✅ [App] Profile cache cleared')
+      } catch (e) {
+        console.warn('⚠️ [App] Error clearing profile cache:', e)
+      }
       
+      // Clear all localStorage related to user
+      if (typeof window !== 'undefined') {
+        try {
+          // Clear all app-specific storage
+          const keys = Object.keys(localStorage)
+          keys.forEach(key => {
+            if (key.includes('bookings') || 
+                key.includes('profile') || 
+                key.includes('chat') || 
+                key.includes('supabase')) {
+              localStorage.removeItem(key)
+            }
+          })
+          console.log('✅ [App] localStorage cleared')
+        } catch (e) {
+          console.warn('⚠️ [App] Error clearing localStorage:', e)
+        }
+      }
+      
+      // Sign out from Supabase
       await supabase.auth.signOut()
+      console.log('✅ [App] Supabase signed out')
+      
+      // Reset ALL state variables
       setIsLoggedIn(false)
       setUser(null)
       setUserProfile({
@@ -2165,7 +2201,6 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         emergencyPhone: "",
       })
       
-      console.log('✅ [App] Logged out successfully')
       setAuthForm({
         email: "",
         password: "",
@@ -2178,19 +2213,42 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         emergencyPhone: "",
         bvnNumber: "",
       })
+      
+      // Clear booking data
       setActiveBookings([])
       setBookingHistory([])
+      
+      // Clear chat data
       setChatMessages([])
       setSelectedChatBooking(null)
+      setCurrentBooking(null)
+      setShowChatThread(false)
+      
+      // Reset UI state
       setShowLoginForm(true)
       setAuthStep("login")
       setActiveTab("protector")
-      clearAuthMessages()
+      setIsEditingProfile(false)
       
-      console.log('🗑️ [App] All cache and state cleared')
+      // Clear any messages/errors
+      setAuthError("")
+      setAuthSuccess("")
+      
+      console.log('✅ [App] All state reset')
+      console.log('🗑️ [App] Logout complete - all cache and state cleared')
+      
+      // Force a small delay to ensure state updates propagate
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
     } catch (error) {
-      console.error("Error signing out:", error)
+      console.error("❌ [App] Error during logout:", error)
       setAuthError("Error signing out. Please try again.")
+      
+      // Even if there's an error, try to reset critical state
+      setIsLoggedIn(false)
+      setUser(null)
+      setShowLoginForm(true)
+      setAuthStep("login")
     }
   }
 
