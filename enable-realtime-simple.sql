@@ -1,54 +1,43 @@
 -- ====================================================================
--- SIMPLE REAL-TIME ENABLEMENT
--- Run this in Supabase SQL Editor to enable real-time
+-- SIMPLE REAL-TIME SETUP FOR MESSAGES TABLE
+-- Run this in Supabase SQL Editor
 -- ====================================================================
 
--- Step 1: Enable real-time on messages table (ignore if already exists)
+-- 1. Remove messages from publication (if it exists) to start fresh
 DO $$
 BEGIN
-    BEGIN
-        ALTER PUBLICATION supabase_realtime ADD TABLE messages;
-        RAISE NOTICE 'Real-time enabled on messages table';
-    EXCEPTION
-        WHEN duplicate_object THEN
-            RAISE NOTICE 'Real-time already enabled on messages table';
-    END;
+  ALTER PUBLICATION supabase_realtime DROP TABLE IF EXISTS messages;
+EXCEPTION
+  WHEN undefined_object THEN
+    -- Table wasn't in publication, that's fine
+    NULL;
 END $$;
 
--- Step 2: Drop and recreate RLS policies
-DROP POLICY IF EXISTS "Enable read access for all users" ON messages;
-DROP POLICY IF EXISTS "Enable insert access for all users" ON messages;
-DROP POLICY IF EXISTS "Enable update access for all users" ON messages;
-DROP POLICY IF EXISTS "Allow all operations for testing" ON messages;
+-- 2. Add messages table to real-time publication
+ALTER PUBLICATION supabase_realtime ADD TABLE messages;
 
--- Step 3: Create simple permissive policies
-CREATE POLICY "Enable read access for all users" ON messages
-FOR SELECT USING (true);
+-- 3. Add sender_type column if missing
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name='messages' AND column_name='sender_type'
+    ) THEN
+        ALTER TABLE messages ADD COLUMN sender_type TEXT;
+    END IF;
+END $$;
 
-CREATE POLICY "Enable insert access for all users" ON messages
-FOR INSERT WITH CHECK (true);
+-- 4. Create simple policy for testing (allows all authenticated users)
+DROP POLICY IF EXISTS "Allow authenticated users" ON messages;
+CREATE POLICY "Allow authenticated users" ON messages
+FOR ALL 
+TO authenticated
+USING (true) 
+WITH CHECK (true);
 
--- Step 4: Ensure RLS is enabled
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-
--- Step 5: Test insert to verify everything works
-INSERT INTO messages (
-  booking_id, 
-  sender_id, 
-  recipient_id,
-  sender_type, 
-  message, 
-  message_type
-) VALUES (
-  '819eb493-6c9e-468b-a46e-d160eb396c9f',
-  '9882762d-93e4-484c-b055-a14737f76cba',
-  '9882762d-93e4-484c-b055-a14737f76cba',
-  'system',
-  'Real-time test message - ' || NOW(),
-  'text'
-) RETURNING id, created_at, message;
-
--- Step 6: Verify setup
+-- 5. Verify setup
 SELECT 
-  'Setup Complete' as status,
-  'Real-time enabled on messages table' as message;
+  CASE WHEN EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'messages'
+  ) THEN '✅ Real-time ENABLED' ELSE '❌ Real-time NOT enabled' END as status;

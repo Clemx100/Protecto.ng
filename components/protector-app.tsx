@@ -304,7 +304,7 @@ export default function ProtectorApp() {
     }
   }
 
-  // Load bookings function
+  // Load bookings function with proper validation
   const loadBookings = async () => {
     if (!user?.id) return
     
@@ -312,65 +312,37 @@ export default function ProtectorApp() {
     try {
       console.log('📥 Loading bookings for user:', user.id)
       
-      // Get active bookings (including pending!) - simplified query
-      const { data: activeData, error: activeError } = await supabase
-        .from('bookings')
-        .select('*')
-        .eq('client_id', user.id)
-        .in('status', ['pending', 'accepted', 'en_route', 'arrived', 'in_service'])
-        .order('created_at', { ascending: false })
+      // Use the new data sync utility that properly validates cache
+      const { loadBookingsWithValidation } = await import('@/lib/utils/data-sync')
+      const { active, history, error } = await loadBookingsWithValidation(user.id)
       
-      console.log('📊 Active bookings query result:', { count: activeData?.length, error: activeError })
-
-      if (activeError) {
-        console.error('Error fetching active bookings:', activeError)
-        throw activeError
-      }
-
-      // Get booking history - simplified query
-      const { data: historyData, error: historyError } = await supabase
-        .from('bookings')
-        .select('*')
-        .eq('client_id', user.id)
-        .in('status', ['completed', 'cancelled'])
-        .order('created_at', { ascending: false })
-      
-      console.log('📊 History bookings query result:', { count: historyData?.length, error: historyError })
-
-      if (historyError) {
-        console.error('Error fetching booking history:', historyError)
-        throw historyError
-      }
-
-      const active = transformBookings(activeData || [])
-      const history = transformBookings(historyData || [])
-      
-      console.log('✅ Bookings loaded:', { active: active.length, history: history.length })
-      
-      setActiveBookings(active)
-      setBookingHistory(history)
-      
-      // Save to localStorage as fallback
-      if (typeof window !== 'undefined') {
-        const allBookings = [...active, ...history]
-        localStorage.setItem(`bookings_${user.id}`, JSON.stringify(allBookings))
-      }
-    } catch (error) {
-      console.error('Error loading bookings:', error)
-      // Fallback to localStorage
-      if (typeof window !== 'undefined') {
-        const stored = localStorage.getItem(`bookings_${user.id}`)
-        if (stored) {
-          const storedBookings = JSON.parse(stored)
-          setActiveBookings(storedBookings.filter((b: BookingDisplay) => 
-            ['Accepted', 'En Route', 'Arrived', 'In Service'].includes(b.status)
-          ))
-          setBookingHistory(storedBookings.filter((b: BookingDisplay) => 
-            ['Completed', 'Cancelled'].includes(b.status)
-          ))
-          console.log('📱 Loaded bookings from localStorage:', storedBookings.length)
+      if (error) {
+        console.warn('⚠️ Booking load warning:', error)
+        // Show user-friendly error if it's a real error (not just cache fallback)
+        if (!error.includes('cached data')) {
+          setAuthError(`Unable to load bookings: ${error}. Please check your connection.`)
         }
       }
+
+      const transformedActive = transformBookings(active)
+      const transformedHistory = transformBookings(history)
+      
+      console.log('✅ Bookings loaded:', { active: transformedActive.length, history: transformedHistory.length })
+      
+      setActiveBookings(transformedActive)
+      setBookingHistory(transformedHistory)
+      
+      // Clear any previous errors if we succeeded
+      if (!error || error.includes('cached data')) {
+        setAuthError('')
+      }
+    } catch (error) {
+      console.error('❌ Critical error loading bookings:', error)
+      setAuthError('Failed to load bookings. Please refresh the page or contact support if the issue persists.')
+      
+      // Don't show stale data - clear bookings instead
+      setActiveBookings([])
+      setBookingHistory([])
     } finally {
       setIsLoadingBookings(false)
     }
@@ -1260,21 +1232,34 @@ export default function ProtectorApp() {
         clearInterval(verificationCheckIntervalRef.current)
       }
     }
-  }, [])
+  }, [authStep])
 
   const loadUserProfile = async (userId: string) => {
     try {
       console.log('👤 [App] Loading user profile for:', userId)
       
-      // Load profile from database with automatic sync
-      let profile = await loadProfileFromDB(userId)
+      // Use the new data sync utility for validated profile loading
+      const { loadProfileWithValidation } = await import('@/lib/utils/data-sync')
+      const { profile, error } = await loadProfileWithValidation(userId)
       
       // If profile is missing or incomplete, sync from auth
       if (!profile || !profile.first_name || profile.first_name === 'User') {
-        console.log('🔄 [App] Profile incomplete, syncing from auth...')
+        console.log('🔄 [App] Profile incomplete or missing, syncing from auth...')
         const { data: { user: currentUser } } = await supabase.auth.getUser()
         if (currentUser) {
-          profile = await syncUserProfile(currentUser)
+          const syncedProfile = await syncUserProfile(currentUser)
+          if (syncedProfile) {
+            setUserProfile({
+              email: syncedProfile.email || "",
+              firstName: syncedProfile.first_name || "",
+              lastName: syncedProfile.last_name || "",
+              phone: syncedProfile.phone || "",
+              address: syncedProfile.address || "",
+              emergencyContact: syncedProfile.emergency_contact || "",
+              emergencyPhone: syncedProfile.emergency_phone || "",
+            })
+            return
+          }
         }
       }
       
@@ -1289,9 +1274,16 @@ export default function ProtectorApp() {
           emergencyContact: profile.emergency_contact || "",
           emergencyPhone: profile.emergency_phone || "",
         })
+        
+        // Clear any previous errors
+        if (!error || error.includes('cached data')) {
+          setAuthError('')
+        }
       } else {
-        console.warn('⚠️ [App] Could not load profile, using fallback')
-        // Final fallback: Use basic user data
+        console.warn('⚠️ [App] Could not load profile')
+        setAuthError('Unable to load profile. Please check your connection.')
+        
+        // Use basic user data as last resort
         if (user) {
           setUserProfile({
             email: user.email || "",
@@ -1306,8 +1298,9 @@ export default function ProtectorApp() {
       }
     } catch (error) {
       console.error("❌ [App] Error loading user profile:", error)
+      setAuthError('Failed to load profile data. Please refresh the page.')
       
-      // Final fallback: Use basic user data
+      // Use basic user data as last resort
       if (user) {
         setUserProfile({
           email: user.email || "",
@@ -2150,6 +2143,12 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     try {
       console.log('🚪 [App] Logging out...')
       
+      // Clear all cached data properly
+      if (user?.id) {
+        const { clearUserCache } = await import('@/lib/utils/data-sync')
+        clearUserCache(user.id)
+      }
+      
       // Clear all cached profile data
       clearProfileCache()
       
@@ -2179,8 +2178,16 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         emergencyPhone: "",
         bvnNumber: "",
       })
+      setActiveBookings([])
+      setBookingHistory([])
+      setChatMessages([])
+      setSelectedChatBooking(null)
+      setShowLoginForm(true)
+      setAuthStep("login")
       setActiveTab("protector")
       clearAuthMessages()
+      
+      console.log('🗑️ [App] All cache and state cleared')
     } catch (error) {
       console.error("Error signing out:", error)
       setAuthError("Error signing out. Please try again.")
