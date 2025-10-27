@@ -3475,19 +3475,38 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
   // Send chat message function
   const sendChatMessage = async () => {
-    if (!newChatMessage.trim() || !user || isSendingMessage) return
+    if (!newChatMessage.trim() || !user) return
     if (!selectedChatBooking) {
       console.warn('No booking selected for chat')
       return
     }
 
     const messageText = newChatMessage.trim()
+    const tempId = `temp_${Date.now()}`
+    
+    // Add message to UI immediately (optimistic update)
+    const optimisticMessage = {
+      id: tempId,
+      booking_id: selectedChatBooking.id,
+      sender_type: 'client',
+      sender_id: user.id,
+      message: messageText,
+      created_at: new Date().toISOString(),
+      status: 'sending',
+      is_system_message: false,
+      message_type: 'text'
+    }
+    
+    setChatMessages(prev => [...prev, optimisticMessage])
     setNewChatMessage("") // Clear input immediately
+    
+    // Scroll to bottom
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }, 100)
 
+    // Send to server in background
     try {
-      setIsSendingMessage(true)
-
-      // Send message directly via client API
       const response = await fetch('/api/messages', {
         method: 'POST',
         headers: {
@@ -3504,13 +3523,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       if (response.ok) {
         const result = await response.json()
         if (result.success) {
-          const message = result.data
-          // Add to local state
-          setChatMessages(prev => {
-            const exists = prev.some(msg => msg.id === message.id)
-            if (exists) return prev
-            return [...prev, message]
-          })
+          // Replace temporary message with real one from server
+          setChatMessages(prev => 
+            prev.map(msg => 
+              msg.id === tempId ? { ...result.data, status: 'sent' } : msg
+            )
+          )
+          console.log('✅ Message sent successfully')
         } else {
           throw new Error(result.error || 'Failed to send message')
         }
@@ -3520,10 +3539,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       }
 
     } catch (error) {
-      console.error('Error sending message:', error)
-      setNewChatMessage(messageText) // Restore message on error
-    } finally {
-      setIsSendingMessage(false)
+      console.error('❌ Error sending message:', error)
+      // Mark message as failed instead of removing it
+      setChatMessages(prev => 
+        prev.map(msg => 
+          msg.id === tempId ? { ...msg, status: 'failed' } : msg
+        )
+      )
+      alert('Failed to send message. Please try again.')
     }
   }
 
@@ -5301,11 +5324,12 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                               {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                             {msg.sender_type === 'client' && (
-                              <div className="text-xs text-gray-500">
-                                {msg.status === 'sending' && '⏳'}
-                                {msg.status === 'sent' && '✓'}
-                                {msg.status === 'delivered' && '✓✓'}
-                                {msg.status === 'read' && '✓✓'}
+                              <div className="text-xs">
+                                {msg.status === 'sending' && <span className="text-gray-400">⏳</span>}
+                                {msg.status === 'sent' && <span className="text-green-400">✓</span>}
+                                {msg.status === 'delivered' && <span className="text-green-400">✓✓</span>}
+                                {msg.status === 'read' && <span className="text-blue-400">✓✓</span>}
+                                {msg.status === 'failed' && <span className="text-red-400">✗ Failed</span>}
                               </div>
                             )}
                           </div>
@@ -5334,21 +5358,17 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   type="text"
                   value={newChatMessage}
                   onChange={(e) => setNewChatMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && !isSendingMessage && sendChatMessage()}
+                  onKeyPress={(e) => e.key === "Enter" && sendChatMessage()}
                   placeholder={selectedChatBooking ? "Type your message..." : "Select a booking first..."}
-                  disabled={isSendingMessage || !selectedChatBooking}
+                  disabled={!selectedChatBooking}
                   className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm disabled:opacity-50"
                 />
                 <Button 
                   onClick={sendChatMessage} 
-                  disabled={isSendingMessage || !newChatMessage.trim() || !selectedChatBooking}
+                  disabled={!newChatMessage.trim() || !selectedChatBooking}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl disabled:opacity-50"
                 >
-                  {isSendingMessage ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  ) : (
-                    <MessageSquare className="h-4 w-4" />
-                  )}
+                  <MessageSquare className="h-4 w-4" />
                 </Button>
               </div>
             </div>
