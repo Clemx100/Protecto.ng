@@ -79,3 +79,6 @@ ORDER BY ordinal_position;
 
 RAISE NOTICE '✅ Messages table schema fix complete!';
 
+
+
+
