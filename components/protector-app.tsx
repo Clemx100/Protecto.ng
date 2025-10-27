@@ -3495,7 +3495,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         },
         body: JSON.stringify({
           bookingId: selectedChatBooking.id,
-          message: messageText,
+          content: messageText,
           senderType: 'client',
           senderId: user.id
         })
