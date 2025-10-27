@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Message API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px 0;
+            width: 100%;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            border-left: 4px solid #0066cc;
+        }
+        .success {
+            border-left-color: #00cc66 !important;
+        }
+        .error {
+            border-left-color: #cc0000 !important;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: white;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Message API Test</h1>
+    <p>Test if the messaging API is working correctly</p>
+    
+    <label>Booking ID:</label>
+    <input type="text" id="bookingId" value="07480a47-afee-4bc5-b73c-5bcb40aadf4b" placeholder="Enter booking ID">
+    
+    <label>User ID:</label>
+    <input type="text" id="userId" value="7dfb32d2-2322-4537-9c7d-20124c093642" placeholder="Enter user ID">
+    
+    <label>Message:</label>
+    <input type="text" id="message" value="Test message from API tester" placeholder="Enter message">
+    
+    <button onclick="testSendMessage()">📤 Send Test Message</button>
+    <button onclick="testGetMessages()">📥 Get Messages</button>
+    
+    <div id="result"></div>
+
+    <script>
+        async function testSendMessage() {
+            const bookingId = document.getElementById('bookingId').value;
+            const userId = document.getElementById('userId').value;
+            const message = document.getElementById('message').value;
+            const result = document.getElementById('result');
+            
+            result.innerHTML = '⏳ Sending message...';
+            result.className = '';
+            
+            try {
+                const response = await fetch('/api/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        bookingId: bookingId,
+                        content: message,
+                        senderType: 'client',
+                        senderId: userId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    result.className = 'success';
+                    result.innerHTML = `
+                        <h3>✅ Message Sent Successfully!</h3>
+                        <p><strong>Message ID:</strong> ${data.data.id}</p>
+                        <p><strong>Content:</strong> ${data.data.message}</p>
+                        <p><strong>Time:</strong> ${new Date(data.data.created_at).toLocaleString()}</p>
+                        <pre>${JSON.stringify(data.data, null, 2)}</pre>
+                    `;
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                result.className = 'error';
+                result.innerHTML = `
+                    <h3>❌ Error Sending Message</h3>
+                    <p>${error.message}</p>
+                `;
+            }
+        }
+        
+        async function testGetMessages() {
+            const bookingId = document.getElementById('bookingId').value;
+            const result = document.getElementById('result');
+            
+            result.innerHTML = '⏳ Loading messages...';
+            result.className = '';
+            
+            try {
+                const response = await fetch(`/api/messages?bookingId=${bookingId}`);
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    result.className = 'success';
+                    result.innerHTML = `
+                        <h3>✅ Messages Loaded</h3>
+                        <p><strong>Count:</strong> ${data.count} messages</p>
+                        <pre>${JSON.stringify(data.data, null, 2)}</pre>
+                    `;
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                result.className = 'error';
+                result.innerHTML = `
+                    <h3>❌ Error Loading Messages</h3>
+                    <p>${error.message}</p>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
+

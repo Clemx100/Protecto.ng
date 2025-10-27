@@ -3507,6 +3507,12 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
     // Send to server in background
     try {
+      console.log('📤 Sending message:', {
+        bookingId: selectedChatBooking.id,
+        userId: user.id,
+        messageText: messageText
+      })
+      
       const response = await fetch('/api/messages', {
         method: 'POST',
         headers: {
@@ -3520,8 +3526,12 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         })
       })
 
+      console.log('📡 Response status:', response.status, response.statusText)
+
       if (response.ok) {
         const result = await response.json()
+        console.log('📦 Response data:', result)
+        
         if (result.success) {
           // Replace temporary message with real one from server
           setChatMessages(prev => 
@@ -3534,19 +3544,23 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           throw new Error(result.error || 'Failed to send message')
         }
       } else {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to send message')
+        const errorData = await response.json().catch(() => ({ error: response.statusText }))
+        console.error('❌ Server error:', errorData)
+        throw new Error(errorData.error || `Server error: ${response.status}`)
       }
 
     } catch (error) {
       console.error('❌ Error sending message:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      
       // Mark message as failed instead of removing it
       setChatMessages(prev => 
         prev.map(msg => 
           msg.id === tempId ? { ...msg, status: 'failed' } : msg
         )
       )
-      alert('Failed to send message. Please try again.')
+      
+      alert(`Failed to send message: ${errorMessage}`)
     }
   }
 
