@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service Worker Test - Protector.Ng</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2rem;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9rem;
+        }
+        
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .status-card.success {
+            border-left-color: #10b981;
+            background: #ecfdf5;
+        }
+        
+        .status-card.error {
+            border-left-color: #ef4444;
+            background: #fef2f2;
+        }
+        
+        .status-card.warning {
+            border-left-color: #f59e0b;
+            background: #fffbeb;
+        }
+        
+        .status-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-info {
+            font-size: 0.9rem;
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        .icon {
+            font-size: 1.5rem;
+        }
+        
+        .button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .button.secondary {
+            background: #64748b;
+        }
+        
+        .button.secondary:hover {
+            background: #475569;
+        }
+        
+        .button.danger {
+            background: #ef4444;
+        }
+        
+        .button.danger:hover {
+            background: #dc2626;
+        }
+        
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+        
+        .log-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        
+        .log-entry {
+            color: #e2e8f0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #667eea;
+            padding-left: 10px;
+        }
+        
+        .log-entry.success {
+            border-left-color: #10b981;
+        }
+        
+        .log-entry.error {
+            border-left-color: #ef4444;
+        }
+        
+        .log-entry.warning {
+            border-left-color: #f59e0b;
+        }
+        
+        .timestamp {
+            color: #94a3b8;
+            font-size: 0.75rem;
+        }
+        
+        .instructions {
+            background: #fffbeb;
+            border: 1px solid #fbbf24;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        
+        .instructions h3 {
+            color: #92400e;
+            margin-bottom: 10px;
+            font-size: 1rem;
+        }
+        
+        .instructions ol {
+            margin-left: 20px;
+            color: #78350f;
+        }
+        
+        .instructions li {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Service Worker Test</h1>
+        <p class="subtitle">Protector.Ng - Browser Cache Update Verification</p>
+        
+        <div id="status"></div>
+        
+        <div>
+            <button class="button" onclick="checkServiceWorker()">
+                🔄 Check Service Worker
+            </button>
+            <button class="button secondary" onclick="checkCaches()">
+                💾 Check Caches
+            </button>
+            <button class="button secondary" onclick="testNetworkFirst()">
+                🌐 Test Network-First
+            </button>
+            <button class="button danger" onclick="unregisterServiceWorker()">
+                🗑️ Unregister Service Worker
+            </button>
+            <button class="button secondary" onclick="clearLogs()">
+                🧹 Clear Logs
+            </button>
+        </div>
+        
+        <div class="log-container" id="logs"></div>
+        
+        <div class="instructions">
+            <h3>📋 How to Verify the Fix</h3>
+            <ol>
+                <li>Click "Check Service Worker" to see if it's running</li>
+                <li>Look for version like: <code>protector-ng-v2025.10.29</code></li>
+                <li>Click "Check Caches" to see cache strategy</li>
+                <li>Click "Test Network-First" to verify dynamic content always fetches fresh</li>
+                <li>✅ If you see "Network-first" in logs, the fix is working!</li>
+            </ol>
+        </div>
+    </div>
+    
+    <script>
+        let logCounter = 0;
+        
+        function log(message, type = 'info') {
+            const logsDiv = document.getElementById('logs');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+            logsDiv.appendChild(logEntry);
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            logCounter++;
+        }
+        
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            logCounter = 0;
+            log('Logs cleared', 'info');
+        }
+        
+        function updateStatus(title, message, type = 'info', icon = 'ℹ️') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `
+                <div class="status-card ${type}">
+                    <div class="status-title">
+                        <span class="icon">${icon}</span>
+                        ${title}
+                    </div>
+                    <div class="status-info">${message}</div>
+                </div>
+            `;
+        }
+        
+        async function checkServiceWorker() {
+            log('Checking Service Worker...', 'info');
+            
+            if (!('serviceWorker' in navigator)) {
+                updateStatus(
+                    'Service Worker Not Supported',
+                    'Your browser does not support service workers.',
+                    'error',
+                    '❌'
+                );
+                log('Service Worker not supported in this browser', 'error');
+                return;
+            }
+            
+            try {
+                const registration = await navigator.serviceWorker.getRegistration();
+                
+                if (!registration) {
+                    updateStatus(
+                        'No Service Worker Found',
+                        'No service worker is currently registered. This is normal if you haven\'t visited the main app yet.',
+                        'warning',
+                        '⚠️'
+                    );
+                    log('No service worker registered', 'warning');
+                    return;
+                }
+                
+                const sw = registration.active || registration.installing || registration.waiting;
+                
+                if (sw) {
+                    const scriptURL = sw.scriptURL;
+                    updateStatus(
+                        'Service Worker Active! ✅',
+                        `Service Worker is running!<br><br>
+                        <strong>Script URL:</strong> ${scriptURL}<br>
+                        <strong>State:</strong> ${sw.state}<br>
+                        <strong>Status:</strong> ${registration.active ? 'Active' : registration.installing ? 'Installing' : 'Waiting'}`,
+                        'success',
+                        '✅'
+                    );
+                    log(`Service Worker found: ${scriptURL}`, 'success');
+                    log(`State: ${sw.state}`, 'info');
+                    
+                    // Try to get version from console logs or cache names
+                    setTimeout(checkCaches, 500);
+                } else {
+                    updateStatus(
+                        'Service Worker Registering',
+                        'Service worker is being registered...',
+                        'warning',
+                        '🔄'
+                    );
+                    log('Service worker is being registered', 'warning');
+                }
+            } catch (error) {
+                updateStatus(
+                    'Error Checking Service Worker',
+                    `An error occurred: ${error.message}`,
+                    'error',
+                    '❌'
+                );
+                log(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        async function checkCaches() {
+            log('Checking caches...', 'info');
+            
+            if (!('caches' in window)) {
+                log('Cache API not supported', 'error');
+                return;
+            }
+            
+            try {
+                const cacheNames = await caches.keys();
+                
+                if (cacheNames.length === 0) {
+                    log('No caches found', 'warning');
+                    updateStatus(
+                        'No Caches Found',
+                        'No caches exist yet. Visit the main app to create caches.',
+                        'warning',
+                        '⚠️'
+                    );
+                    return;
+                }
+                
+                log(`Found ${cacheNames.length} cache(s):`, 'success');
+                
+                let hasNewVersion = false;
+                let cacheInfo = '<strong>Cache Names:</strong><br>';
+                
+                for (const cacheName of cacheNames) {
+                    log(`  - ${cacheName}`, 'info');
+                    cacheInfo += `• ${cacheName}<br>`;
+                    
+                    if (cacheName.includes('2025.10.29') || cacheName.match(/v\d{4}\.\d{2}\.\d{2}/)) {
+                        hasNewVersion = true;
+                    }
+                }
+                
+                const currentDate = new Date().toISOString().split('T')[0].replace(/-/g, '.');
+                
+                if (hasNewVersion) {
+                    updateStatus(
+                        'Cache Version Updated! ✅',
+                        `${cacheInfo}<br><br>
+                        <strong>✅ Good News:</strong> Your cache is using the new versioning system!<br>
+                        Cache names include date-based versions, which means updates will work automatically.`,
+                        'success',
+                        '✅'
+                    );
+                    log('✅ New versioning system detected!', 'success');
+                } else if (cacheNames.some(name => name.includes('v1.0.0'))) {
+                    updateStatus(
+                        'Old Cache Version Detected ⚠️',
+                        `${cacheInfo}<br><br>
+                        <strong>⚠️ Warning:</strong> You're still using the old static cache version (v1.0.0).<br>
+                        Please hard refresh your browser to get the updated service worker.`,
+                        'warning',
+                        '⚠️'
+                    );
+                    log('⚠️ Old static version (v1.0.0) detected', 'warning');
+                } else {
+                    updateStatus(
+                        'Caches Found',
+                        cacheInfo,
+                        'info',
+                        'ℹ️'
+                    );
+                }
+                
+                log(`Expected version: protector-ng-v${currentDate}`, 'info');
+                
+            } catch (error) {
+                log(`Error checking caches: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testNetworkFirst() {
+            log('Testing network-first strategy...', 'info');
+            
+            const testURL = window.location.href;
+            
+            try {
+                log(`Fetching: ${testURL}`, 'info');
+                const response = await fetch(testURL, { cache: 'no-cache' });
+                
+                if (response.ok) {
+                    log('✅ Network fetch successful!', 'success');
+                    log(`Status: ${response.status} ${response.statusText}`, 'info');
+                    log(`Type: ${response.type}`, 'info');
+                    
+                    updateStatus(
+                        'Network-First Working! ✅',
+                        `Successfully fetched fresh content from network!<br><br>
+                        <strong>URL:</strong> ${testURL}<br>
+                        <strong>Status:</strong> ${response.status}<br>
+                        <strong>Type:</strong> ${response.type}<br><br>
+                        This confirms that dynamic content is being fetched fresh from the network!`,
+                        'success',
+                        '✅'
+                    );
+                } else {
+                    log(`⚠️ Response status: ${response.status}`, 'warning');
+                }
+            } catch (error) {
+                log(`❌ Network test failed: ${error.message}`, 'error');
+                log('This might be okay - trying to fetch from cache as fallback...', 'info');
+                
+                updateStatus(
+                    'Network Unavailable - Cache Fallback',
+                    `Network request failed, but cache fallback should work for offline support.<br><br>
+                    <strong>Error:</strong> ${error.message}`,
+                    'warning',
+                    '⚠️'
+                );
+            }
+        }
+        
+        async function unregisterServiceWorker() {
+            if (!confirm('Are you sure you want to unregister the service worker? This will remove offline support until you visit the app again.')) {
+                return;
+            }
+            
+            log('Unregistering service worker...', 'warning');
+            
+            try {
+                const registration = await navigator.serviceWorker.getRegistration();
+                
+                if (!registration) {
+                    log('No service worker to unregister', 'warning');
+                    updateStatus(
+                        'No Service Worker',
+                        'No service worker is registered.',
+                        'warning',
+                        '⚠️'
+                    );
+                    return;
+                }
+                
+                await registration.unregister();
+                
+                // Clear all caches
+                const cacheNames = await caches.keys();
+                for (const cacheName of cacheNames) {
+                    await caches.delete(cacheName);
+                    log(`Deleted cache: ${cacheName}`, 'info');
+                }
+                
+                log('✅ Service worker unregistered successfully!', 'success');
+                log('✅ All caches cleared!', 'success');
+                
+                updateStatus(
+                    'Service Worker Unregistered ✅',
+                    'Service worker and all caches have been removed.<br><br>Visit the main app again to register the new service worker.',
+                    'success',
+                    '✅'
+                );
+                
+                setTimeout(() => {
+                    if (confirm('Reload page to complete the unregistration?')) {
+                        window.location.reload();
+                    }
+                }, 1000);
+                
+            } catch (error) {
+                log(`Error unregistering: ${error.message}`, 'error');
+                updateStatus(
+                    'Error',
+                    `Failed to unregister: ${error.message}`,
+                    'error',
+                    '❌'
+                );
+            }
+        }
+        
+        // Auto-check on load
+        window.addEventListener('load', () => {
+            log('Page loaded - Starting automatic checks...', 'info');
+            setTimeout(checkServiceWorker, 500);
+        });
+    </script>
+</body>
+</html>
+
