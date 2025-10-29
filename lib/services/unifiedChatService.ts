@@ -149,13 +149,14 @@ export class UnifiedChatService {
     } = {}
   ): Promise<UnifiedChatMessage> {
     const mapping = await this.getBookingMapping(bookingIdentifier)
-    if (!mapping) {
-      throw new Error('Booking not found')
-    }
+    
+    // Use the identifier directly if mapping not found (it might already be a UUID)
+    const actualBookingId = mapping?.database_id || bookingIdentifier
+    const bookingCode = mapping?.booking_code
 
     const messageData: Omit<UnifiedChatMessage, 'id' | 'created_at' | 'updated_at'> = {
-      booking_id: mapping.database_id,
-      booking_code: mapping.booking_code,
+      booking_id: actualBookingId,
+      booking_code: bookingCode,
       sender_type: senderType,
       sender_id: senderId,
       message,
@@ -174,7 +175,7 @@ export class UnifiedChatService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          bookingId: mapping.database_id,
+          bookingId: actualBookingId,
           content: message,
           messageType: messageData.message_type,
           senderType: senderType,

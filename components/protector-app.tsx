@@ -3507,8 +3507,12 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
     // Send to server in background
     try {
+      // Ensure we use the correct booking ID (UUID, not booking_code)
+      const bookingUUID = selectedChatBooking.database_id || selectedChatBooking.id
+      
       console.log('📤 Sending message:', {
-        bookingId: selectedChatBooking.id,
+        bookingId: bookingUUID,
+        bookingCode: selectedChatBooking.booking_code,
         userId: user.id,
         messageText: messageText
       })
@@ -3519,7 +3523,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          bookingId: selectedChatBooking.id,
+          bookingId: bookingUUID,
           content: messageText,
           senderType: 'client',
           senderId: user.id

@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protector.Ng - Chat Test (Both Sides)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .status {
+            display: inline-block;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        .status.connected {
+            background: #10b981;
+            color: white;
+        }
+
+        .status.disconnected {
+            background: #ef4444;
+            color: white;
+        }
+
+        .status.testing {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .test-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .chat-panel {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 600px;
+        }
+
+        .panel-header {
+            padding: 20px;
+            color: white;
+            font-weight: 600;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .client-panel .panel-header {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+
+        .operator-panel .panel-header {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #f9fafb;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.client {
+            justify-content: flex-end;
+        }
+
+        .message.operator {
+            justify-content: flex-start;
+        }
+
+        .message-bubble {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 15px;
+            word-wrap: break-word;
+        }
+
+        .message.client .message-bubble {
+            background: #3b82f6;
+            color: white;
+            border-bottom-right-radius: 5px;
+        }
+
+        .message.operator .message-bubble {
+            background: #8b5cf6;
+            color: white;
+            border-bottom-left-radius: 5px;
+        }
+
+        .message.system .message-bubble {
+            background: #10b981;
+            color: white;
+            max-width: 90%;
+            text-align: center;
+            margin: 0 auto;
+            font-size: 14px;
+        }
+
+        .message-time {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-top: 5px;
+        }
+
+        .input-area {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-group input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        .input-group input:focus {
+            border-color: #3b82f6;
+        }
+
+        .input-group button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .input-group button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(59, 130, 246, 0.4);
+        }
+
+        .input-group button:active {
+            transform: translateY(0);
+        }
+
+        .input-group button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+        }
+
+        .controls h3 {
+            margin-bottom: 15px;
+            color: #1f2937;
+        }
+
+        .control-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .control-group input,
+        .control-group select {
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .logs {
+            background: #1f2937;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #10b981;
+            padding-left: 10px;
+        }
+
+        .log-entry.error {
+            border-left-color: #ef4444;
+            color: #ef4444;
+        }
+
+        .log-entry.success {
+            border-left-color: #10b981;
+            color: #10b981;
+        }
+
+        .log-entry.info {
+            border-left-color: #3b82f6;
+            color: #3b82f6;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #3b82f6;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        @media (max-width: 768px) {
+            .test-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛡️ Protector.Ng - Real-time Chat Test</h1>
+            <div class="status" id="connectionStatus">Initializing...</div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="clientMessages">0</div>
+                <div class="stat-label">Client Messages</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="operatorMessages">0</div>
+                <div class="stat-label">Operator Messages</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalMessages">0</div>
+                <div class="stat-label">Total Messages</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="realtimeEvents">0</div>
+                <div class="stat-label">Real-time Events</div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <h3>⚙️ Test Configuration</h3>
+            <div class="control-group">
+                <input type="text" id="bookingId" placeholder="Booking ID (UUID)" value="07480a47-afee-4bc5-b73c-5bcb40aadf4b">
+                <input type="text" id="clientId" placeholder="Client User ID" value="03ba6eac-a4fe-4074-b751-10f1276efac8">
+                <input type="text" id="operatorId" placeholder="Operator User ID" value="03ba6eac-a4fe-4074-b751-10f1276efac8">
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="connectRealtime()">🔗 Connect Real-time</button>
+                <button class="btn btn-success" onclick="loadMessages()">📥 Load Messages</button>
+                <button class="btn btn-warning" onclick="testClientSend()">📤 Test Client Send</button>
+                <button class="btn btn-warning" onclick="testOperatorSend()">📤 Test Operator Send</button>
+                <button class="btn btn-danger" onclick="clearChat()">🗑️ Clear Chat</button>
+            </div>
+        </div>
+
+        <div class="test-container">
+            <!-- Client Panel -->
+            <div class="chat-panel client-panel">
+                <div class="panel-header">
+                    <span>👤 CLIENT</span>
+                    <span id="clientStatus">●</span>
+                </div>
+                <div class="chat-messages" id="clientChatMessages"></div>
+                <div class="input-area">
+                    <div class="input-group">
+                        <input type="text" id="clientInput" placeholder="Type as client..." onkeypress="if(event.key==='Enter') sendClientMessage()">
+                        <button onclick="sendClientMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Operator Panel -->
+            <div class="chat-panel operator-panel">
+                <div class="panel-header">
+                    <span>👨‍💼 OPERATOR</span>
+                    <span id="operatorStatus">●</span>
+                </div>
+                <div class="chat-messages" id="operatorChatMessages"></div>
+                <div class="input-area">
+                    <div class="input-group">
+                        <input type="text" id="operatorInput" placeholder="Type as operator..." onkeypress="if(event.key==='Enter') sendOperatorMessage()">
+                        <button onclick="sendOperatorMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="logs" id="logs">
+            <div class="log-entry success">🚀 Chat Test Ready - Configure and start testing!</div>
+        </div>
+    </div>
+
+    <script>
+        // Supabase configuration
+        const SUPABASE_URL = 'https://kifcevffaputepvpjpip.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3OTQ0NzYsImV4cCI6MjA3NTM3MDQ3Nn0.YuVbfSbrDUy2nPigODzCcaOWTEXaJlPrVGE1L0C3y6g';
+
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let messages = [];
+        let realtimeChannel = null;
+        let stats = {
+            clientMessages: 0,
+            operatorMessages: 0,
+            totalMessages: 0,
+            realtimeEvents: 0
+        };
+
+        // Log function
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.insertBefore(entry, logs.firstChild);
+            console.log(message);
+        }
+
+        // Update stats
+        function updateStats() {
+            document.getElementById('clientMessages').textContent = stats.clientMessages;
+            document.getElementById('operatorMessages').textContent = stats.operatorMessages;
+            document.getElementById('totalMessages').textContent = stats.totalMessages;
+            document.getElementById('realtimeEvents').textContent = stats.realtimeEvents;
+        }
+
+        // Render messages
+        function renderMessages() {
+            const clientDiv = document.getElementById('clientChatMessages');
+            const operatorDiv = document.getElementById('operatorChatMessages');
+            
+            clientDiv.innerHTML = '';
+            operatorDiv.innerHTML = '';
+
+            messages.forEach(msg => {
+                const messageDiv = createMessageElement(msg);
+                clientDiv.appendChild(messageDiv.cloneNode(true));
+                operatorDiv.appendChild(messageDiv.cloneNode(true));
+            });
+
+            // Scroll to bottom
+            clientDiv.scrollTop = clientDiv.scrollHeight;
+            operatorDiv.scrollTop = operatorDiv.scrollHeight;
+        }
+
+        // Create message element
+        function createMessageElement(msg) {
+            const div = document.createElement('div');
+            div.className = `message ${msg.sender_type}`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = 'message-bubble';
+            
+            const text = document.createElement('div');
+            text.textContent = msg.content || msg.message;
+            
+            const time = document.createElement('div');
+            time.className = 'message-time';
+            time.textContent = new Date(msg.created_at).toLocaleTimeString();
+            
+            bubble.appendChild(text);
+            bubble.appendChild(time);
+            div.appendChild(bubble);
+            
+            return div;
+        }
+
+        // Connect to real-time
+        async function connectRealtime() {
+            const bookingId = document.getElementById('bookingId').value;
+            
+            if (!bookingId) {
+                log('⚠️ Please enter a booking ID', 'error');
+                return;
+            }
+
+            log('🔗 Connecting to real-time...', 'info');
+
+            if (realtimeChannel) {
+                supabase.removeChannel(realtimeChannel);
+            }
+
+            realtimeChannel = supabase
+                .channel(`test-chat-${bookingId}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: 'INSERT',
+                        schema: 'public',
+                        table: 'messages',
+                        filter: `booking_id=eq.${bookingId}`
+                    },
+                    (payload) => {
+                        log('📨 Real-time message received!', 'success');
+                        stats.realtimeEvents++;
+                        updateStats();
+                        
+                        const newMsg = payload.new;
+                        messages.push(newMsg);
+                        
+                        if (newMsg.sender_type === 'client') {
+                            stats.clientMessages++;
+                        } else if (newMsg.sender_type === 'operator') {
+                            stats.operatorMessages++;
+                        }
+                        stats.totalMessages++;
+                        
+                        updateStats();
+                        renderMessages();
+                    }
+                )
+                .subscribe((status) => {
+                    const statusEl = document.getElementById('connectionStatus');
+                    if (status === 'SUBSCRIBED') {
+                        statusEl.textContent = '✅ Connected';
+                        statusEl.className = 'status connected';
+                        log('✅ Real-time connected!', 'success');
+                    } else if (status === 'CHANNEL_ERROR') {
+                        statusEl.textContent = '❌ Error';
+                        statusEl.className = 'status disconnected';
+                        log('❌ Real-time connection failed', 'error');
+                    } else {
+                        statusEl.textContent = '🔄 Connecting...';
+                        statusEl.className = 'status testing';
+                    }
+                });
+        }
+
+        // Load messages
+        async function loadMessages() {
+            const bookingId = document.getElementById('bookingId').value;
+            
+            if (!bookingId) {
+                log('⚠️ Please enter a booking ID', 'error');
+                return;
+            }
+
+            log('📥 Loading messages...', 'info');
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/messages?bookingId=${bookingId}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    messages = result.data || [];
+                    
+                    // Count messages
+                    stats.clientMessages = messages.filter(m => m.sender_type === 'client').length;
+                    stats.operatorMessages = messages.filter(m => m.sender_type === 'operator').length;
+                    stats.totalMessages = messages.length;
+                    
+                    updateStats();
+                    renderMessages();
+                    
+                    log(`✅ Loaded ${messages.length} messages`, 'success');
+                } else {
+                    log(`❌ Failed to load messages: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error loading messages: ${error.message}`, 'error');
+            }
+        }
+
+        // Send client message
+        async function sendClientMessage() {
+            const input = document.getElementById('clientInput');
+            const message = input.value.trim();
+            const bookingId = document.getElementById('bookingId').value;
+            const clientId = document.getElementById('clientId').value;
+
+            if (!message) return;
+            if (!bookingId || !clientId) {
+                log('⚠️ Please configure booking ID and client ID', 'error');
+                return;
+            }
+
+            input.value = '';
+            log(`📤 Sending client message: "${message}"`, 'info');
+
+            try {
+                const response = await fetch('http://localhost:3000/api/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        bookingId: bookingId,
+                        content: message,
+                        senderType: 'client',
+                        senderId: clientId
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    log('✅ Client message sent successfully!', 'success');
+                    // Message will appear via real-time
+                } else {
+                    log(`❌ Failed to send client message: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error sending client message: ${error.message}`, 'error');
+            }
+        }
+
+        // Send operator message
+        async function sendOperatorMessage() {
+            const input = document.getElementById('operatorInput');
+            const message = input.value.trim();
+            const bookingId = document.getElementById('bookingId').value;
+            const operatorId = document.getElementById('operatorId').value;
+
+            if (!message) return;
+            if (!bookingId || !operatorId) {
+                log('⚠️ Please configure booking ID and operator ID', 'error');
+                return;
+            }
+
+            input.value = '';
+            log(`📤 Sending operator message: "${message}"`, 'info');
+
+            try {
+                const response = await fetch('http://localhost:3000/api/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        bookingId: bookingId,
+                        content: message,
+                        senderType: 'operator',
+                        senderId: operatorId
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    log('✅ Operator message sent successfully!', 'success');
+                    // Message will appear via real-time
+                } else {
+                    log(`❌ Failed to send operator message: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                log(`❌ Error sending operator message: ${error.message}`, 'error');
+            }
+        }
+
+        // Test client send
+        async function testClientSend() {
+            document.getElementById('clientInput').value = `Test client message at ${new Date().toLocaleTimeString()}`;
+            await sendClientMessage();
+        }
+
+        // Test operator send
+        async function testOperatorSend() {
+            document.getElementById('operatorInput').value = `Test operator message at ${new Date().toLocaleTimeString()}`;
+            await sendOperatorMessage();
+        }
+
+        // Clear chat
+        function clearChat() {
+            messages = [];
+            stats = {
+                clientMessages: 0,
+                operatorMessages: 0,
+                totalMessages: 0,
+                realtimeEvents: stats.realtimeEvents
+            };
+            updateStats();
+            renderMessages();
+            log('🗑️ Chat cleared', 'info');
+        }
+
+        // Auto-connect on load
+        window.addEventListener('load', () => {
+            log('🚀 Page loaded - Ready to test!', 'success');
+            setTimeout(() => {
+                connectRealtime();
+                loadMessages();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
+

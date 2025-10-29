@@ -214,10 +214,11 @@ export async function POST(request: NextRequest) {
     // Insert message into messages table
     let newMessage, error;
     
-    // Prepare message data with all possible column variations for compatibility
+    // Prepare message data - only include columns that exist in the database
     const messageData: any = {
       booking_id: actualBookingId,
       sender_id: actualSenderId,
+      sender_type: senderType || 'client', // Required field - specify sender type
       recipient_id: recipientId,
       content: messageContent, // Primary column name
       message_type: messageType
