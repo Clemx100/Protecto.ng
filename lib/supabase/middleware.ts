@@ -56,7 +56,8 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/_next") &&
     !request.nextUrl.pathname.startsWith("/app") &&
     !request.nextUrl.pathname.startsWith("/client") &&
-    !request.nextUrl.pathname.startsWith("/operator") // Allow operator page to load and show login
+    !request.nextUrl.pathname.startsWith("/operator") && // Allow operator page to load and show login
+    !request.nextUrl.pathname.startsWith("/privacy") // Allow privacy policy page to be public
   ) {
     // Store the current location before redirecting for later restoration
     const currentPath = request.nextUrl.pathname + request.nextUrl.search

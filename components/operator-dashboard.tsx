@@ -1425,11 +1425,23 @@ Please review and approve the payment to proceed with your service.`
                                 : 'bg-gradient-to-br from-gray-700 to-gray-800 text-white rounded-bl-md'
                             } ${isConsecutive && !isSystem ? (isOperator ? 'rounded-tr-md' : 'rounded-tl-md') : ''}`}
                           >
-                            <div className="text-sm leading-relaxed">{message.message}</div>
-                            <div className={`text-xs mt-2 ${
-                              isOperator ? 'text-blue-100' : isSystem ? 'text-yellow-100' : 'text-gray-300'
+                            <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.message}</div>
+                            <div className={`text-[10px] mt-1.5 flex items-center gap-1 ${
+                              isOperator ? 'text-blue-100 justify-end' : isSystem ? 'text-yellow-100 justify-center' : 'text-gray-300'
                             }`}>
-                              {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              <span>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              <span className="opacity-50">•</span>
+                              <span className="opacity-75">
+                                {(() => {
+                                  const diffMs = Date.now() - new Date(message.created_at).getTime()
+                                  const diffMin = Math.floor(diffMs / 60000)
+                                  const diffHour = Math.floor(diffMin / 60)
+                                  if (diffMin < 1) return 'Just now'
+                                  if (diffMin < 60) return `${diffMin}m ago`
+                                  if (diffHour < 24) return `${diffHour}h ago`
+                                  return new Date(message.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                })()}
+                              </span>
                             </div>
                         
                             {/* Invoice Details */}
@@ -1526,20 +1538,39 @@ Please review and approve the payment to proceed with your service.`
                   <div ref={messagesEndRef} />
                 </div>
 
-                {/* Message Input */}
-                <div className="p-6 border-t border-white/10">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newMessage}
-                      onChange={(e) => setNewMessage(e.target.value)}
-                      onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-                      placeholder="Type your message..."
-                      className="flex-1 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
-                    />
-                    <Button onClick={sendMessage} className="bg-blue-600 hover:bg-blue-700 text-white">
+                {/* Message Input - Modern and Clean */}
+                <div className="p-6 border-t border-white/10 bg-white/5">
+                  <div className="flex gap-3 items-end">
+                    <div className="flex-1 relative">
+                      <input
+                        type="text"
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
+                        placeholder="Type your message..."
+                        className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-3 pr-12 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      />
+                      {newMessage.trim() && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                          {newMessage.length}
+                        </div>
+                      )}
+                    </div>
+                    <Button 
+                      onClick={sendMessage} 
+                      disabled={!newMessage.trim()}
+                      className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-5 py-3 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:from-gray-600 disabled:to-gray-700 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
                       <Send className="h-4 w-4" />
+                      <span className="hidden sm:inline">Send</span>
                     </Button>
+                  </div>
+                  <div className="mt-2 text-xs text-gray-400 flex items-center justify-between">
+                    <span>Press Enter to send</span>
+                    <span className="flex items-center gap-1">
+                      <span className={`w-2 h-2 rounded-full ${messages.length > 0 ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`}></span>
+                      <span>{messages.length > 0 ? 'Real-time enabled' : 'Waiting for messages'}</span>
+                    </span>
                   </div>
                 </div>
               </div>
