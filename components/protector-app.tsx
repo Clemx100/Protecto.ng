@@ -2627,7 +2627,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       if (userId) {
         try {
           const { clearUserCache } = await import('@/lib/utils/data-sync')
-          clearUserCache(userId, true) // force=true to clear cache during logout
+          clearUserCache(userId) // Defaults to force=false, prevent clearing active sessions
           console.log('✅ [App] User cache cleared')
         } catch (e) {
           console.warn('⚠️ [App] Error clearing user cache:', e)
