@@ -2636,7 +2636,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       
       // Clear all cached profile data (force=true to bypass safeguards)
       try {
-        clearProfileCache(true) // force=true to clear cache during logout
+        clearProfileCache()
         console.log('✅ [App] Profile cache cleared')
       } catch (e) {
         console.warn('⚠️ [App] Error clearing profile cache:', e)
