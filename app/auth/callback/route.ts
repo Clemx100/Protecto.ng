@@ -12,9 +12,14 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
     
     if (!error && data.session) {
+      const user = data.session.user
+      
+      if (type === 'recovery') {
+        return NextResponse.redirect(`${origin}/auth/reset-password`)
+      }
+      
       // Check if this is a new signup (email just confirmed for first time)
       // We'll log them out and redirect to login page for fresh login
-      const user = data.session.user
       
       // If this is email confirmation from signup, sign them out and send to login
       if (type === 'signup' || !user.last_sign_in_at || 

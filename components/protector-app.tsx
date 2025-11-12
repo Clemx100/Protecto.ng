@@ -1,14 +1,16 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { useRouter } from "next/navigation"
-import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare, Mail } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
+import Link from "next/link"
+import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare, Mail, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { fallbackAuth } from "@/lib/services/fallbackAuth"
 import { unifiedChatService } from "@/lib/services/unifiedChatService"
 import ChatBookingSelector from "./chat-booking-selector"
 import { loadUserProfile as loadProfileFromDB, syncUserProfile, clearProfileCache } from "@/lib/utils/profile-sync"
+import LiveTrackingMapComponent from "@/components/live-tracking-map"
 
 interface BookingDisplay {
   id: string
@@ -36,6 +38,7 @@ interface BookingDisplay {
 
 export default function ProtectorApp() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
   // Check if we should use mock database
@@ -46,6 +49,7 @@ export default function ProtectorApp() {
 
   const [activeTab, setActiveTab] = useState("protector")
   const [userRole, setUserRole] = useState("client") // "client", "agent", "admin"
+  const [navigatingTo, setNavigatingTo] = useState<string | null>(null)
   
   // Chat state - Enhanced unified chat
   const [chatMessages, setChatMessages] = useState<any[]>([])
@@ -128,8 +132,10 @@ export default function ProtectorApp() {
   const [showLoginForm, setShowLoginForm] = useState(true)
   const [isLogin, setIsLogin] = useState(true)
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [authStep, setAuthStep] = useState("login") // "login", "register", "credentials", "email-verification", "profile-completion", "profile"
+  const [authStep, setAuthStep] = useState("login") // "login", "register", "credentials", "email-verification", "profile-completion", "profile", "forgot-password"
+  const authStepRef = useRef(authStep)
   const [user, setUser] = useState<any>(null)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
 
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState("")
@@ -138,6 +144,10 @@ export default function ProtectorApp() {
   const [emailVerificationSent, setEmailVerificationSent] = useState(false)
   const [verificationEmail, setVerificationEmail] = useState("")
   const verificationCheckIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    authStepRef.current = authStep
+  }, [authStep])
 
   const [authForm, setAuthForm] = useState({
     email: "",
@@ -228,6 +238,13 @@ export default function ProtectorApp() {
   const [activeBookings, setActiveBookings] = useState<BookingDisplay[]>([])
   const [bookingHistory, setBookingHistory] = useState<BookingDisplay[]>([])
   const [isLoadingBookings, setIsLoadingBookings] = useState(false)
+  // Location tracking state - maps booking_id to current location
+  const [bookingLocations, setBookingLocations] = useState<Map<string, { lat: number; lng: number }>>(new Map())
+  const [locationSubscriptions, setLocationSubscriptions] = useState<Map<string, any>>(new Map())
+  // Location history - maps booking_id to array of location points with timestamps
+  const [locationHistory, setLocationHistory] = useState<Map<string, { lat: number; lng: number; timestamp: number; speed?: number }[]>>(new Map())
+  // Current speeds - maps booking_id to current speed in km/h
+  const [bookingSpeeds, setBookingSpeeds] = useState<Map<string, number>>(new Map())
 
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false)
 
@@ -405,6 +422,303 @@ export default function ProtectorApp() {
     return statusMap[status] || 'Unknown'
   }
 
+  // Convert PostgreSQL POINT format to lat/lng
+  // Supabase returns POINT as { x: longitude, y: latitude }
+  const parsePostgresPoint = (point: any): { lat: number; lng: number } | null => {
+    if (!point) return null
+    
+    try {
+      // Handle different point formats
+      if (typeof point === 'string') {
+        // PostgreSQL POINT format: "POINT(lng lat)" or "(lng,lat)"
+        const match = point.match(/\(([^,]+)[,\s]+([^)]+)\)/)
+        if (match) {
+          const lng = parseFloat(match[1].trim())
+          const lat = parseFloat(match[2].trim())
+          if (!isNaN(lat) && !isNaN(lng)) {
+            return { lat, lng }
+          }
+        }
+      } else if (point && typeof point === 'object') {
+        // Supabase typically returns POINT as { x: longitude, y: latitude }
+        if (point.x !== undefined && point.y !== undefined) {
+          const lng = typeof point.x === 'number' ? point.x : parseFloat(point.x)
+          const lat = typeof point.y === 'number' ? point.y : parseFloat(point.y)
+          if (!isNaN(lat) && !isNaN(lng)) {
+            return { lat, lng }
+          }
+        } else if (point.lat !== undefined && point.lng !== undefined) {
+          // Already in lat/lng format
+          const lat = typeof point.lat === 'number' ? point.lat : parseFloat(point.lat)
+          const lng = typeof point.lng === 'number' ? point.lng : parseFloat(point.lng)
+          if (!isNaN(lat) && !isNaN(lng)) {
+            return { lat, lng }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ Error parsing location point:', error, point)
+    }
+    
+    return null
+  }
+
+  // Subscribe to location updates for a booking
+  const subscribeToLocationUpdates = (bookingId: string, databaseId?: string) => {
+    // Clean up existing subscription if any
+    setLocationSubscriptions(prev => {
+      const existingSub = prev.get(bookingId)
+      if (existingSub) {
+        supabase.removeChannel(existingSub)
+        const newMap = new Map(prev)
+        newMap.delete(bookingId)
+        return newMap
+      }
+      return prev
+    })
+
+    // Use database ID if available, otherwise use booking ID
+    const trackingId = databaseId || bookingId
+
+    console.log('📍 Setting up location tracking subscription for booking:', bookingId, 'database ID:', trackingId)
+
+    const channel = supabase
+      .channel(`location:${bookingId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'location_tracking',
+          filter: `booking_id=eq.${trackingId}`
+        },
+        (payload) => {
+          console.log('📍 Location update received:', payload.new)
+          const locationData = payload.new as any
+          
+          // Parse the location from PostgreSQL POINT format
+          const location = parsePostgresPoint(locationData.location)
+          if (location) {
+            const timestamp = Date.now()
+            const speed = locationData.speed ? Math.round(locationData.speed) : undefined
+            
+            // Update current location
+            setBookingLocations(prev => {
+              const newMap = new Map(prev)
+              newMap.set(bookingId, location)
+              return newMap
+            })
+            
+            // Update speed
+            if (speed !== undefined) {
+              setBookingSpeeds(prev => {
+                const newMap = new Map(prev)
+                newMap.set(bookingId, speed)
+                return newMap
+              })
+            }
+            
+            // Add to location history
+            setLocationHistory(prev => {
+              const newMap = new Map(prev)
+              const history = newMap.get(bookingId) || []
+              history.push({ lat: location.lat, lng: location.lng, timestamp, speed })
+              // Keep only last 100 points to avoid memory issues
+              if (history.length > 100) {
+                history.shift()
+              }
+              newMap.set(bookingId, history)
+              return newMap
+            })
+
+            // Also update the booking's currentLocation in activeBookings
+            setActiveBookings(prev => prev.map(booking => {
+              if (booking.id === bookingId || booking.booking_code === bookingId) {
+                return { ...booking, currentLocation: location }
+              }
+              return booking
+            }))
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log(`📍 Location subscription status for ${bookingId}:`, status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Location tracking active for booking:', bookingId)
+        }
+      })
+
+    // Store subscription
+    setLocationSubscriptions(prev => {
+      const newMap = new Map(prev)
+      newMap.set(bookingId, channel)
+      return newMap
+    })
+
+    return channel
+  }
+
+  // Load initial location data for active bookings
+  const loadInitialLocations = async (bookings: BookingDisplay[]) => {
+    if (!user?.id) return
+
+    for (const booking of bookings) {
+      try {
+        // Get the database ID for the booking
+        const bookingId = booking.id || booking.booking_code
+        if (!bookingId) continue
+
+        // Try to get latest location from API
+        const { RealtimeAPI } = await import('@/lib/api/realtime')
+        const result = await RealtimeAPI.getBookingLocationTracking(bookingId)
+        
+        if (result.data && result.data.length > 0) {
+          // Get all locations and build history
+          const locations = result.data.reverse() // Oldest first
+          const history: { lat: number; lng: number; timestamp: number; speed?: number }[] = []
+          
+          locations.forEach((loc: any) => {
+            const location = parsePostgresPoint(loc.location)
+            if (location) {
+              const timestamp = new Date(loc.timestamp).getTime()
+              const speed = loc.speed ? Math.round(loc.speed) : undefined
+              history.push({ lat: location.lat, lng: location.lng, timestamp, speed })
+            }
+          })
+          
+          if (history.length > 0) {
+            // Get the most recent location
+            const latestLocation = history[history.length - 1]
+            
+            setBookingLocations(prev => {
+              const newMap = new Map(prev)
+              newMap.set(bookingId, { lat: latestLocation.lat, lng: latestLocation.lng })
+              return newMap
+            })
+            
+            // Set speed if available
+            if (latestLocation.speed !== undefined) {
+              setBookingSpeeds(prev => {
+                const newMap = new Map(prev)
+                newMap.set(bookingId, latestLocation.speed!)
+                return newMap
+              })
+            }
+            
+            // Set location history
+            setLocationHistory(prev => {
+              const newMap = new Map(prev)
+              // Keep only last 100 points
+              const limitedHistory = history.slice(-100)
+              newMap.set(bookingId, limitedHistory)
+              return newMap
+            })
+
+            // Update booking's currentLocation
+            setActiveBookings(prev => prev.map(b => {
+              if (b.id === bookingId || b.booking_code === bookingId) {
+                return { ...b, currentLocation: { lat: latestLocation.lat, lng: latestLocation.lng } }
+              }
+              return b
+            }))
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to load initial location for booking:', booking.id, error)
+      }
+    }
+  }
+
+  // Calculate map positions for visualization
+  // This is a simplified version that shows relative positions
+  // In a production app, you'd use a real map library (Google Maps, Mapbox, etc.)
+  const calculateMapPosition = (
+    coord: { lat: number; lng: number } | undefined,
+    bounds: { minLat: number; maxLat: number; minLng: number; maxLng: number }
+  ): { x: number; y: number } | null => {
+    if (!coord) return null
+
+    // Normalize coordinates to 0-1 range
+    const normalizedX = (coord.lng - bounds.minLng) / (bounds.maxLng - bounds.minLng)
+    const normalizedY = 1 - (coord.lat - bounds.minLat) / (bounds.maxLat - bounds.minLat) // Invert Y axis
+
+    // Convert to percentage (with padding)
+    const padding = 0.15 // 15% padding on all sides
+    const x = padding * 100 + normalizedX * (1 - 2 * padding) * 100
+    const y = padding * 100 + normalizedY * (1 - 2 * padding) * 100
+
+    return { x, y }
+  }
+
+  // Get map bounds from booking locations
+  const getMapBounds = async (booking: BookingDisplay): Promise<{ minLat: number; maxLat: number; minLng: number; maxLng: number }> => {
+    const locations: { lat: number; lng: number }[] = []
+    
+    // Add current location if available
+    const bookingId = booking.id || booking.booking_code
+    const currentLocation = bookingLocations.get(bookingId) || booking.currentLocation
+    if (currentLocation) {
+      locations.push(currentLocation)
+    }
+    
+    // Try to geocode pickup and destination addresses if coordinates not available
+    const { GeocodingService } = await import('@/lib/services/geocoding')
+    
+    if (!currentLocation && booking.pickupLocation && booking.pickupLocation !== 'TBD') {
+      const pickupCoords = await GeocodingService.geocode(booking.pickupLocation)
+      if (pickupCoords) {
+        locations.push({ lat: pickupCoords.lat, lng: pickupCoords.lng })
+      }
+    }
+    
+    if (booking.destination && booking.destination !== 'TBD') {
+      const destCoords = await GeocodingService.geocode(booking.destination)
+      if (destCoords) {
+        locations.push({ lat: destCoords.lat, lng: destCoords.lng })
+      }
+    }
+    
+    // Default bounds (Lagos area) if no coordinates
+    const defaultBounds = {
+      minLat: 6.4,
+      maxLat: 6.6,
+      minLng: 3.3,
+      maxLng: 3.5
+    }
+
+    if (locations.length === 0) {
+      return defaultBounds
+    }
+
+    // Calculate bounds from available locations
+    const lats = locations.map(l => l.lat)
+    const lngs = locations.map(l => l.lng)
+    
+    const padding = 0.01 // Add padding around points
+    return {
+      minLat: Math.min(...lats) - padding,
+      maxLat: Math.max(...lats) + padding,
+      minLng: Math.min(...lngs) - padding,
+      maxLng: Math.max(...lngs) + padding
+    }
+  }
+
+  // Render live tracking map component (wrapper function)
+  const renderLiveTrackingMap = (booking: BookingDisplay) => {
+    const bookingId = booking.id || booking.booking_code
+    const history = locationHistory.get(bookingId || '') || []
+    const currentSpeed = bookingSpeeds.get(bookingId || '')
+    
+    return (
+      <LiveTrackingMapComponent 
+        booking={booking} 
+        bookingLocationsMap={bookingLocations}
+        locationHistory={history}
+        currentSpeed={currentSpeed}
+      />
+    )
+  }
+
   const calculateETA = (status: string): string => {
     const statusMap: { [key: string]: string } = {
       'en_route': '8 mins',
@@ -484,6 +798,53 @@ export default function ProtectorApp() {
     }
   }, [activeTab, user?.id])
 
+  // Set up location tracking subscriptions for active bookings
+  useEffect(() => {
+    const subscriptions = new Map<string, any>()
+
+    if (!user?.id || activeBookings.length === 0) {
+      // Clean up existing subscriptions if no active bookings
+      setLocationSubscriptions(prev => {
+        prev.forEach((channel, bookingId) => {
+          console.log('🧹 Cleaning up location subscription for:', bookingId)
+          supabase.removeChannel(channel)
+        })
+        return new Map()
+      })
+      return
+    }
+
+    console.log('📍 Setting up location tracking for', activeBookings.length, 'active bookings')
+
+    // Load initial locations and set up subscriptions
+    loadInitialLocations(activeBookings).then(() => {
+      // Set up real-time subscriptions for each active booking
+      activeBookings.forEach(booking => {
+        const bookingId = booking.id || booking.booking_code
+        if (bookingId && booking.status !== 'completed' && booking.status !== 'cancelled') {
+          // Only track bookings that are in progress
+          if (['accepted', 'en_route', 'arrived', 'in_service'].includes(booking.status.toLowerCase())) {
+            const channel = subscribeToLocationUpdates(bookingId, booking.id)
+            if (channel) {
+              subscriptions.set(bookingId, channel)
+            }
+          }
+        }
+      })
+    })
+
+    // Cleanup function
+    return () => {
+      setLocationSubscriptions(prev => {
+        prev.forEach((channel, bookingId) => {
+          console.log('🧹 Cleaning up location subscription for:', bookingId)
+          supabase.removeChannel(channel)
+        })
+        return new Map()
+      })
+    }
+  }, [activeBookings, user?.id])
+
   // Refresh history when switching to history tab
   useEffect(() => {
     if (activeTab === 'history' && user?.id) {
@@ -491,6 +852,58 @@ export default function ProtectorApp() {
       loadBookings() // Same function loads both active bookings and history
     }
   }, [activeTab, user?.id])
+
+  // Check for tab parameter in URL and switch tab reactively
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const tab = searchParams.get('tab')
+    if (tab === 'account') {
+      console.log('📱 Switching to Account tab from URL parameter')
+      // Quickly check if user is authenticated before switching tabs to prevent login flash
+      const checkAuthBeforeTabSwitch = async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session?.user?.email_confirmed_at) {
+            // User is authenticated, hide login form and switch tab
+            setUser(session.user)
+            setIsLoggedIn(true)
+            setShowLoginForm(false)
+            setIsCheckingAuth(false)
+            setActiveTab('account')
+          } else {
+            // User not authenticated, but still switch tab (will show login)
+            setActiveTab('account')
+          }
+        } catch (error) {
+          console.error('Error checking auth:', error)
+          setActiveTab('account')
+        }
+      }
+      checkAuthBeforeTabSwitch()
+      // Clear the tab parameter from URL
+      const url = new URL(window.location.href)
+      url.searchParams.delete('tab')
+      window.history.replaceState({}, document.title, url.pathname + (url.search ? url.search : ''))
+    }
+  }, [searchParams, supabase])
+
+  // Refresh profile when switching to account tab and prefetch account sub-pages
+  useEffect(() => {
+    if (activeTab === 'account' && user?.id && !isEditingProfile) {
+      console.log('👤 Account tab opened, refreshing profile...')
+      loadUserProfile(user.id).catch(err => {
+        console.warn('Failed to refresh profile:', err)
+      })
+      
+      // Prefetch all account sub-pages for instant navigation
+      console.log('⚡ Prefetching account sub-pages...')
+      router.prefetch('/account/help')
+      router.prefetch('/account/support')
+      router.prefetch('/account/privacy-policy')
+      router.prefetch('/account/terms')
+    }
+  }, [activeTab, user?.id, isEditingProfile, router])
 
   // Load chat messages when switching to chat tab
   useEffect(() => {
@@ -879,58 +1292,6 @@ export default function ProtectorApp() {
     return summaryMessage
   }
 
-  // Listen for auth state changes
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('Auth state changed:', event, session?.user?.id, 'Verified:', session?.user?.email_confirmed_at)
-      setUser(session?.user || null)
-      
-      if (session?.user) {
-        // Check for stored redirect path and navigate to it
-        if (typeof window !== 'undefined') {
-          const redirectPath = sessionStorage.getItem('redirectAfterAuth')
-          if (redirectPath) {
-            console.log('🔄 Redirecting to stored path:', redirectPath)
-            sessionStorage.removeItem('redirectAfterAuth')
-            router.push(redirectPath)
-            return
-          }
-          
-          // Fallback: Check for last visited location
-          const lastVisitedLocation = sessionStorage.getItem('lastVisitedLocation')
-          if (lastVisitedLocation && lastVisitedLocation !== '/app') {
-            console.log('🔄 Redirecting to last visited location:', lastVisitedLocation)
-            sessionStorage.removeItem('lastVisitedLocation')
-            router.push(lastVisitedLocation)
-            return
-          }
-        }
-        // Check if email is verified
-        if (session.user.email_confirmed_at) {
-          setShowLoginForm(false)
-          setIsLoggedIn(true)
-          // If we were on email verification step AND this is not a fresh signup, move to profile
-          // For fresh signups, the callback route handles logout and redirect to login
-          if (authStep === "email-verification" && event !== "SIGNED_OUT") {
-            setAuthStep("profile")
-            setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
-          }
-        } else {
-          // User exists but email not verified
-          setShowLoginForm(true)
-          setVerificationEmail(session.user.email || "")
-          setAuthStep("email-verification")
-          setEmailVerificationSent(true)
-          setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
-        }
-      } else {
-        setShowLoginForm(true)
-        setIsLoggedIn(false)
-      }
-    })
-
-    return () => subscription.unsubscribe()
-  }, [])
 
   const [selectedCity, setSelectedCity] = useState("Lagos")
   
@@ -1026,7 +1387,9 @@ export default function ProtectorApp() {
       const type = urlParams.get('type')
       const error = urlParams.get('error')
       const paymentStatus = urlParams.get('payment')
+      const resetStatus = urlParams.get('reset')
       const bookingId = urlParams.get('booking')
+      const tab = urlParams.get('tab')
       
       // Check for payment status first
       if (paymentStatus === 'success' && bookingId) {
@@ -1082,6 +1445,9 @@ export default function ProtectorApp() {
         return
       }
       
+      // Check for tab parameter to switch to specific tab
+      // This is handled separately in a reactive useEffect below
+      
       if (paymentStatus === 'failed') {
         console.log('❌ Payment failed detected in URL')
         alert('❌ Payment Failed\n\nYour payment could not be processed.\n\nPlease try again or contact support if the problem persists.')
@@ -1106,11 +1472,26 @@ export default function ProtectorApp() {
         window.history.replaceState({}, document.title, window.location.pathname)
         return
       }
+
+      if (resetStatus === 'success') {
+        setShowLoginForm(true)
+        setAuthStep("login")
+        authStepRef.current = "login"
+        setAuthSuccess("Your password has been updated. Please log in with your new password.")
+
+        if (email) {
+          setAuthForm((prev) => ({ ...prev, email: decodeURIComponent(email) }))
+        }
+
+        window.history.replaceState({}, document.title, window.location.pathname)
+        return
+      }
       
       if (verified === 'true') {
         // Email was just verified - show login form with success message
         setShowLoginForm(true)
         setAuthStep("login")
+        authStepRef.current = "login"
         setAuthSuccess("✅ Email verified successfully! Please log in with your credentials to continue.")
         
         // Pre-fill email if available
@@ -1137,6 +1518,16 @@ export default function ProtectorApp() {
     // Get initial session
     const getInitialSession = async () => {
       try {
+        setIsCheckingAuth(true)
+        
+        // Quick check: if we already have user state, don't show login form
+        // This prevents flash when navigating back from sub-pages
+        if (user && isLoggedIn) {
+          setShowLoginForm(false)
+          setIsCheckingAuth(false)
+          return
+        }
+        
         const {
           data: { session },
         } = await supabase.auth.getSession()
@@ -1145,6 +1536,8 @@ export default function ProtectorApp() {
         if (session.user.email_confirmed_at) {
           setUser(session.user)
           setIsLoggedIn(true)
+          setShowLoginForm(false) // Hide login form immediately if user is authenticated
+          setIsCheckingAuth(false) // Stop showing loading state
           // Load user profile from database
           await loadUserProfile(session.user.id)
           // Check user role
@@ -1153,13 +1546,23 @@ export default function ProtectorApp() {
             // User exists but email not verified
             setVerificationEmail(session.user.email || "")
             setAuthStep("email-verification")
+            authStepRef.current = "email-verification"
             setEmailVerificationSent(true)
             setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
+            setIsCheckingAuth(false)
           }
+        } else {
+          // No session found, show login form
+          setShowLoginForm(true)
+          setIsLoggedIn(false)
+          setIsCheckingAuth(false)
         }
       } catch (error) {
         console.error('Auth initialization error:', error)
         // Continue with app even if auth fails
+        setShowLoginForm(true)
+        setIsLoggedIn(false)
+        setIsCheckingAuth(false)
       } finally {
         setIsDataLoaded(true)
       }
@@ -1168,24 +1571,70 @@ export default function ProtectorApp() {
     // Check URL parameters first, then get session
     getInitialSession()
 
-    // Listen for auth changes
+    // Listen for auth changes (single consolidated listener)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state change:', event, 'User:', session?.user?.email, 'Verified:', session?.user?.email_confirmed_at)
       
+      // Explicitly handle SIGNED_OUT event to prevent re-authentication
+      if (event === 'SIGNED_OUT') {
+        console.log('🚪 [Auth] User signed out event received')
+        setUser(null)
+        setIsLoggedIn(false)
+        setUserProfile({
+          email: "",
+          firstName: "",
+          lastName: "",
+          phone: "",
+          address: "",
+          emergencyContact: "",
+          emergencyPhone: "",
+        })
+        setAuthStep("login")
+        authStepRef.current = "login"
+        setShowLoginForm(true)
+        setAuthSuccess("")
+        setAuthError("")
+        return // Don't process further
+      }
+      
       if (session?.user) {
+        // Check for stored redirect path and navigate to it
+        if (typeof window !== 'undefined') {
+          const redirectPath = sessionStorage.getItem('redirectAfterAuth')
+          if (redirectPath) {
+            console.log('🔄 Redirecting to stored path:', redirectPath)
+            sessionStorage.removeItem('redirectAfterAuth')
+            router.push(redirectPath)
+            // Don't return here - continue to set user state
+          }
+          
+          // Fallback: Check for last visited location (only if no redirect path)
+          if (!redirectPath) {
+            const lastVisitedLocation = sessionStorage.getItem('lastVisitedLocation')
+            if (lastVisitedLocation && lastVisitedLocation !== '/app') {
+              console.log('🔄 Redirecting to last visited location:', lastVisitedLocation)
+              sessionStorage.removeItem('lastVisitedLocation')
+              router.push(lastVisitedLocation)
+              // Don't return here - continue to set user state
+            }
+          }
+        }
+        
         // Check if email is verified
         if (session.user.email_confirmed_at) {
           console.log('Email is verified, setting user as logged in')
           setUser(session.user)
           setIsLoggedIn(true)
+          setShowLoginForm(false) // Hide login form immediately when authenticated
           await loadUserProfile(session.user.id)
           
           // If we were on email verification step, move to profile completion
-          if (authStep === "email-verification") {
+          if (authStepRef.current === "email-verification") {
             console.log('Moving from email verification to profile completion step')
             setAuthStep("profile-completion")
+            authStepRef.current = "profile-completion"
             setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
             
             // Clear any verification check interval
@@ -1193,9 +1642,10 @@ export default function ProtectorApp() {
               clearInterval(verificationCheckIntervalRef.current)
               verificationCheckIntervalRef.current = null
             }
-          } else if (authStep === "login" || authStep === "register") {
+          } else if (authStepRef.current === "login" || authStepRef.current === "register") {
             // User just logged in and email is verified, go to profile
             setAuthStep("profile")
+            authStepRef.current = "profile"
             setShowLoginForm(false)
           }
         } else {
@@ -1203,10 +1653,13 @@ export default function ProtectorApp() {
           // User exists but email not verified
           setVerificationEmail(session.user.email || "")
           setAuthStep("email-verification")
+          authStepRef.current = "email-verification"
           setEmailVerificationSent(true)
           setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
         }
       } else {
+        // No session - user is logged out
+        console.log('🚪 [Auth] No session - user logged out')
         setUser(null)
         setIsLoggedIn(false)
         setUserProfile({
@@ -1232,7 +1685,7 @@ export default function ProtectorApp() {
         clearInterval(verificationCheckIntervalRef.current)
       }
     }
-  }, [authStep])
+  }, [])
 
   const loadUserProfile = async (userId: string) => {
     try {
@@ -1478,6 +1931,12 @@ export default function ProtectorApp() {
         errors.confirmPassword = "Please confirm your password"
       } else if (authForm.password !== authForm.confirmPassword) {
         errors.confirmPassword = "Passwords do not match"
+      }
+    } else if (step === "forgot-password") {
+      if (!authForm.email) {
+        errors.email = "Email is required"
+      } else if (!validateEmail(authForm.email)) {
+        errors.email = "Please enter a valid email address"
       }
     } else if (step === "credentials") {
       if (!authForm.firstName.trim()) {
@@ -2086,6 +2545,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     clearAuthMessages()
 
     try {
+      // Update profile in database
       const { error } = await supabase
         .from("profiles")
         .update({
@@ -2103,6 +2563,23 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         throw new Error(error.message)
       }
 
+      // Update profile using sync utility to update cache
+      try {
+        const { updateUserProfile } = await import('@/lib/utils/profile-sync')
+        await updateUserProfile(user.id, {
+          first_name: editProfileForm.firstName.trim(),
+          last_name: editProfileForm.lastName.trim(),
+          phone: editProfileForm.phone.trim(),
+          address: editProfileForm.address.trim(),
+          emergency_contact: editProfileForm.emergencyContact.trim(),
+          emergency_phone: editProfileForm.emergencyPhone.trim(),
+        })
+      } catch (syncError) {
+        console.warn('Profile cache sync warning:', syncError)
+        // Don't fail the save if cache sync fails
+      }
+
+      // Update local state
       setUserProfile((prev) => ({
         ...prev,
         firstName: editProfileForm.firstName.trim(),
@@ -2146,20 +2623,20 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       // Store user ID before clearing
       const userId = user?.id
       
-      // Clear all cached data properly
+      // Clear all cached data properly (force=true to bypass safeguards)
       if (userId) {
         try {
           const { clearUserCache } = await import('@/lib/utils/data-sync')
-          clearUserCache(userId)
+          clearUserCache(userId, true) // force=true to clear cache during logout
           console.log('✅ [App] User cache cleared')
         } catch (e) {
           console.warn('⚠️ [App] Error clearing user cache:', e)
         }
       }
       
-      // Clear all cached profile data
+      // Clear all cached profile data (force=true to bypass safeguards)
       try {
-        clearProfileCache()
+        clearProfileCache(true) // force=true to clear cache during logout
         console.log('✅ [App] Profile cache cleared')
       } catch (e) {
         console.warn('⚠️ [App] Error clearing profile cache:', e)
@@ -2174,17 +2651,59 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             if (key.includes('bookings') || 
                 key.includes('profile') || 
                 key.includes('chat') || 
-                key.includes('supabase')) {
+                key.includes('supabase') ||
+                key.includes('protector_ng_')) {
               localStorage.removeItem(key)
             }
           })
           console.log('✅ [App] localStorage cleared')
+          
+          // Clear sessionStorage
+          sessionStorage.clear()
+          console.log('✅ [App] sessionStorage cleared')
         } catch (e) {
-          console.warn('⚠️ [App] Error clearing localStorage:', e)
+          console.warn('⚠️ [App] Error clearing storage:', e)
         }
       }
       
-      // Sign out from Supabase
+      // Clear service worker cache
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        try {
+          const registration = await navigator.serviceWorker.ready
+          if (registration.active) {
+            // Create a message channel for communication
+            const messageChannel = new MessageChannel()
+            
+            // Wait for response from service worker
+            const cacheCleared = new Promise((resolve) => {
+              messageChannel.port1.onmessage = (event) => {
+                if (event.data && event.data.success) {
+                  console.log('✅ [App] Service worker cache cleared')
+                } else {
+                  console.warn('⚠️ [App] Service worker cache clear may have failed')
+                }
+                resolve(event.data)
+              }
+            })
+            
+            // Send clear cache message to service worker
+            registration.active.postMessage(
+              { type: 'CLEAR_CACHE' },
+              [messageChannel.port2]
+            )
+            
+            // Wait for cache clearing to complete (with timeout)
+            await Promise.race([
+              cacheCleared,
+              new Promise(resolve => setTimeout(resolve, 1000)) // 1 second timeout
+            ])
+          }
+        } catch (e) {
+          console.warn('⚠️ [App] Error clearing service worker cache:', e)
+        }
+      }
+      
+      // Sign out from Supabase (this also clears session cookies)
       await supabase.auth.signOut()
       console.log('✅ [App] Supabase signed out')
       
@@ -2237,18 +2756,53 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       console.log('✅ [App] All state reset')
       console.log('🗑️ [App] Logout complete - all cache and state cleared')
       
-      // Force a small delay to ensure state updates propagate
+      // Small delay to ensure state updates propagate
       await new Promise(resolve => setTimeout(resolve, 100))
+      
+      // Force page reload to ensure clean state and clear any cached auth state
+      if (typeof window !== 'undefined') {
+        window.location.href = '/'
+      }
       
     } catch (error) {
       console.error("❌ [App] Error during logout:", error)
       setAuthError("Error signing out. Please try again.")
       
-      // Even if there's an error, try to reset critical state
+      // Even if there's an error, try to reset critical state and reload
       setIsLoggedIn(false)
       setUser(null)
       setShowLoginForm(true)
       setAuthStep("login")
+      
+      // Still try to reload to clear state
+      if (typeof window !== 'undefined') {
+        setTimeout(() => {
+          window.location.href = '/'
+        }, 500)
+      }
+    }
+  }
+
+  const handleAccountAction = (action: string) => {
+    switch (action) {
+      case 'support':
+        // Navigate to help center as default support page
+        router.push('/account/help')
+        break
+      case 'help-center':
+        router.push('/account/help')
+        break
+      case 'contact-support':
+        router.push('/account/support')
+        break
+      case 'terms-of-service':
+        router.push('/account/terms')
+        break
+      case 'privacy-policy':
+        router.push('/account/privacy-policy')
+        break
+      default:
+        console.log('Action not implemented:', action)
     }
   }
 
@@ -2337,6 +2891,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         // Move to credentials step instead of directly signing up
         setAuthStep("credentials")
         setAuthSuccess("Please complete your credentials to continue with registration.")
+        return
+      } else if (authStep === "forgot-password") {
+        const email = authForm.email.trim().toLowerCase()
+
+        if (shouldUseMockDatabase()) {
+          setAuthSuccess(`If an account exists for ${email}, a reset link has been sent.`)
+          return
+        }
+
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: typeof window !== "undefined" ? `${window.location.origin}/auth/callback?type=recovery` : '/auth/callback?type=recovery'
+        })
+
+        if (error) {
+          if (error.message.includes("Email rate limit exceeded")) {
+            throw new Error("Too many reset attempts. Please check your inbox or try again later.")
+          }
+          throw new Error(error.message)
+        }
+
+        setAuthSuccess(`If an account exists for ${email}, a reset link has been sent.`)
+        setAuthError("")
         return
       } else if (authStep === "credentials") {
         console.log('Processing credentials for user:', authForm.email)
@@ -2656,13 +3232,15 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   ? "Welcome Back"
                   : authStep === "register"
                     ? "Create Your Account"
-                    : authStep === "credentials"
-                      ? "Complete Your Credentials"
-                      : authStep === "email-verification"
-                        ? "Verify Your Email"
-                        : authStep === "profile-completion"
-                          ? "Complete Your Profile"
-                          : "Edit Profile"}
+                    : authStep === "forgot-password"
+                      ? "Reset Your Password"
+                      : authStep === "credentials"
+                        ? "Complete Your Credentials"
+                        : authStep === "email-verification"
+                          ? "Verify Your Email"
+                          : authStep === "profile-completion"
+                            ? "Complete Your Profile"
+                            : "Edit Profile"}
               </h2>
               {(authStep === "register" || authStep === "credentials" || authStep === "email-verification" || authStep === "profile-completion") && (
                 <div className="flex items-center justify-center gap-2 mt-3">
@@ -2740,6 +3318,38 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   <span>⚠</span>
                   {formErrors.password}
                 </p>}
+              </div>
+            </div>
+          )}
+
+          {authStep === "forgot-password" && (
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Email Address</label>
+                <input
+                  type="email"
+                  placeholder="Enter the email you used to sign up"
+                  value={authForm.email}
+                  onChange={(e) => handleAuthInputChange("email", e.target.value)}
+                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                    formErrors.email
+                      ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+                      : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  }`}
+                />
+                {formErrors.email && (
+                  <p className="text-red-400 text-xs flex items-center gap-1">
+                    <span>⚠</span>
+                    {formErrors.email}
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 space-y-2">
+                <p className="text-sm text-blue-200 font-medium">We’ll send you a secure link to reset your password.</p>
+                <p className="text-xs text-blue-200/80">
+                  Check your inbox (and spam folder) for an email from Protector.Ng. The link expires after 1 hour.
+                </p>
               </div>
             </div>
           )}
@@ -3113,6 +3723,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   ? "Signing in..."
                   : authStep === "register"
                     ? "Creating account..."
+                    : authStep === "forgot-password"
+                      ? "Sending reset link..."
                     : authStep === "email-verification"
                       ? "Resending email..."
                       : authStep === "profile-completion"
@@ -3123,6 +3735,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               "Login"
             ) : authStep === "register" ? (
               "Continue"
+            ) : authStep === "forgot-password" ? (
+              "Send Reset Link"
             ) : authStep === "credentials" ? (
               "Complete Credentials"
             ) : authStep === "email-verification" ? (
@@ -3136,20 +3750,49 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
           {authStep !== "profile" && authStep !== "credentials" && authStep !== "email-verification" && authStep !== "profile-completion" && (
             <div className="text-center">
-              <button
-                onClick={() => {
-                  if (authStep === "login") {
-                    setAuthStep("register")
-                  } else {
-                    setAuthStep("login")
-                  }
-                  clearAuthMessages()
-                }}
-                className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors duration-200 hover:underline"
-                disabled={authLoading}
-              >
-                {authStep === "login" ? "Don't have an account? Sign up" : "Already have an account? Login"}
-              </button>
+              {authStep === "forgot-password" ? (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => {
+                      setAuthStep("login")
+                      authStepRef.current = "login"
+                      clearAuthMessages()
+                    }}
+                    className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors duration-200 hover:underline"
+                    disabled={authLoading}
+                  >
+                    Remembered your password? Log in
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAuthStep("register")
+                      authStepRef.current = "register"
+                      clearAuthMessages()
+                    }}
+                    className="text-gray-400 hover:text-gray-200 text-xs transition-colors duration-200 hover:underline"
+                    disabled={authLoading}
+                  >
+                    Need an account? Sign up
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (authStep === "login") {
+                      setAuthStep("register")
+                      authStepRef.current = "register"
+                    } else {
+                      setAuthStep("login")
+                      authStepRef.current = "login"
+                    }
+                    clearAuthMessages()
+                  }}
+                  className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors duration-200 hover:underline"
+                  disabled={authLoading}
+                >
+                  {authStep === "login" ? "Don't have an account? Sign up" : "Already have an account? Login"}
+                </button>
+              )}
             </div>
           )}
 
@@ -3185,7 +3828,15 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
           {authStep === "login" && (
             <div className="text-center">
-              <button className="text-gray-400 hover:text-white text-sm" disabled={authLoading}>
+              <button
+                className="text-gray-400 hover:text-white text-sm transition-colors duration-200 hover:underline"
+                disabled={authLoading}
+                onClick={() => {
+                  setAuthStep("forgot-password")
+                  authStepRef.current = "forgot-password"
+                  clearAuthMessages()
+                }}
+              >
                 Forgot Password?
               </button>
             </div>
@@ -3570,18 +4221,19 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
 
   // Remove loading screen - show app immediately
-  // if (!isDataLoaded) {
-  //   return (
-  //     <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
-  //       <div className="flex-1 flex items-center justify-center">
-  //         <div className="text-center space-y-4">
-  //           <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-  //           <p className="text-gray-400">Loading...</p>
-  //         </div>
-  //       </div>
-  //     </div>
-  //   )
-  // }
+  // Show loading state while checking authentication to prevent login form flash
+  if (isCheckingAuth) {
+    return (
+      <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center space-y-4">
+            <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-gray-400">Loading...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (!isLoggedIn) {
     return (
@@ -3665,16 +4317,6 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 <Shield className="h-6 w-6 text-white" />
                 <h1 className="text-xl font-bold">Protector.ng</h1>
               </div>
-              {user && (
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={handleLogout}
-                  className="text-red-400 hover:text-red-300 hover:bg-red-950/30 text-xs"
-                >
-                  Logout
-                </Button>
-              )}
             </>
           )}
         </div>
@@ -4962,42 +5604,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   // Active Bookings with Map
                   activeBookings.length > 0 ? (
                   <div className="space-y-4">
-                    {/* Map Section */}
-                    <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
-                      <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20">
-                        {/* Mock Map Interface */}
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="text-center space-y-2">
-                            <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
-                            <p className="text-white text-sm">Live Tracking</p>
+                    {/* Map Section - Show map for first active booking with tracking */}
+                    {(() => {
+                      // Find the first booking that has location tracking or is in progress
+                      const trackingBooking = activeBookings.find(b => {
+                        const bookingId = b.id || b.booking_code
+                        const hasLocation = bookingLocations.has(bookingId) || b.currentLocation
+                        const isTrackable = ['accepted', 'en_route', 'arrived', 'in_service'].includes(b.status.toLowerCase())
+                        return hasLocation || isTrackable
+                      }) || activeBookings[0]
+
+                      return trackingBooking ? renderLiveTrackingMap(trackingBooking) : (
+                        <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+                          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
+                            <div className="text-center space-y-2">
+                              <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
+                              <p className="text-white text-sm">Live Tracking</p>
+                              <p className="text-gray-400 text-xs">Location updates will appear here</p>
+                            </div>
                           </div>
                         </div>
-
-                        {/* Mock Route Line */}
-                        <svg className="absolute inset-0 w-full h-full">
-                          <path
-                            d="M 50 200 Q 150 100 250 150"
-                            stroke="#3B82F6"
-                            strokeWidth="3"
-                            fill="none"
-                            strokeDasharray="5,5"
-                            className="animate-pulse"
-                          />
-                        </svg>
-
-                        {/* Pickup Point */}
-                        <div className="absolute top-12 left-12 bg-green-500 w-3 h-3 rounded-full"></div>
-                        <div className="absolute top-8 left-16 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                          Pickup
-                        </div>
-
-                        {/* Destination Point */}
-                        <div className="absolute bottom-16 right-16 bg-red-500 w-3 h-3 rounded-full"></div>
-                        <div className="absolute bottom-12 right-20 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                          Destination
-                        </div>
-                      </div>
-                    </div>
+                      )
+                    })()}
 
                     {/* Active Booking Cards */}
                     {activeBookings.map((booking) => (
@@ -5026,7 +5654,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                           )}
                           <div className="flex-1">
                             <h3 className="text-white font-semibold">
-                              {booking.type === "armed-protection" ? booking.protectorName : "Self Drive"}
+                              {booking.type === "armed-protection" ? booking.protectorName : "Professional Driver"}
                             </h3>
                             <p className="text-gray-400 text-sm">{booking.vehicleType}</p>
                           </div>
@@ -5545,15 +6173,15 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
                   <span className="text-white text-2xl font-bold">
-                    {userProfile.firstName.charAt(0)}
-                    {userProfile.lastName.charAt(0)}
+                    {userProfile.firstName?.charAt(0)?.toUpperCase() || userProfile.email?.charAt(0)?.toUpperCase() || 'U'}
+                    {userProfile.lastName?.charAt(0)?.toUpperCase() || ''}
                   </span>
                 </div>
                 <div className="flex-1">
                   <h3 className="text-xl font-semibold text-white">
-                    Welcome, {userProfile.firstName}!
+                    Welcome, {userProfile.firstName || userProfile.email?.split('@')[0] || 'User'}!
                   </h3>
-                  <p className="text-blue-100 text-sm">{userProfile.email}</p>
+                  <p className="text-blue-100 text-sm">{userProfile.email || 'No email'}</p>
                   {user && user.email_confirmed_at && (
                     <div className="flex items-center gap-1 mt-1 text-green-200 text-xs">
                       <CheckCircle className="w-3 h-3" />
@@ -5708,32 +6336,58 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             {/* Account Actions */}
             <div className="space-y-3">
               <div className="bg-gray-900 rounded-lg p-4">
-                <h4 className="text-white font-medium mb-2">Account Settings</h4>
+                <h4 className="text-white font-medium mb-2">
+                  Support
+                </h4>
                 <div className="space-y-2">
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                    Change Password
-                  </button>
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                    Notification Preferences
-                  </button>
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                    Privacy Settings
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-gray-900 rounded-lg p-4">
-                <h4 className="text-white font-medium mb-2">Support</h4>
-                <div className="space-y-2">
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                    Help Center
-                  </button>
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                    Contact Support
-                  </button>
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
-                    Terms of Service
-                  </button>
+                  <Link 
+                    href="/account/help"
+                    prefetch={true}
+                    onClick={() => {
+                      setNavigatingTo('/account/help')
+                      setTimeout(() => setNavigatingTo(null), 1000)
+                    }}
+                    className="flex items-center justify-between w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>Help Center</span>
+                    {navigatingTo === '/account/help' && <Loader2 className="h-4 w-4 animate-spin text-blue-400" />}
+                  </Link>
+                  <Link 
+                    href="/account/support"
+                    prefetch={true}
+                    onClick={() => {
+                      setNavigatingTo('/account/support')
+                      setTimeout(() => setNavigatingTo(null), 1000)
+                    }}
+                    className="flex items-center justify-between w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>Contact Support</span>
+                    {navigatingTo === '/account/support' && <Loader2 className="h-4 w-4 animate-spin text-blue-400" />}
+                  </Link>
+                  <Link 
+                    href="/account/privacy-policy"
+                    prefetch={true}
+                    onClick={() => {
+                      setNavigatingTo('/account/privacy-policy')
+                      setTimeout(() => setNavigatingTo(null), 1000)
+                    }}
+                    className="flex items-center justify-between w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>Privacy Policy</span>
+                    {navigatingTo === '/account/privacy-policy' && <Loader2 className="h-4 w-4 animate-spin text-blue-400" />}
+                  </Link>
+                  <Link 
+                    href="/account/terms"
+                    prefetch={true}
+                    onClick={() => {
+                      setNavigatingTo('/account/terms')
+                      setTimeout(() => setNavigatingTo(null), 1000)
+                    }}
+                    className="flex items-center justify-between w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span>Terms of Service</span>
+                    {navigatingTo === '/account/terms' && <Loader2 className="h-4 w-4 animate-spin text-blue-400" />}
+                  </Link>
                 </div>
               </div>
 
