@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -25,7 +25,7 @@ const validatePassword = (password: string) => {
 }
 
 export default function ResetPasswordPage() {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const router = useRouter()
 
   const [formData, setFormData] = useState({
@@ -41,6 +41,46 @@ export default function ResetPasswordPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [messageType, setMessageType] = useState<'success' | 'error' | ''>('')
+  const [sessionStatus, setSessionStatus] = useState<'checking' | 'valid' | 'expired'>('checking')
+
+  useEffect(() => {
+    let isMounted = true
+
+    const verifySession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession()
+
+        if (!isMounted) {
+          return
+        }
+
+        if (error || !data.session) {
+          setSessionStatus('expired')
+          setMessage(
+            'This reset link is invalid or has expired. Please request a new password reset email.',
+          )
+          setMessageType('error')
+          return
+        }
+
+        setSessionStatus('valid')
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+        console.error('Failed to verify Supabase session for password recovery', error)
+        setSessionStatus('expired')
+        setMessage('We could not validate your reset link. Please request a new password reset email.')
+        setMessageType('error')
+      }
+    }
+
+    verifySession()
+
+    return () => {
+      isMounted = false
+    }
+  }, [supabase])
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -62,6 +102,13 @@ export default function ResetPasswordPage() {
     setIsLoading(true)
     setMessage('')
     setMessageType('')
+
+    if (sessionStatus !== 'valid') {
+      setMessage('Your reset session is no longer valid. Please request a new password reset email.')
+      setMessageType('error')
+      setIsLoading(false)
+      return
+    }
 
     if (formData.newPassword !== formData.confirmPassword) {
       setMessage('Passwords do not match')
@@ -115,6 +162,9 @@ export default function ResetPasswordPage() {
   }
 
   const passwordValidation = validatePassword(formData.newPassword)
+  const isCheckingSession = sessionStatus === 'checking'
+  const isSessionInvalid = sessionStatus === 'expired'
+  const fieldsDisabled = isCheckingSession || isSessionInvalid || isLoading
 
   return (
     <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white page-transition">
@@ -123,6 +173,7 @@ export default function ResetPasswordPage() {
           <button
             onClick={() => router.push('/app')}
             className="p-2 hover:bg-gray-800 rounded-lg transition-all duration-200 active:scale-95"
+            disabled={isCheckingSession}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -132,9 +183,23 @@ export default function ResetPasswordPage() {
       </div>
 
       <main className="flex-1 p-4 overflow-y-auto pb-20">
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-6 text-sm text-blue-200">
-          Enter a new password for your Protector.Ng account. You will be asked to sign in again once the password is updated.
-        </div>
+        {isCheckingSession && (
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-6 text-sm text-blue-200">
+            Validating your reset link...
+          </div>
+        )}
+
+        {sessionStatus === 'valid' && (
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4 mb-6 text-sm text-blue-200">
+            Enter a new password for your Protector.Ng account. You will be asked to sign in again once the password is updated.
+          </div>
+        )}
+
+        {isSessionInvalid && (
+          <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-4 mb-6 text-sm text-red-200">
+            This reset link can no longer be used. Return to the login page to request a fresh password reset email.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="bg-gray-800 rounded-xl p-6 border border-gray-700">
@@ -149,19 +214,24 @@ export default function ResetPasswordPage() {
                 value={formData.newPassword}
                 onChange={handleInputChange}
                 required
-                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                disabled={fieldsDisabled}
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12 disabled:opacity-60 disabled:cursor-not-allowed"
                 placeholder="Enter new password"
               />
               <button
                 type="button"
-                onClick={() => togglePasswordVisibility('new')}
+                onClick={() => {
+                  if (fieldsDisabled) return
+                  togglePasswordVisibility('new')
+                }}
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+                disabled={fieldsDisabled}
               >
                 {showPasswords.new ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
             </div>
 
-            {formData.newPassword && (
+            {formData.newPassword && sessionStatus === 'valid' && (
               <div className="mt-3 space-y-2">
                 <p className="text-sm text-gray-400">Password Requirements:</p>
                 <div className="space-y-1 text-xs">
@@ -202,18 +272,25 @@ export default function ResetPasswordPage() {
                 value={formData.confirmPassword}
                 onChange={handleInputChange}
                 required
-                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                disabled={fieldsDisabled}
+                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12 disabled:opacity-60 disabled:cursor-not-allowed"
                 placeholder="Confirm new password"
               />
               <button
                 type="button"
-                onClick={() => togglePasswordVisibility('confirm')}
+                onClick={() => {
+                  if (fieldsDisabled) return
+                  togglePasswordVisibility('confirm')
+                }}
                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+                disabled={fieldsDisabled}
               >
                 {showPasswords.confirm ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
               </button>
             </div>
-            {formData.confirmPassword && formData.newPassword !== formData.confirmPassword && (
+            {formData.confirmPassword &&
+              formData.newPassword !== formData.confirmPassword &&
+              sessionStatus === 'valid' && (
               <p className="mt-2 text-sm text-red-400">Passwords do not match</p>
             )}
           </div>
@@ -231,21 +308,42 @@ export default function ResetPasswordPage() {
           <button
             type="submit"
             disabled={
-              isLoading ||
+              fieldsDisabled ||
               !passwordValidation.isValid ||
               formData.newPassword !== formData.confirmPassword
             }
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white py-3 px-4 rounded-lg font-medium transition-colors"
           >
-            {isLoading ? 'Updating Password...' : 'Update Password'}
+            {isCheckingSession
+              ? 'Checking reset link...'
+              : isLoading
+              ? 'Updating Password...'
+              : 'Update Password'}
           </button>
         </form>
 
         <div className="mt-8 text-center text-sm text-gray-400">
-          Didn&apos;t request this reset?{" "}
-          <Link href="/app" className="text-blue-400 hover:text-blue-300 transition-colors duration-200 underline">
-            Return to login
-          </Link>
+          {sessionStatus === 'valid' ? (
+            <>
+              Didn&apos;t request this reset?{' '}
+              <Link
+                href="/app"
+                className="text-blue-400 hover:text-blue-300 transition-colors duration-200 underline"
+              >
+                Return to login
+              </Link>
+            </>
+          ) : (
+            <>
+              Need a new link?{' '}
+              <Link
+                href="/app"
+                className="text-blue-400 hover:text-blue-300 transition-colors duration-200 underline"
+              >
+                Request another password reset from the login page
+              </Link>
+            </>
+          )}
         </div>
       </main>
     </div>
