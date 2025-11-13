@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   const tokenHash = searchParams.get('token_hash')
 
   const supabase = await createClient()
+  let failureReason = 'unknown'
 
   const handleNewSignup = async (userEmail: string | null) => {
     await supabase.auth.signOut()
@@ -41,6 +42,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.error('Failed to persist Supabase recovery session via setSession', error)
+    failureReason = `setSession:${error?.message ?? 'unknown'}`
   }
 
   // 2. PKCE code exchange (covers OAuth/email confirmation)
@@ -68,6 +70,7 @@ export async function GET(request: NextRequest) {
     }
 
     console.error('Supabase code exchange failed', { error })
+    failureReason = `exchange:${error?.message ?? 'unknown'}`
   }
 
   // 3. Recovery links (older format) may include token_hash for OTP verification.
@@ -82,8 +85,14 @@ export async function GET(request: NextRequest) {
     }
 
     console.error('Supabase recovery verifyOtp failed', error)
+    failureReason = `verifyOtp:${error?.message ?? 'unknown'}`
   }
 
   // If there's an error or no usable parameters, redirect to home with error
-  return NextResponse.redirect(`${origin}/?error=auth_callback_error`)
+  const failureUrl = new URL(origin)
+  failureUrl.searchParams.set('error', 'auth_callback_error')
+  failureUrl.searchParams.set('reason', failureReason)
+  failureUrl.searchParams.set('type', type ?? 'unknown')
+
+  return NextResponse.redirect(failureUrl)
 }
