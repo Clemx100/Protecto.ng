@@ -1,11 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { ArrowLeft, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react'
 
 export default function ChangePasswordPage() {
-  const router = useRouter()
   const [formData, setFormData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -87,7 +86,7 @@ export default function ChangePasswordPage() {
       
       // Redirect after success
       setTimeout(() => {
-        router.push('/account')
+        window.location.href = '/app?tab=account'
       }, 2000)
     } catch (error) {
       setMessage('Failed to change password. Please try again.')
@@ -100,16 +99,17 @@ export default function ChangePasswordPage() {
   const passwordValidation = validatePassword(formData.newPassword)
 
   return (
-    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white page-transition">
       {/* Header */}
       <div className="bg-black border-b border-gray-800 p-4">
         <div className="flex items-center space-x-3">
-          <button 
-            onClick={() => router.push('/account')}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+          <Link 
+            href="/app?tab=account"
+            prefetch={true}
+            className="p-2 hover:bg-gray-800 rounded-lg transition-all duration-200 active:scale-95"
           >
             <ArrowLeft className="h-5 w-5" />
-          </button>
+          </Link>
           <Lock className="h-5 w-5 text-blue-400" />
           <h1 className="text-lg font-semibold">Change Password</h1>
         </div>

@@ -1,11 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { ArrowLeft, FileText, ChevronDown, ChevronRight } from 'lucide-react'
 
 export default function TermsOfServicePage() {
-  const router = useRouter()
   const [expandedSections, setExpandedSections] = useState<string[]>(['1'])
 
   const toggleSection = (sectionId: string) => {
@@ -213,16 +212,17 @@ Version: 2.0`
   ]
 
   return (
-    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white page-transition">
       {/* Header */}
       <div className="bg-black border-b border-gray-800 p-4">
         <div className="flex items-center space-x-3">
-          <button 
-            onClick={() => router.push('/account')}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+          <Link 
+            href="/app?tab=account"
+            prefetch={true}
+            className="p-2 hover:bg-gray-800 rounded-lg transition-all duration-200 active:scale-95"
           >
             <ArrowLeft className="h-5 w-5" />
-          </button>
+          </Link>
           <FileText className="h-5 w-5 text-yellow-400" />
           <h1 className="text-lg font-semibold">Terms of Service</h1>
         </div>
@@ -301,12 +301,13 @@ Version: 2.0`
             If you have any questions about these Terms of Service or need clarification on any section, 
             please don't hesitate to contact our support team.
           </p>
-          <button
-            onClick={() => router.push('/account/support')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+          <Link
+            href="/account/support"
+            prefetch={true}
+            className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Contact Support
-          </button>
+          </Link>
         </div>
       </main>
     </div>

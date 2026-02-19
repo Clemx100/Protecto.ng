@@ -1,12 +1,14 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useRouter } from "next/navigation"
 import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { chatService } from "@/lib/services/chatService"
 
 export default function ProtectorApp() {
+  const router = useRouter()
   const supabase = createClient()
 
   const [activeTab, setActiveTab] = useState("protector")
@@ -155,7 +157,7 @@ export default function ProtectorApp() {
       id: "BK001",
       type: "armed-protection",
       protectorName: "Marcus Johnson",
-      vehicleType: "Mercedes S-Class",
+      vehicleType: "Armored Lexus LX 570",
       status: "en-route",
       estimatedArrival: "8 mins",
       pickupLocation: "123 Main St, Downtown",
@@ -206,18 +208,17 @@ export default function ProtectorApp() {
   const vehicleTypes = [
     {
       id: "escalade",
-      name: "Cadillac Escalade",
+      name: "Toyota Land Cruiser 300 Armored",
       capacity: 5,
-      image:
-        "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/WhatsApp%20Image%202025-08-13%20at%2011.51.50_36fa6566.jpg-wGr4hpsDDqjcWjVVJ9kFFI8rjAZ7ls.jpeg",
-      description: "Premium luxury SUV",
+      image: "/images/PRADO/prado3.jpeg",
+      description: "Premium armored bulletproof SUV",
     },
     {
       id: "sedan",
-      name: "Mercedes S-Class",
+      name: "Armored Lexus LX 570",
       capacity: 4,
-      image: "/images/mercedes-s-class-sedan.avif",
-      description: "Executive luxury sedan",
+      image: "/images/PRADO/Lexus1.jpg",
+      description: "Armored luxury SUV",
     },
     {
       id: "suv",
@@ -1003,6 +1004,42 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
     } catch (error) {
       console.error("Error signing out:", error)
       setAuthError("Error signing out. Please try again.")
+    }
+  }
+
+  const handleAccountAction = (action: string) => {
+    switch (action) {
+      case 'account-settings':
+        // Navigate to account settings page
+        router.push('/account/change-password')
+        break
+      case 'support':
+        // Navigate to help center as default support page
+        router.push('/account/help')
+        break
+      case 'change-password':
+        router.push('/account/change-password')
+        break
+      case 'notification-preferences':
+        router.push('/account/notifications')
+        break
+      case 'privacy-settings':
+        router.push('/account/privacy')
+        break
+      case 'help-center':
+        router.push('/account/help')
+        break
+      case 'contact-support':
+        router.push('/account/support')
+        break
+      case 'terms-of-service':
+        router.push('/account/terms')
+        break
+      case 'privacy-policy':
+        router.push('/account/privacy-policy')
+        break
+      default:
+        console.log('Action not implemented:', action)
     }
   }
 
@@ -1877,7 +1914,8 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Shield className="h-6 w-6 text-white" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/images/PRADO/slideshow/logo.PNG" alt="Protector.Ng" className="h-6 w-6 object-contain" />
               <h1 className="text-xl font-bold">Protector.ng</h1>
             </div>
           )}
@@ -3233,7 +3271,7 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
                           )}
                           <div className="flex-1">
                             <h3 className="text-white font-semibold">
-                              {booking.type === "armed-protection" ? booking.protectorName : "Self Drive"}
+                              {booking.type === "armed-protection" ? booking.protectorName : "Professional Driver"}
                             </h3>
                             <p className="text-gray-400 text-sm">{booking.vehicleType}</p>
                           </div>
@@ -3651,30 +3689,68 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
             {/* Account Actions */}
             <div className="space-y-3">
               <div className="bg-gray-900 rounded-lg p-4">
-                <h4 className="text-white font-medium mb-2">Account Settings</h4>
+                <button
+                  onClick={() => handleAccountAction('account-settings')}
+                  className="w-full text-left mb-2"
+                >
+                  <h4 className="text-white font-medium hover:text-blue-400 transition-colors cursor-pointer">
+                    Account Settings
+                  </h4>
+                </button>
                 <div className="space-y-2">
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => handleAccountAction('change-password')}
+                    className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                  >
                     Change Password
                   </button>
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => handleAccountAction('notification-preferences')}
+                    className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                  >
                     Notification Preferences
                   </button>
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => handleAccountAction('privacy-settings')}
+                    className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                  >
                     Privacy Settings
                   </button>
                 </div>
               </div>
 
               <div className="bg-gray-900 rounded-lg p-4">
-                <h4 className="text-white font-medium mb-2">Support</h4>
+                <button
+                  onClick={() => handleAccountAction('support')}
+                  className="w-full text-left mb-2"
+                >
+                  <h4 className="text-white font-medium hover:text-blue-400 transition-colors cursor-pointer">
+                    Support
+                  </h4>
+                </button>
                 <div className="space-y-2">
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => handleAccountAction('help-center')}
+                    className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                  >
                     Help Center
                   </button>
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => handleAccountAction('contact-support')}
+                    className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                  >
                     Contact Support
                   </button>
-                  <button className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors">
+                  <button 
+                    onClick={() => handleAccountAction('privacy-policy')}
+                    className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                  >
+                    Privacy Policy
+                  </button>
+                  <button 
+                    onClick={() => handleAccountAction('terms-of-service')}
+                    className="w-full text-left p-3 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                  >
                     Terms of Service
                   </button>
                 </div>

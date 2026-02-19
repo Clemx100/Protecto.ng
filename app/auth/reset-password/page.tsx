@@ -48,6 +48,44 @@ export default function ResetPasswordPage() {
 
     const verifySession = async () => {
       try {
+        // Supabase can send tokens in the URL (hash or query) when redirecting to this page
+        const hashParams = new URLSearchParams(
+          typeof window !== 'undefined' && window.location.hash
+            ? window.location.hash.substring(1)
+            : ''
+        )
+        const searchParams =
+          typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams()
+        const accessToken =
+          hashParams.get('access_token') ?? searchParams.get('access_token')
+        const refreshToken =
+          hashParams.get('refresh_token') ?? searchParams.get('refresh_token')
+
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          })
+          if (typeof window !== 'undefined') {
+            window.history.replaceState(
+              null,
+              '',
+              window.location.pathname
+            )
+          }
+          if (!isMounted) return
+          if (error) {
+            setSessionStatus('expired')
+            setMessage(
+              'This reset link is invalid or has expired. Please request a new password reset email.',
+            )
+            setMessageType('error')
+            return
+          }
+          setSessionStatus('valid')
+          return
+        }
+
         const { data, error } = await supabase.auth.getSession()
 
         if (!isMounted) {

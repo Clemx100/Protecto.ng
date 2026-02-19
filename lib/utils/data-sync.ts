@@ -88,7 +88,8 @@ export function removeFromCache(key: string, userId: string): void {
 }
 
 /**
- * Clear all app-related cache
+ * Clear all app-related cache from localStorage
+ * Uses consistent cache key patterns
  */
 export function clearAllCache(): void {
   try {
@@ -97,11 +98,21 @@ export function clearAllCache(): void {
     const keys = Object.keys(localStorage)
     let cleared = 0
     
+    // Patterns to match for cache clearing (consistent key patterns)
+    const cachePatterns = [
+      CACHE_PREFIX,           // protector_ng_*
+      'bookings_',            // Old bookings pattern
+      'profile_',             // Old profile pattern
+      'chat_messages_',       // Chat messages
+      'chat_',                // Chat cache
+      'operator_bookings',    // Operator bookings
+    ]
+    
     keys.forEach(key => {
-      if (key.startsWith(CACHE_PREFIX) || 
-          key.startsWith('bookings_') || 
-          key.startsWith('profile_') ||
-          key.startsWith('chat_messages_')) {
+      // Check if key matches any cache pattern
+      const shouldClear = cachePatterns.some(pattern => key.startsWith(pattern))
+      
+      if (shouldClear) {
         localStorage.removeItem(key)
         cleared++
       }
@@ -309,20 +320,104 @@ export async function loadProfileWithValidation(userId: string): Promise<{
 
 /**
  * Clear cache when user logs out
+ * Only clears cache if explicitly called (during logout)
+ * Adds safeguards to prevent premature clearing during active sessions
  */
-export function clearUserCache(userId: string): void {
-  removeFromCache('bookings_active', userId)
-  removeFromCache('bookings_history', userId)
-  removeFromCache('profile', userId)
-  
-  // Also clear old-style cache keys
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem(`bookings_${userId}`)
-    localStorage.removeItem(`profile_${userId}`)
-    localStorage.removeItem(`profile_${userId}_timestamp`)
+export function clearUserCache(userId: string, force: boolean = false): void {
+  try {
+    // Safeguard: Only clear if explicitly requested (force flag) or if we're sure user is logged out
+    if (!force && typeof window !== 'undefined') {
+      // Check if user session still exists in localStorage (Supabase stores it)
+      const supabaseSession = localStorage.getItem('supabase.auth.token')
+      if (supabaseSession) {
+        console.warn('⚠️ [Cache] User session exists, not clearing cache (use force=true to override)')
+        return
+      }
+    }
+
+    // Clear cache with consistent prefix
+    removeFromCache('bookings_active', userId)
+    removeFromCache('bookings_history', userId)
+    removeFromCache('profile', userId)
+    
+    // Also clear old-style cache keys for backward compatibility
+    if (typeof window !== 'undefined') {
+      const keysToRemove = [
+        `bookings_${userId}`,
+        `profile_${userId}`,
+        `profile_${userId}_timestamp`,
+        // Clear chat-related cache
+        `chat_${userId}`,
+        `chat_messages_${userId}`,
+      ]
+      
+      // Also clear any keys that match old patterns
+      const allKeys = Object.keys(localStorage)
+      allKeys.forEach(key => {
+        if (key.includes(`bookings_${userId}`) || 
+            key.includes(`profile_${userId}`) ||
+            key.includes(`chat_${userId}`) ||
+            key.includes(`chat_messages_${userId}`)) {
+          localStorage.removeItem(key)
+        }
+      })
+      
+      keysToRemove.forEach(key => localStorage.removeItem(key))
+    }
+    
+    console.log('🗑️ [Cache] Cleared all user cache for user:', userId)
+  } catch (error) {
+    console.warn('⚠️ [Cache] Error clearing user cache:', error)
   }
-  
-  console.log('🗑️ [Cache] Cleared all user cache')
+}
+
+/**
+ * Clear all app-related caches including service worker cache
+ * This should only be called during explicit logout
+ */
+export async function clearAllAppCache(): Promise<void> {
+  try {
+    if (typeof window === 'undefined') return
+
+    // Clear localStorage cache
+    clearAllCache()
+    
+    // Clear service worker cache
+    if ('serviceWorker' in navigator) {
+      try {
+        const registration = await navigator.serviceWorker.ready
+        if (registration.active) {
+          const messageChannel = new MessageChannel()
+          
+          const cacheCleared = new Promise((resolve) => {
+            messageChannel.port1.onmessage = (event) => {
+              if (event.data && event.data.success) {
+                console.log('✅ [Cache] Service worker cache cleared')
+              }
+              resolve(event.data)
+            }
+          })
+          
+          registration.active.postMessage(
+            { type: 'CLEAR_CACHE' },
+            [messageChannel.port2]
+          )
+          
+          // Wait for cache clearing with timeout
+          await Promise.race([
+            cacheCleared,
+            new Promise(resolve => setTimeout(resolve, 1000))
+          ])
+        }
+      } catch (error) {
+        console.warn('⚠️ [Cache] Error clearing service worker cache:', error)
+      }
+    }
+    
+    console.log('🗑️ [Cache] Cleared all app caches')
+  } catch (error) {
+    console.warn('⚠️ [Cache] Error in clearAllAppCache:', error)
+  }
 }
 
 /**

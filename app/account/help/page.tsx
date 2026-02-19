@@ -1,11 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { ArrowLeft, HelpCircle, Search, ChevronDown, ChevronRight, Book, Shield, Phone, MessageCircle } from 'lucide-react'
 
 export default function HelpCenterPage() {
-  const router = useRouter()
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedItems, setExpandedItems] = useState<string[]>([])
 
@@ -126,7 +125,7 @@ export default function HelpCenterPage() {
       title: 'Contact Support',
       description: 'Get immediate help from our support team',
       icon: Phone,
-      action: () => router.push('/account/support')
+      action: () => window.location.href = '/account/support'
     },
     {
       title: 'Emergency Contact',
@@ -138,21 +137,22 @@ export default function HelpCenterPage() {
       title: 'Live Chat',
       description: 'Chat with our support agents',
       icon: MessageCircle,
-      action: () => router.push('/account/support')
+      action: () => window.location.href = '/account/support'
     }
   ]
 
   return (
-    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white page-transition">
       {/* Header */}
       <div className="bg-black border-b border-gray-800 p-4">
         <div className="flex items-center space-x-3">
-          <button 
-            onClick={() => router.push('/account')}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+          <Link 
+            href="/app?tab=account"
+            prefetch={true}
+            className="p-2 hover:bg-gray-800 rounded-lg transition-all duration-200 active:scale-95"
           >
             <ArrowLeft className="h-5 w-5" />
-          </button>
+          </Link>
           <HelpCircle className="h-5 w-5 text-blue-400" />
           <h1 className="text-lg font-semibold">Help Center</h1>
         </div>
@@ -234,12 +234,13 @@ export default function HelpCenterPage() {
             <HelpCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-white mb-2">No results found</h3>
             <p className="text-gray-400 mb-4">Try searching with different keywords or contact our support team.</p>
-            <button
-              onClick={() => router.push('/account/support')}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+            <Link
+              href="/account/support"
+              prefetch={true}
+              className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
             >
               Contact Support
-            </button>
+            </Link>
           </div>
         )}
 

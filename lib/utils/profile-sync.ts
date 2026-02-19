@@ -181,10 +181,18 @@ export async function loadUserProfile(userId: string): Promise<ProfileData | nul
 
     console.log('✅ [Profile Load] Profile loaded successfully')
     
-    // Cache in localStorage
+    // Cache in localStorage (only if user is still logged in)
     try {
-      localStorage.setItem(`profile_${userId}`, JSON.stringify(data))
-      localStorage.setItem(`profile_${userId}_timestamp`, Date.now().toString())
+      if (typeof window !== 'undefined') {
+        // Verify user session exists before caching
+        const supabaseSession = localStorage.getItem('supabase.auth.token')
+        if (supabaseSession) {
+          localStorage.setItem(`profile_${userId}`, JSON.stringify(data))
+          localStorage.setItem(`profile_${userId}_timestamp`, Date.now().toString())
+        } else {
+          console.warn('⚠️ [Profile Load] No active session, skipping cache')
+        }
+      }
     } catch (e) {
       console.warn('⚠️ [Profile Load] Could not cache profile in localStorage:', e)
     }
@@ -228,17 +236,35 @@ export function getCachedProfile(userId: string): ProfileData | null {
 
 /**
  * Clears all cached profile data
+ * Adds safeguards to prevent clearing during active user sessions
+ * @param force - If true, bypass safeguards and clear cache anyway (use during logout)
  */
-export function clearProfileCache() {
+export function clearProfileCache(force: boolean = false) {
   try {
+    // Safeguard: Only clear if explicitly requested (force flag) or if we're sure user is logged out
+    if (!force && typeof window !== 'undefined') {
+      // Check if user session still exists in localStorage (Supabase stores it)
+      const supabaseSession = localStorage.getItem('supabase.auth.token')
+      if (supabaseSession) {
+        console.warn('⚠️ [Profile Cache] User session exists, not clearing cache (use force=true to override)')
+        return
+      }
+    }
+
     // Clear all profile-related localStorage items
     const keys = Object.keys(localStorage)
+    let cleared = 0
+    
     keys.forEach(key => {
-      if (key.startsWith('profile_') || key === 'user' || key === 'supabase.auth.token') {
+      if (key.startsWith('profile_') || 
+          key === 'user' || 
+          (key.startsWith('supabase.auth.token') && force)) {
         localStorage.removeItem(key)
+        cleared++
       }
     })
-    console.log('✅ [Profile Cache] Cache cleared')
+    
+    console.log(`✅ [Profile Cache] Cache cleared (${cleared} items)`)
   } catch (error) {
     console.warn('⚠️ [Profile Cache] Error clearing cache:', error)
   }
@@ -271,10 +297,18 @@ export async function updateUserProfile(
       return null
     }
 
-    // Update cache
+    // Update cache (only if user is still logged in)
     try {
-      localStorage.setItem(`profile_${userId}`, JSON.stringify(data))
-      localStorage.setItem(`profile_${userId}_timestamp`, Date.now().toString())
+      if (typeof window !== 'undefined') {
+        // Verify user session exists before caching
+        const supabaseSession = localStorage.getItem('supabase.auth.token')
+        if (supabaseSession) {
+          localStorage.setItem(`profile_${userId}`, JSON.stringify(data))
+          localStorage.setItem(`profile_${userId}_timestamp`, Date.now().toString())
+        } else {
+          console.warn('⚠️ [Profile Update] No active session, skipping cache update')
+        }
+      }
     } catch (e) {
       console.warn('⚠️ [Profile Update] Could not update cache:', e)
     }

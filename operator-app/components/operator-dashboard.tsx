@@ -7,7 +7,10 @@ import {
   RefreshCw,
   Bell,
   Shield,
-  Send
+  Send,
+  MapPin,
+  Navigation,
+  MapPinOff
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
@@ -54,6 +57,14 @@ export default function OperatorDashboard() {
   // New booking notifications
   const [newBookingCount, setNewBookingCount] = useState(0)
   const [lastBookingCount, setLastBookingCount] = useState(0)
+  
+  // Location tracking
+  const [isTrackingLocation, setIsTrackingLocation] = useState<{ [bookingId: string]: boolean }>({})
+  const [locationWatchId, setLocationWatchId] = useState<number | null>(null)
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [locationError, setLocationError] = useState<string>("")
+  const locationUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastLocationRef = useRef<{ lat: number; lng: number; timestamp: number } | null>(null)
   
   // Initialize dashboard
   useEffect(() => {
@@ -625,6 +636,192 @@ export default function OperatorDashboard() {
     }
   }
 
+  // Location tracking functions
+  const startLocationTracking = async (bookingId: string) => {
+    if (!bookingId || !user) {
+      setLocationError("Cannot start tracking: Missing booking ID or user")
+      return
+    }
+
+    // Check if geolocation is available
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by your browser")
+      return
+    }
+
+    try {
+      // Request location permission and get initial position
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          resolve,
+          reject,
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          }
+        )
+      })
+
+      const { latitude, longitude, accuracy } = position.coords
+      setCurrentLocation({ lat: latitude, lng: longitude })
+      setLocationError("")
+
+      // Send initial location
+      await sendLocationUpdate(bookingId, latitude, longitude, accuracy)
+
+      // Start watching position
+      const watchId = navigator.geolocation.watchPosition(
+        async (position) => {
+          const { latitude, longitude, accuracy, heading, speed } = position.coords
+          const newLocation = { lat: latitude, lng: longitude }
+          
+          // Check if location has changed significantly (at least 10 meters)
+          const shouldUpdate = shouldSendLocationUpdate(newLocation, accuracy)
+          
+          if (shouldUpdate) {
+            setCurrentLocation(newLocation)
+            await sendLocationUpdate(bookingId, latitude, longitude, accuracy, heading || undefined, speed || undefined)
+          }
+        },
+        (error) => {
+          console.error('Location tracking error:', error)
+          setLocationError(`Location error: ${error.message}`)
+          stopLocationTracking(bookingId)
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 5000 // Accept cached position up to 5 seconds old
+        }
+      )
+
+      setLocationWatchId(watchId)
+      setIsTrackingLocation(prev => ({ ...prev, [bookingId]: true }))
+      setSuccess("Location tracking started")
+      
+      console.log('📍 Location tracking started for booking:', bookingId)
+    } catch (error: any) {
+      console.error('Failed to start location tracking:', error)
+      setLocationError(`Failed to start tracking: ${error.message}`)
+    }
+  }
+
+  const stopLocationTracking = (bookingId: string) => {
+    if (locationWatchId !== null) {
+      navigator.geolocation.clearWatch(locationWatchId)
+      setLocationWatchId(null)
+    }
+    
+    if (locationUpdateIntervalRef.current) {
+      clearInterval(locationUpdateIntervalRef.current)
+      locationUpdateIntervalRef.current = null
+    }
+
+    setIsTrackingLocation(prev => {
+      const updated = { ...prev }
+      delete updated[bookingId]
+      return updated
+    })
+    
+    setCurrentLocation(null)
+    lastLocationRef.current = null
+    console.log('📍 Location tracking stopped for booking:', bookingId)
+  }
+
+  const shouldSendLocationUpdate = (
+    newLocation: { lat: number; lng: number },
+    accuracy: number
+  ): boolean => {
+    const lastLocation = lastLocationRef.current
+    if (!lastLocation) return true
+
+    // Calculate distance in meters using Haversine formula
+    const R = 6371000 // Earth's radius in meters
+    const dLat = (newLocation.lat - lastLocation.lat) * Math.PI / 180
+    const dLng = (newLocation.lng - lastLocation.lng) * Math.PI / 180
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lastLocation.lat * Math.PI / 180) * Math.cos(newLocation.lat * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    const distance = R * c
+
+    // Send update if moved more than 10 meters or 10 seconds have passed
+    const timeSinceLastUpdate = Date.now() - lastLocation.timestamp
+    const minDistance = 10 // meters
+    const maxTime = 10000 // 10 seconds
+
+    return distance > minDistance || timeSinceLastUpdate > maxTime
+  }
+
+  const sendLocationUpdate = async (
+    bookingId: string,
+    latitude: number,
+    longitude: number,
+    accuracy: number,
+    heading?: number,
+    speed?: number
+  ) => {
+    try {
+      const { RealtimeAPI } = await import('@/operator-app/lib/api/realtime')
+      
+      // Use database_id if available, otherwise use booking_id
+      const booking = bookings.find(b => b.id === bookingId || b.booking_code === bookingId)
+      const trackingBookingId = booking?.database_id || bookingId
+
+      const result = await RealtimeAPI.updateLocation({
+        booking_id: trackingBookingId,
+        location: {
+          x: longitude, // PostgreSQL POINT uses x for longitude
+          y: latitude   // PostgreSQL POINT uses y for latitude
+        },
+        heading: heading ? Math.round(heading) : undefined,
+        speed: speed ? Math.round(speed * 3.6) : undefined, // Convert m/s to km/h
+        accuracy: Math.round(accuracy)
+      })
+
+      if (result.error) {
+        console.error('Failed to send location update:', result.error)
+        setLocationError(`Failed to send location: ${result.error}`)
+      } else {
+        // Update last location reference
+        lastLocationRef.current = {
+          lat: latitude,
+          lng: longitude,
+          timestamp: Date.now()
+        }
+        console.log('✅ Location update sent:', { latitude, longitude, accuracy })
+      }
+    } catch (error) {
+      console.error('Error sending location update:', error)
+      setLocationError(`Error sending location: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  // Cleanup location tracking when booking changes or component unmounts
+  useEffect(() => {
+    return () => {
+      // Stop tracking when component unmounts
+      if (locationWatchId !== null) {
+        navigator.geolocation.clearWatch(locationWatchId)
+      }
+      if (locationUpdateIntervalRef.current) {
+        clearInterval(locationUpdateIntervalRef.current)
+      }
+    }
+  }, [locationWatchId])
+
+  // Stop tracking when selected booking changes
+  useEffect(() => {
+    // Stop tracking for previous booking if it exists
+    Object.keys(isTrackingLocation).forEach(bookingId => {
+      if (bookingId !== selectedBooking?.id) {
+        stopLocationTracking(bookingId)
+      }
+    })
+  }, [selectedBooking?.id])
+
   const sendInvoice = async () => {
     if (!selectedBooking || !user) return
 
@@ -944,6 +1141,53 @@ export default function OperatorDashboard() {
                       </Button>
                     ))}
                   </div>
+                  
+                  {/* Location Tracking Controls */}
+                  {['en_route', 'arrived', 'in_service'].includes(selectedBooking.status) && (
+                    <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center space-x-2">
+                          <MapPin className="h-4 w-4 text-blue-400" />
+                          <span className="text-sm font-medium text-white">Location Tracking</span>
+                        </div>
+                        {isTrackingLocation[selectedBooking.id] && (
+                          <div className="flex items-center space-x-2">
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                            <span className="text-xs text-green-300">Active</span>
+                          </div>
+                        )}
+                      </div>
+                      {locationError && (
+                        <div className="mb-2 text-xs text-red-300">{locationError}</div>
+                      )}
+                      {currentLocation && isTrackingLocation[selectedBooking.id] && (
+                        <div className="mb-2 text-xs text-gray-300">
+                          Current: {currentLocation.lat.toFixed(6)}, {currentLocation.lng.toFixed(6)}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        {!isTrackingLocation[selectedBooking.id] ? (
+                          <Button
+                            onClick={() => startLocationTracking(selectedBooking.id)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            size="sm"
+                          >
+                            <Navigation className="h-4 w-4 mr-2" />
+                            Start Tracking
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => stopLocationTracking(selectedBooking.id)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            size="sm"
+                          >
+                            <MapPinOff className="h-4 w-4 mr-2" />
+                            Stop Tracking
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Payment Status Indicator */}
                   {paymentApproved[selectedBooking.id] && (

@@ -1,11 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { ArrowLeft, Eye, Shield, Database, Users, Download, Trash2 } from 'lucide-react'
 
 export default function PrivacyPage() {
-  const router = useRouter()
   const [privacySettings, setPrivacySettings] = useState({
     profileVisibility: {
       showToOperators: true,
@@ -109,7 +108,7 @@ export default function PrivacyPage() {
       setMessageType('success')
       
       setTimeout(() => {
-        router.push('/')
+        window.location.href = '/'
       }, 3000)
     } catch (error) {
       setMessage('Failed to delete account. Please contact support.')
@@ -171,16 +170,17 @@ export default function PrivacyPage() {
   )
 
   return (
-    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white page-transition">
       {/* Header */}
       <div className="bg-black border-b border-gray-800 p-4">
         <div className="flex items-center space-x-3">
-          <button 
-            onClick={() => router.push('/account')}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+          <Link 
+            href="/app?tab=account"
+            prefetch={true}
+            className="p-2 hover:bg-gray-800 rounded-lg transition-all duration-200 active:scale-95"
           >
             <ArrowLeft className="h-5 w-5" />
-          </button>
+          </Link>
           <Eye className="h-5 w-5 text-purple-400" />
           <h1 className="text-lg font-semibold">Privacy Settings</h1>
         </div>

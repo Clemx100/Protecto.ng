@@ -1,11 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { ArrowLeft, MessageCircle, Phone, Mail, Clock, Send, AlertCircle, CheckCircle } from 'lucide-react'
 
 export default function ContactSupportPage() {
-  const router = useRouter()
   const [contactMethod, setContactMethod] = useState<'chat' | 'email' | 'phone'>('chat')
   const [formData, setFormData] = useState({
     name: '',
@@ -114,16 +113,17 @@ export default function ContactSupportPage() {
   ]
 
   return (
-    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
+    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white page-transition">
       {/* Header */}
       <div className="bg-black border-b border-gray-800 p-4">
         <div className="flex items-center space-x-3">
-          <button 
-            onClick={() => router.push('/account')}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors"
+          <Link 
+            href="/app?tab=account"
+            prefetch={true}
+            className="p-2 hover:bg-gray-800 rounded-lg transition-all duration-200 active:scale-95"
           >
             <ArrowLeft className="h-5 w-5" />
-          </button>
+          </Link>
           <MessageCircle className="h-5 w-5 text-green-400" />
           <h1 className="text-lg font-semibold">Contact Support</h1>
         </div>

@@ -65,6 +65,19 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Skip caching auth-related responses to prevent stale auth state
+  const isAuthRelated = 
+    url.pathname.includes('/auth/') ||
+    url.pathname.includes('/api/auth') ||
+    url.searchParams.has('access_token') ||
+    url.searchParams.has('refresh_token');
+
+  if (isAuthRelated) {
+    // For auth-related requests, always fetch from network and don't cache
+    event.respondWith(fetch(request));
+    return;
+  }
+
   // Determine if this is a static asset
   const isStaticAsset = 
     request.destination === 'image' ||
@@ -194,5 +207,46 @@ self.addEventListener('notificationclick', (event) => {
     event.waitUntil(
       clients.openWindow('/')
     );
+  }
+});
+
+// Message listener - handle cache clearing requests from app
+self.addEventListener('message', async (event) => {
+  console.log('Service Worker: Message received', event.data);
+  
+  if (event.data && event.data.type === 'CLEAR_CACHE') {
+    console.log('Service Worker: Clearing all caches...');
+    
+    try {
+      // Get all cache names
+      const cacheNames = await caches.keys();
+      
+      // Delete all caches
+      await Promise.all(
+        cacheNames.map(cacheName => {
+          console.log('Service Worker: Deleting cache', cacheName);
+          return caches.delete(cacheName);
+        })
+      );
+      
+      console.log('Service Worker: All caches cleared successfully');
+      
+      // Notify all clients that cache is cleared
+      const clients = await self.clients.matchAll();
+      clients.forEach(client => {
+        client.postMessage({ type: 'CACHE_CLEARED' });
+      });
+      
+      // Send response back to sender
+      event.ports[0]?.postMessage({ success: true });
+    } catch (error) {
+      console.error('Service Worker: Error clearing cache', error);
+      event.ports[0]?.postMessage({ success: false, error: error.message });
+    }
+  }
+  
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    console.log('Service Worker: Skip waiting requested');
+    self.skipWaiting();
   }
 });

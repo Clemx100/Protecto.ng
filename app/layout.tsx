@@ -20,6 +20,10 @@ export const metadata: Metadata = {
   description: "Professional executive protection services with real-time tracking and secure payments",
   generator: "Next.js",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/images/PRADO/slideshow/logo.PNG",
+    apple: "/images/PRADO/slideshow/logo.PNG",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

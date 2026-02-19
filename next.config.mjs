@@ -11,7 +11,7 @@ const nextConfig = {
   env: {
     CUSTOM_KEY: process.env.CUSTOM_KEY,
   },
-  // Fix Supabase Edge Runtime issues
+  // Fix Supabase Edge Runtime issues and Leaflet
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
@@ -22,7 +22,9 @@ const nextConfig = {
       }
     }
     return config
-  }
+  },
+  // Transpile Leaflet packages
+  transpilePackages: ['leaflet', 'react-leaflet'],
 }
 
 export default nextConfig

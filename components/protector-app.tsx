@@ -1304,18 +1304,17 @@ export default function ProtectorApp() {
   const vehicleTypes = [
     {
       id: "escalade",
-      name: "Cadillac Escalade",
+      name: "Toyota Land Cruiser 300 Armored",
       capacity: 5,
-      image:
-        "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/WhatsApp%20Image%202025-08-13%20at%2011.51.50_36fa6566.jpg-wGr4hpsDDqjcWjVVJ9kFFI8rjAZ7ls.jpeg",
-      description: "Premium luxury SUV",
+      image: "/images/PRADO/prado3.jpeg",
+      description: "Premium armored bulletproof SUV",
     },
     {
       id: "sedan",
-      name: "Mercedes S-Class",
+      name: "Armored Lexus LX 570",
       capacity: 4,
-      image: "/images/mercedes-s-class-sedan.avif",
-      description: "Executive luxury sedan",
+      image: "/images/PRADO/Lexus1.jpg",
+      description: "Armored luxury SUV",
     },
     {
       id: "suv",
@@ -2900,8 +2899,21 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           return
         }
 
+        const siteOrigin =
+          typeof window !== "undefined"
+            ? window.location.origin
+            : process.env.NEXT_PUBLIC_SITE_URL
+
+        if (!siteOrigin) {
+          throw new Error("Password reset is temporarily unavailable. Site URL not configured.")
+        }
+
+        const normalizedOrigin = siteOrigin.endsWith("/")
+          ? siteOrigin.slice(0, -1)
+          : siteOrigin
+
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: typeof window !== "undefined" ? `${window.location.origin}/auth/callback?type=recovery` : '/auth/callback?type=recovery'
+          redirectTo: `${normalizedOrigin}/auth/callback?type=recovery`
         })
 
         if (error) {
@@ -4314,7 +4326,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           ) : (
             <>
               <div className="flex items-center gap-2">
-                <Shield className="h-6 w-6 text-white" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/images/PRADO/slideshow/logo.PNG" alt="Protector.Ng" className="h-6 w-6 object-contain" />
                 <h1 className="text-xl font-bold">Protector.ng</h1>
               </div>
             </>
