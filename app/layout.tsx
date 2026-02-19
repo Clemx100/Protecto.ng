@@ -7,6 +7,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { Toaster as Sonner } from "@/components/ui/sonner"
 import LocationPreservationWrapper from "@/components/location-preservation-wrapper"
 import PWAInstaller from "@/components/pwa-installer"
+import LoadingLogo from "@/components/loading-logo"
 import "./globals.css"
 
 const inter = Inter({
@@ -67,14 +68,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <Suspense fallback={
-            <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
-                <p className="mt-4 text-gray-600 dark:text-gray-400">Loading PROTECTOR.NG...</p>
-              </div>
-            </div>
-          }>
+          <Suspense fallback={<LoadingLogo />}>
             <LocationPreservationWrapper>
               {children}
               <Toaster />
