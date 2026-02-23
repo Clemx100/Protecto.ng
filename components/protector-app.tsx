@@ -7,6 +7,7 @@ import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Ph
 import { Button } from "@/components/ui/button"
 import { useJsApiLoader } from "@react-google-maps/api"
 import { createClient } from "@/lib/supabase/client"
+import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { fallbackAuth } from "@/lib/services/fallbackAuth"
 import { unifiedChatService } from "@/lib/services/unifiedChatService"
 import ChatBookingSelector from "./chat-booking-selector"
@@ -46,16 +47,10 @@ interface BookingDisplay {
   total_price?: number
 }
 
-export default function ProtectorApp() {
+function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boolean }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
-  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""
-  const { isLoaded: isGooglePlacesLoaded } = useJsApiLoader({
-    id: "protector-google-map",
-    googleMapsApiKey,
-    libraries: GOOGLE_PLACES_LIBRARIES,
-  })
 
   // Check if we should use mock database
   const shouldUseMockDatabase = () => {
@@ -381,7 +376,7 @@ export default function ProtectorApp() {
       console.log('📥 Loading bookings for user:', currentUserId)
       
       const dataSync = await import('@/lib/utils/data-sync')
-      const BOOKING_LOAD_TIMEOUT_MS = 12000
+      const BOOKING_LOAD_TIMEOUT_MS = 18000
 
       const bookingsPromise = dataSync.loadBookingsWithValidation(currentUserId)
       const timeoutPromise = new Promise<{ active: any[]; history: any[]; error: string | null }>((resolve) => {
@@ -391,7 +386,7 @@ export default function ProtectorApp() {
           resolve({
             active: cachedActive,
             history: cachedHistory,
-            error: 'Booking request timed out. Showing available data.',
+            error: 'Booking load slow; showing cached data when available.',
           })
         }, BOOKING_LOAD_TIMEOUT_MS)
       })
@@ -1888,16 +1883,26 @@ export default function ProtectorApp() {
           return
         }
         
-        const AUTH_CHECK_TIMEOUT_MS = 8000
-        const sessionPromise = supabase.auth.getSession()
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          authTimeoutHandle = setTimeout(() => reject(new Error("Authentication check timed out")), AUTH_CHECK_TIMEOUT_MS)
-        })
-        const {
-          data: { session },
-        } = (await Promise.race([sessionPromise, timeoutPromise])) as Awaited<typeof sessionPromise>
-        if (authTimeoutHandle) {
-          clearTimeout(authTimeoutHandle)
+        const AUTH_CHECK_TIMEOUT_MS = 15000
+        let session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] = null
+        try {
+          const sessionPromise = supabase.auth.getSession()
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            authTimeoutHandle = setTimeout(() => reject(new Error("Authentication check timed out")), AUTH_CHECK_TIMEOUT_MS)
+          })
+          const result = (await Promise.race([sessionPromise, timeoutPromise])) as Awaited<typeof sessionPromise>
+          if (authTimeoutHandle) {
+            clearTimeout(authTimeoutHandle)
+            authTimeoutHandle = null
+          }
+          session = result?.data?.session ?? null
+        } catch (err) {
+          if (authTimeoutHandle) {
+            clearTimeout(authTimeoutHandle)
+            authTimeoutHandle = null
+          }
+          const retry = await supabase.auth.getSession()
+          session = retry?.data?.session ?? null
         }
         if (session?.user) {
           // Check if email is verified
@@ -1906,8 +1911,8 @@ export default function ProtectorApp() {
           setIsLoggedIn(true)
           setShowLoginForm(false) // Hide login form immediately if user is authenticated
           setIsCheckingAuth(false) // Stop showing loading state
-          // Load user profile from database
-          await loadUserProfile(session.user.id)
+          // Load user profile from database (pass session.user so fallback works before state updates)
+          await loadUserProfile(session.user.id, session.user)
           // Check user role
           await checkUserRole(session.user.id)
           } else {
@@ -2000,7 +2005,7 @@ export default function ProtectorApp() {
             setUser(session.user)
             setIsLoggedIn(true)
             setShowLoginForm(false) // Hide login form immediately when authenticated
-            await loadUserProfile(session.user.id)
+            await loadUserProfile(session.user.id, session.user)
             
             // If we were on email verification step, move to profile completion
             if (authStepRef.current === "email-verification") {
@@ -2066,7 +2071,8 @@ export default function ProtectorApp() {
     }
   }, [])
 
-  const loadUserProfile = async (userId: string) => {
+  const loadUserProfile = async (userId: string, currentUserForFallback?: SupabaseUser | null) => {
+    const fallbackUser = currentUserForFallback ?? user
     try {
       console.log('👤 [App] Loading user profile for:', userId)
       
@@ -2077,9 +2083,10 @@ export default function ProtectorApp() {
       // If profile is missing or incomplete, sync from auth
       if (!profile || !profile.first_name || profile.first_name === 'User') {
         console.log('🔄 [App] Profile incomplete or missing, syncing from auth...')
-        const { data: { user: currentUser } } = await supabase.auth.getUser()
-        if (currentUser) {
-          const syncedProfile = await syncUserProfile(currentUser)
+        const { data: { user: authUser } } = await supabase.auth.getUser()
+        const userToSync = authUser ?? fallbackUser
+        if (userToSync) {
+          const syncedProfile = await syncUserProfile(userToSync)
           if (syncedProfile) {
             setUserProfile({
               email: syncedProfile.email || "",
@@ -2115,16 +2122,16 @@ export default function ProtectorApp() {
         console.warn('⚠️ [App] Could not load profile')
         setAuthError('Unable to load profile. Please check your connection.')
         
-        // Use basic user data as last resort
-        if (user) {
+        // Use passed-in or state user so fallback works right after login (state may not be updated yet)
+        if (fallbackUser) {
           setUserProfile({
-            email: user.email || "",
-            firstName: user.user_metadata?.first_name || "User",
-            lastName: user.user_metadata?.last_name || "",
-            phone: user.user_metadata?.phone || "",
-            address: "",
-            emergencyContact: "",
-            emergencyPhone: "",
+            email: fallbackUser.email || "",
+            firstName: fallbackUser.user_metadata?.first_name || fallbackUser.user_metadata?.firstName || "User",
+            lastName: fallbackUser.user_metadata?.last_name || fallbackUser.user_metadata?.lastName || "",
+            phone: fallbackUser.user_metadata?.phone || fallbackUser.user_metadata?.phone_number || "",
+            address: fallbackUser.user_metadata?.address || "",
+            emergencyContact: fallbackUser.user_metadata?.emergency_contact || fallbackUser.user_metadata?.emergencyContact || "",
+            emergencyPhone: fallbackUser.user_metadata?.emergency_phone || fallbackUser.user_metadata?.emergencyPhone || "",
           })
         }
       }
@@ -2132,16 +2139,15 @@ export default function ProtectorApp() {
       console.error("❌ [App] Error loading user profile:", error)
       setAuthError('Failed to load profile data. Please refresh the page.')
       
-      // Use basic user data as last resort
-      if (user) {
+      if (fallbackUser) {
         setUserProfile({
-          email: user.email || "",
-          firstName: user.user_metadata?.first_name || "User",
-          lastName: user.user_metadata?.last_name || "",
-          phone: "",
-          address: "",
-          emergencyContact: "",
-          emergencyPhone: "",
+          email: fallbackUser.email || "",
+          firstName: fallbackUser.user_metadata?.first_name || fallbackUser.user_metadata?.firstName || "User",
+          lastName: fallbackUser.user_metadata?.last_name || fallbackUser.user_metadata?.lastName || "",
+          phone: fallbackUser.user_metadata?.phone || fallbackUser.user_metadata?.phone_number || "",
+          address: fallbackUser.user_metadata?.address || "",
+          emergencyContact: fallbackUser.user_metadata?.emergency_contact || fallbackUser.user_metadata?.emergencyContact || "",
+          emergencyPhone: fallbackUser.user_metadata?.emergency_phone || fallbackUser.user_metadata?.emergencyPhone || "",
         })
       }
     }
@@ -2428,9 +2434,9 @@ export default function ProtectorApp() {
         setAuthStep("profile")
         setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
         
-        // Load user profile
+        // Load user profile (pass session.user for fallback)
         try {
-          await loadUserProfile(session.user.id)
+          await loadUserProfile(session.user.id, session.user)
         } catch (profileError) {
           console.error('Error loading user profile:', profileError)
         }
@@ -7312,4 +7318,20 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
     </div>
   )
+}
+
+function ProtectorAppWithGoogleMaps() {
+  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""
+  const { isLoaded } = useJsApiLoader({
+    id: "protector-google-map",
+    googleMapsApiKey,
+    libraries: GOOGLE_PLACES_LIBRARIES,
+  })
+  return <ProtectorAppInner isGooglePlacesLoaded={isLoaded} />
+}
+
+export default function ProtectorApp() {
+  const key = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""
+  if (!key) return <ProtectorAppInner isGooglePlacesLoaded={false} />
+  return <ProtectorAppWithGoogleMaps />
 }

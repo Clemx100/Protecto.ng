@@ -30,6 +30,9 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Protector.Ng",
   },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
   formatDetection: {
     telephone: false,
   },
