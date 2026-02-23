@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react'
 import { RealtimeChatManager, formatChatTimestamp, formatMessageTime } from '@/lib/utils/chat-realtime'
 import { Send, Loader2, Wifi, WifiOff, MessageCircle } from 'lucide-react'
+import LoadingLogo from "@/components/loading-logo"
 
 interface ChatMessage {
   id: string
@@ -232,10 +233,7 @@ function MobileChatContent() {
       {/* Messages Container - Mobile Optimized */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2 overscroll-contain">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <Loader2 className="h-10 w-10 animate-spin mb-3" />
-            <p className="text-sm">Loading messages...</p>
-          </div>
+          <LoadingLogo fullscreen={false} label="Loading messages..." />
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
             <div className="bg-white rounded-full p-8 shadow-sm mb-4">
@@ -351,12 +349,7 @@ function MobileChatContent() {
 
 export default function MobileChatPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto"></div>
-        <p className="mt-4 text-gray-600">Loading chat...</p>
-      </div>
-    </div>}>
+    <Suspense fallback={<LoadingLogo label="Loading chat..." />}>
       <MobileChatContent />
     </Suspense>
   )

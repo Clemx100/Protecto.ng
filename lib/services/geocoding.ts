@@ -20,6 +20,82 @@ export class GeocodingService {
   private static readonly CACHE_DURATION = 24 * 60 * 60 * 1000 // 24 hours
 
   /**
+   * Search location suggestions for autocomplete-style inputs.
+   * Uses a city/country context to produce more accurate local results.
+   */
+  static async searchSuggestions(
+    query: string,
+    options: { city?: string; countryCode?: string; limit?: number } = {},
+  ): Promise<GeocodeResult[]> {
+    const normalizedQuery = query?.trim()
+    if (!normalizedQuery || normalizedQuery.length < 2) {
+      return []
+    }
+
+    const cityContext = options.city?.trim()
+    const countryCode = (options.countryCode || 'ng').toLowerCase()
+    const limit = Math.max(1, Math.min(10, options.limit || 6))
+
+    // Add contextual hints so results look more like ride-hailing search behavior.
+    const contextualQuery = cityContext
+      ? `${normalizedQuery}, ${cityContext}, Nigeria`
+      : `${normalizedQuery}, Nigeria`
+
+    try {
+      const encodedQuery = encodeURIComponent(contextualQuery)
+      const url = `${this.NOMINATIM_BASE_URL}/search?format=json&q=${encodedQuery}&limit=${limit}&addressdetails=1&countrycodes=${encodeURIComponent(countryCode)}`
+
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Protector.Ng/1.0'
+        }
+      })
+
+      if (!response.ok) {
+        console.warn('Suggestion search API error:', response.statusText)
+        return []
+      }
+
+      const data = await response.json()
+      if (!Array.isArray(data) || data.length === 0) {
+        return []
+      }
+
+      // Deduplicate by display name + coordinates while preserving order.
+      const seen = new Set<string>()
+      const suggestions: GeocodeResult[] = []
+
+      for (const item of data) {
+        const lat = parseFloat(item.lat)
+        const lng = parseFloat(item.lon)
+        const displayName = item.display_name || ''
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || !displayName) {
+          continue
+        }
+
+        const dedupeKey = `${displayName}|${lat.toFixed(6)}|${lng.toFixed(6)}`
+        if (seen.has(dedupeKey)) {
+          continue
+        }
+        seen.add(dedupeKey)
+
+        suggestions.push({
+          lat,
+          lng,
+          displayName,
+          address: item.address || {}
+        })
+      }
+
+      return suggestions
+    } catch (error) {
+      console.error('Suggestion search error:', error)
+      return []
+    }
+  }
+
+  /**
    * Geocode an address to coordinates
    * @param address - The address to geocode
    * @returns Promise with geocoded coordinates or null if not found

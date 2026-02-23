@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { RealtimeChatManager, formatChatTimestamp, formatMessageTime } from '@/lib/utils/chat-realtime'
 import { Send, Loader2, Wifi, WifiOff } from 'lucide-react'
+import LoadingLogo from "@/components/loading-logo"
 
 interface ChatMessage {
   id: string
@@ -225,10 +226,7 @@ export default function SeamlessChat({
       {/* Messages Container - Beautiful and Modern */}
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <Loader2 className="h-8 w-8 animate-spin mb-2" />
-            <p className="text-sm">Loading messages...</p>
-          </div>
+          <LoadingLogo fullscreen={false} label="Loading messages..." />
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-400">
             <div className="bg-white rounded-full p-6 shadow-sm mb-4">

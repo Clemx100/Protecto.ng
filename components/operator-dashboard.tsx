@@ -14,6 +14,11 @@ import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
 import { chatService, ChatMessage } from "@/lib/services/chatService"
+import LoadingLogo from "@/components/loading-logo"
+import {
+  notifyRealtimeEvent,
+  requestNotificationPermissionIfNeeded,
+} from "@/lib/utils/realtime-notifications"
 
 interface OperatorDashboardProps {
   onLogout?: () => void
@@ -66,10 +71,74 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   
   // Payment tracking
   const [paymentApproved, setPaymentApproved] = useState<{ [bookingId: string]: boolean }>({})
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set())
+
+  const rememberSeenMessageIds = (items: ChatMessage[] = []) => {
+    if (!Array.isArray(items) || items.length === 0) return
+
+    items.forEach((message) => {
+      if (message?.id) {
+        notifiedMessageIdsRef.current.add(String(message.id))
+      }
+    })
+
+    if (notifiedMessageIdsRef.current.size > 1200) {
+      const latestIds = Array.from(notifiedMessageIdsRef.current).slice(-600)
+      notifiedMessageIdsRef.current = new Set(latestIds)
+    }
+  }
+
+  const truncateText = (value: string, maxLength = 120) => {
+    if (value.length <= maxLength) return value
+    return `${value.slice(0, maxLength - 3)}...`
+  }
+
+  const notifyOperatorIncomingMessage = (message: ChatMessage, bookingIdHint?: string) => {
+    if (!message?.id) return
+    if (message.sender_type === 'operator') return
+
+    const messageId = String(message.id)
+    if (notifiedMessageIdsRef.current.has(messageId)) return
+    notifiedMessageIdsRef.current.add(messageId)
+
+    const matchedBooking = bookings.find((booking) =>
+      booking.id === message.booking_id ||
+      booking.booking_code === message.booking_id ||
+      booking.database_id === message.booking_id ||
+      booking.id === bookingIdHint ||
+      booking.booking_code === bookingIdHint ||
+      booking.database_id === bookingIdHint
+    )
+
+    const bookingLabel =
+      matchedBooking?.id ||
+      matchedBooking?.booking_code ||
+      selectedBooking?.id ||
+      bookingIdHint ||
+      message.booking_code ||
+      message.booking_id ||
+      'Booking'
+
+    const messageText = truncateText(
+      String(message.message || 'You have a new chat message from a client.')
+    )
+
+    notifyRealtimeEvent({
+      title: `New client message (${bookingLabel})`,
+      description: messageText,
+      tag: `operator-message-${messageId}`,
+    })
+  }
   
   // Initialize dashboard
   useEffect(() => {
     initializeDashboard()
+  }, [])
+
+  useEffect(() => {
+    requestNotificationPermissionIfNeeded().catch((error) => {
+      console.warn('Unable to request notification permission:', error)
+    })
   }, [])
 
   // Monitor session and prevent message loss
@@ -139,6 +208,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         selectedBooking.database_id || selectedBooking.id,
         (message) => {
           console.log('📨 New message received in operator dashboard:', message)
+          let messageToNotify: ChatMessage | null = null
           
           // Check if message already exists to avoid duplicates
           setMessages((prev: ChatMessage[]) => {
@@ -150,9 +220,14 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
               )
             } else {
               // Add new message
+              messageToNotify = message
               return [...prev, message]
             }
           })
+
+          if (messageToNotify) {
+            notifyOperatorIncomingMessage(messageToNotify, selectedBooking.id)
+          }
           
           // Don't auto-scroll - let operator control their view
           // setTimeout(() => scrollToBottom(), 100)
@@ -217,6 +292,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         (payload) => {
           console.log('Real-time message update received:', payload)
           const newMessage = payload.new as any
+          const senderType =
+            newMessage.sender_type || (newMessage.message_type === 'system' ? 'system' : 'client')
+          const bookingIdHint = newMessage.booking_code || newMessage.booking_id
           
           // Check if this message is for the currently selected booking
           // Match by database_id OR booking_code for compatibility
@@ -225,40 +303,53 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             newMessage.booking_id === selectedBooking.id ||
             newMessage.booking_id === selectedBooking.booking_code
           )
+
+          const isInvoice = newMessage.message_type === 'invoice'
+          const invoiceData = newMessage.metadata || newMessage.invoice_data || null
+          const chatMessage: ChatMessage = {
+            id: newMessage.id,
+            booking_id: newMessage.booking_id,
+            booking_code: selectedBooking?.id,
+            sender_type: senderType,
+            sender_id: newMessage.sender_id,
+            message: newMessage.content || newMessage.message,
+            created_at: newMessage.created_at,
+            updated_at: newMessage.created_at,
+            is_system_message: newMessage.message_type === 'system',
+            has_invoice: isInvoice,
+            invoice_data: invoiceData,
+            message_type: newMessage.message_type,
+            status: 'delivered'
+          }
+
+          if (senderType === 'client') {
+            notifyOperatorIncomingMessage(chatMessage, bookingIdHint)
+          }
           
           if (matchesBooking) {
-            const isInvoice = newMessage.message_type === 'invoice'
-            const invoiceData = newMessage.metadata || newMessage.invoice_data || null
-            
-            const chatMessage: ChatMessage = {
-              id: newMessage.id,
-              booking_id: newMessage.booking_id,
-              booking_code: selectedBooking?.id,
-              sender_type: newMessage.sender_type || (newMessage.message_type === 'system' ? 'system' : 'client'),
-              sender_id: newMessage.sender_id,
-              message: newMessage.content,
-              created_at: newMessage.created_at,
-              updated_at: newMessage.created_at,
-              is_system_message: newMessage.message_type === 'system',
-              has_invoice: isInvoice,
-              invoice_data: invoiceData,
-              message_type: newMessage.message_type,
-              status: 'delivered'
-            }
-            
             console.log('📨 Processing message:', { type: newMessage.message_type, hasInvoice: isInvoice, hasMetadata: !!invoiceData })
             
             // Add to local state
-            setMessages(prev => [...prev, chatMessage])
+            setMessages(prev => {
+              const exists = prev.some(msg => msg.id === chatMessage.id)
+              if (exists) return prev
+              return [...prev, chatMessage]
+            })
             
             // Store in localStorage for both operator and client sync
             const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
-            const updatedMessages = [...currentStoredMessages, chatMessage]
+            const updatedMessages = [
+              ...currentStoredMessages.filter((msg: ChatMessage) => msg.id !== chatMessage.id),
+              chatMessage,
+            ]
             localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedMessages))
             
             // Also update the client's localStorage for real-time sync
             const clientMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
-            const updatedClientMessages = [...clientMessages, chatMessage]
+            const updatedClientMessages = [
+              ...clientMessages.filter((msg: ChatMessage) => msg.id !== chatMessage.id),
+              chatMessage,
+            ]
             localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedClientMessages))
             
             // Don't auto-scroll - let operator control their view
@@ -496,6 +587,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     try {
       const messages = await chatService.getMessages(bookingId)
       setMessages(messages)
+      rememberSeenMessageIds(messages)
       // Don't auto-scroll - let operator control their view
       // scrollToBottom()
     } catch (error) {
@@ -1011,14 +1103,7 @@ Please review and approve the payment to proceed with your service.`
   }
 
   if (isLoading && bookings.length === 0) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-white">Loading Operator Dashboard...</p>
-        </div>
-      </div>
-    )
+    return <LoadingLogo label="Loading Operator Dashboard..." />
   }
 
   return (

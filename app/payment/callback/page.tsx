@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { CheckCircle, XCircle } from 'lucide-react'
+import LoadingLogo from "@/components/loading-logo"
 
 export default function PaymentCallbackPage() {
   const [paymentStatus, setPaymentStatus] = useState<'loading' | 'success' | 'error'>('loading')
@@ -61,15 +62,6 @@ export default function PaymentCallbackPage() {
 
   const renderContent = () => {
     switch (paymentStatus) {
-      case 'loading':
-        return (
-          <div className="text-center">
-            <Loader2 className="h-16 w-16 text-blue-500 animate-spin mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Verifying Payment...</h2>
-            <p className="text-gray-600">Please wait while we confirm your payment</p>
-          </div>
-        )
-
       case 'success':
         return (
           <div className="text-center">
@@ -127,6 +119,10 @@ export default function PaymentCallbackPage() {
       default:
         return null
     }
+  }
+
+  if (paymentStatus === 'loading') {
+    return <LoadingLogo label="Verifying payment..." />
   }
 
   return (

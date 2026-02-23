@@ -4,9 +4,18 @@
  * Mature loading screen: Protector.Ng logo with a subtle breathing animation
  * and a thin rotating ring. Used as Suspense fallback and brand-consistent loader.
  */
-export default function LoadingLogo() {
+interface LoadingLogoProps {
+  fullscreen?: boolean
+  label?: string
+}
+
+export default function LoadingLogo({ fullscreen = true, label = "Loading" }: LoadingLogoProps) {
+  const containerClass = fullscreen
+    ? "min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white"
+    : "w-full py-8 flex flex-col items-center justify-center text-white"
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 text-white">
+    <div className={containerClass} aria-live="polite" aria-busy="true">
       <div className="relative flex items-center justify-center">
         {/* Thin rotating ring */}
         <div
@@ -23,8 +32,8 @@ export default function LoadingLogo() {
           />
         </div>
       </div>
-      <p className="mt-6 text-sm font-medium text-gray-400 animate-loading-text tracking-widest uppercase">
-        Loading
+      <p className="mt-6 text-sm font-medium text-gray-400 animate-loading-text tracking-wide">
+        {label}
       </p>
     </div>
   )

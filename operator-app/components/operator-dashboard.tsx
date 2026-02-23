@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
 import { unifiedChatService, UnifiedChatMessage } from "@/lib/services/unifiedChatService"
+import LoadingLogo from "@/components/loading-logo"
 
 export default function OperatorDashboard() {
   const supabase = createClient()
@@ -897,14 +898,7 @@ export default function OperatorDashboard() {
   }
 
   if (isLoading && bookings.length === 0) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-white">Loading Operator Dashboard...</p>
-        </div>
-      </div>
-    )
+    return <LoadingLogo label="Loading Operator Dashboard..." />
   }
 
   return (

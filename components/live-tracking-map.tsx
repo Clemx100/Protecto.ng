@@ -1,6 +1,7 @@
 "use client"
 
 import dynamic from 'next/dynamic'
+import LoadingLogo from "@/components/loading-logo"
 
 interface BookingDisplay {
   id: string
@@ -25,17 +26,29 @@ const LeafletMap = dynamic(
     loading: () => (
       <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
-          <div className="text-center space-y-2">
-            <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
-            <p className="text-white text-sm">Loading map...</p>
-          </div>
+          <LoadingLogo fullscreen={false} label="Loading map..." />
         </div>
       </div>
     )
   }
 )
 
+const GoogleMap = dynamic(
+  () => import("./google-map-internal"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
+          <LoadingLogo fullscreen={false} label="Loading map..." />
+        </div>
+      </div>
+    ),
+  },
+)
+
 export default function LiveTrackingMap(props: LiveTrackingMapProps) {
-  return <LeafletMap {...props} />
+  const hasGoogleMapsApiKey = Boolean(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY)
+  return hasGoogleMapsApiKey ? <GoogleMap {...props} /> : <LeafletMap {...props} />
 }
 

@@ -1551,20 +1551,33 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
 
   const getCurrentLocation = () => {
     setIsLoadingLocation(true)
+    const fallbackToSelectedCity = () => {
+      setPickupLocation(`${selectedCity}, Nigeria`)
+      setShowLocationSuggestions(false)
+      return true
+    }
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords
-          setPickupLocation(`${latitude}, ${longitude}`)
+          setPickupLocation(`${latitude.toFixed(6)}, ${longitude.toFixed(6)}`)
+          setShowLocationSuggestions(false)
           setIsLoadingLocation(false)
         },
         (error) => {
           console.error("Error getting location:", error)
+          fallbackToSelectedCity()
           setIsLoadingLocation(false)
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000,
         },
       )
     } else {
-      alert("Geolocation is not supported by this browser.")
+      fallbackToSelectedCity()
       setIsLoadingLocation(false)
     }
   }
@@ -2125,8 +2138,11 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
                         className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
                       />
                       <button
+                        type="button"
                         onClick={getCurrentLocation}
                         disabled={isLoadingLocation}
+                        title="Use current location"
+                        aria-label="Use current location"
                         className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
                       >
                         {isLoadingLocation ? (
@@ -2831,12 +2847,12 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        <div className="flex-1">
-                          <h4 className="text-white font-medium">{vehicle.name}</h4>
-                          <p className="text-gray-400 text-sm">{vehicle.description}</p>
-                          <p className="text-gray-400 text-sm">Capacity: {vehicle.capacity} people</p>
+                        <div className="flex-1 min-w-0 max-w-[18rem] flex flex-col gap-0.5 text-left">
+                          <h4 className="text-white font-semibold text-base leading-tight">{vehicle.name}</h4>
+                          <p className="text-gray-400 text-sm leading-snug">{vehicle.description}</p>
+                          <p className="text-gray-400 text-sm leading-snug">Capacity: {vehicle.capacity} people</p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-shrink-0">
                           <button
                             onClick={() => updateVehicleCount(vehicle.id, -1)}
                             className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"

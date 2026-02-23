@@ -5,12 +5,21 @@ import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare, Mail, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useJsApiLoader } from "@react-google-maps/api"
 import { createClient } from "@/lib/supabase/client"
 import { fallbackAuth } from "@/lib/services/fallbackAuth"
 import { unifiedChatService } from "@/lib/services/unifiedChatService"
 import ChatBookingSelector from "./chat-booking-selector"
 import { loadUserProfile as loadProfileFromDB, syncUserProfile, clearProfileCache } from "@/lib/utils/profile-sync"
 import LiveTrackingMapComponent from "@/components/live-tracking-map"
+import LoadingLogo from "@/components/loading-logo"
+import { GeocodingService } from "@/lib/services/geocoding"
+import {
+  notifyRealtimeEvent,
+  requestNotificationPermissionIfNeeded,
+} from "@/lib/utils/realtime-notifications"
+
+const GOOGLE_PLACES_LIBRARIES: ("places")[] = ["places"]
 
 interface BookingDisplay {
   id: string
@@ -24,6 +33,7 @@ interface BookingDisplay {
   destination?: string
   startTime?: string
   protectorImage?: string
+  dressCode?: string
   currentLocation?: { lat: number; lng: number }
   cost: string
   date: string
@@ -40,6 +50,12 @@ export default function ProtectorApp() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const supabase = createClient()
+  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ""
+  const { isLoaded: isGooglePlacesLoaded } = useJsApiLoader({
+    id: "protector-google-map",
+    googleMapsApiKey,
+    libraries: GOOGLE_PLACES_LIBRARIES,
+  })
 
   // Check if we should use mock database
   const shouldUseMockDatabase = () => {
@@ -55,6 +71,8 @@ export default function ProtectorApp() {
   const [chatMessages, setChatMessages] = useState<any[]>([])
   const [newChatMessage, setNewChatMessage] = useState("")
   const [isSendingMessage, setIsSendingMessage] = useState(false)
+  const [isLoadingChatMessages, setIsLoadingChatMessages] = useState(false)
+  const [isCreatingBookingChat, setIsCreatingBookingChat] = useState(false)
   const [currentBooking, setCurrentBooking] = useState<any>(null)
   const [selectedChatBooking, setSelectedChatBooking] = useState<any>(null)
   const [chatSubscription, setChatSubscription] = useState<any>(null)
@@ -70,6 +88,7 @@ export default function ProtectorApp() {
   const [locationSuggestions, setLocationSuggestions] = useState<string[]>([])
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false)
   const [isLoadingLocation, setIsLoadingLocation] = useState(false)
+  const [detectedPickupCoordinates, setDetectedPickupCoordinates] = useState<{ lat: number; lng: number } | null>(null)
   const [pickupDate, setPickupDate] = useState(() => {
     const today = new Date()
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -123,6 +142,7 @@ export default function ProtectorApp() {
   const [destinationLocation, setDestinationLocation] = useState("")
   const [destinationSuggestions, setDestinationSuggestions] = useState<string[]>([])
   const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false)
+  const [detectedDestinationCoordinates, setDetectedDestinationCoordinates] = useState<{ lat: number; lng: number } | null>(null)
   const [multipleDestinations, setMultipleDestinations] = useState<string[]>([])
   const [currentDestinationInput, setCurrentDestinationInput] = useState("")
   const [currentDestinationSuggestions, setCurrentDestinationSuggestions] = useState<string[]>([])
@@ -148,6 +168,14 @@ export default function ProtectorApp() {
   useEffect(() => {
     authStepRef.current = authStep
   }, [authStep])
+
+  useEffect(() => {
+    return () => {
+      if (pickupSuggestionTimeoutRef.current) clearTimeout(pickupSuggestionTimeoutRef.current)
+      if (destinationSuggestionTimeoutRef.current) clearTimeout(destinationSuggestionTimeoutRef.current)
+      if (extraStopSuggestionTimeoutRef.current) clearTimeout(extraStopSuggestionTimeoutRef.current)
+    }
+  }, [])
 
   const [authForm, setAuthForm] = useState({
     email: "",
@@ -238,6 +266,7 @@ export default function ProtectorApp() {
   const [activeBookings, setActiveBookings] = useState<BookingDisplay[]>([])
   const [bookingHistory, setBookingHistory] = useState<BookingDisplay[]>([])
   const [isLoadingBookings, setIsLoadingBookings] = useState(false)
+  const [selectedTrackingBookingId, setSelectedTrackingBookingId] = useState<string | null>(null)
   // Location tracking state - maps booking_id to current location
   const [bookingLocations, setBookingLocations] = useState<Map<string, { lat: number; lng: number }>>(new Map())
   const [locationSubscriptions, setLocationSubscriptions] = useState<Map<string, any>>(new Map())
@@ -245,6 +274,16 @@ export default function ProtectorApp() {
   const [locationHistory, setLocationHistory] = useState<Map<string, { lat: number; lng: number; timestamp: number; speed?: number }[]>>(new Map())
   // Current speeds - maps booking_id to current speed in km/h
   const [bookingSpeeds, setBookingSpeeds] = useState<Map<string, number>>(new Map())
+  const bookingsRequestInFlightRef = useRef(false)
+  const latestBookingsRequestRef = useRef(0)
+  const notifiedChatMessageIdsRef = useRef<Set<string>>(new Set())
+  const pickupSuggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const destinationSuggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const extraStopSuggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const latestPickupQueryRef = useRef("")
+  const latestDestinationQueryRef = useRef("")
+  const latestExtraStopQueryRef = useRef("")
+  const hasAutoLocationAttemptRef = useRef(false)
 
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false)
 
@@ -323,15 +362,46 @@ export default function ProtectorApp() {
 
   // Load bookings function with proper validation
   const loadBookings = async () => {
-    if (!user?.id) return
-    
+    const currentUserId = user?.id
+    if (!currentUserId) {
+      setIsLoadingBookings(false)
+      return
+    }
+
+    if (bookingsRequestInFlightRef.current) {
+      console.log('⏳ [Bookings] Request already in flight, skipping duplicate trigger')
+      return
+    }
+
+    const requestId = ++latestBookingsRequestRef.current
+    bookingsRequestInFlightRef.current = true
     setIsLoadingBookings(true)
+
     try {
-      console.log('📥 Loading bookings for user:', user.id)
+      console.log('📥 Loading bookings for user:', currentUserId)
       
-      // Use the new data sync utility that properly validates cache
-      const { loadBookingsWithValidation } = await import('@/lib/utils/data-sync')
-      const { active, history, error } = await loadBookingsWithValidation(user.id)
+      const dataSync = await import('@/lib/utils/data-sync')
+      const BOOKING_LOAD_TIMEOUT_MS = 12000
+
+      const bookingsPromise = dataSync.loadBookingsWithValidation(currentUserId)
+      const timeoutPromise = new Promise<{ active: any[]; history: any[]; error: string | null }>((resolve) => {
+        setTimeout(() => {
+          const cachedActive = dataSync.getFromCache<any[]>('bookings_active', currentUserId) || []
+          const cachedHistory = dataSync.getFromCache<any[]>('bookings_history', currentUserId) || []
+          resolve({
+            active: cachedActive,
+            history: cachedHistory,
+            error: 'Booking request timed out. Showing available data.',
+          })
+        }, BOOKING_LOAD_TIMEOUT_MS)
+      })
+
+      const { active, history, error } = await Promise.race([bookingsPromise, timeoutPromise])
+
+      if (requestId !== latestBookingsRequestRef.current) {
+        console.log('⏭️ [Bookings] Ignoring stale booking response')
+        return
+      }
       
       if (error) {
         console.warn('⚠️ Booking load warning:', error)
@@ -361,24 +431,109 @@ export default function ProtectorApp() {
       setActiveBookings([])
       setBookingHistory([])
     } finally {
-      setIsLoadingBookings(false)
+      bookingsRequestInFlightRef.current = false
+      if (requestId === latestBookingsRequestRef.current) {
+        setIsLoadingBookings(false)
+      }
     }
   }
 
   // Transform bookings data
   const transformBookings = (bookings: any[]): BookingDisplay[] => {
+    const vehicleNameById: Record<string, string> = {
+      escalade: "Toyota Land Cruiser 300 Armored",
+      sedan: "Armored Lexus LX 570",
+      suv: "BMW X7",
+      van: "Mercedes Sprinter",
+      armoredSedan: "Armored Mercedes S-Class",
+      armoredSuv: "Armored BMW X7",
+    }
+    const dressCodeImageByKey: Record<string, string> = {
+      tactical_casual: "/images/tactical-casual-agent.png",
+      business_casual: "/images/business-casual-agent.png",
+      business_formal: "/images/business-formal-agent.png",
+      operator: "/images/tactical-operator.png",
+    }
+
+    const formatVehicleKey = (vehicleId: string): string =>
+      vehicleId
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/[_-]+/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+
+    const normalizeDressCodeKey = (value: string): string =>
+      value.toLowerCase().trim().replace(/[\s-]+/g, "_")
+
+    const parseSpecialInstructions = (specialInstructions: unknown): any | null => {
+      if (!specialInstructions) return null
+      if (typeof specialInstructions === "object") return specialInstructions
+      if (typeof specialInstructions !== "string") return null
+
+      try {
+        return JSON.parse(specialInstructions)
+      } catch {
+        return null
+      }
+    }
+
+    const parseBookedVehicleSummary = (specialInstructions: unknown): string | null => {
+      const parsedInstructions = parseSpecialInstructions(specialInstructions)
+      if (!parsedInstructions) return null
+
+      const vehicles = parsedInstructions?.vehicles
+      if (!vehicles || typeof vehicles !== "object") return null
+
+      const selectedVehicles = Object.entries(vehicles as Record<string, unknown>)
+        .map(([vehicleId, count]) => ({
+          vehicleId,
+          count: Number(count),
+        }))
+        .filter((entry) => Number.isFinite(entry.count) && entry.count > 0)
+
+      if (selectedVehicles.length === 0) return null
+
+      return selectedVehicles
+        .map(({ vehicleId, count }) => {
+          const vehicleName = vehicleNameById[vehicleId] || formatVehicleKey(vehicleId)
+          return count > 1 ? `${vehicleName} x${count}` : vehicleName
+        })
+        .join(", ")
+    }
+
+    const resolveDressCodeImage = (booking: any): string => {
+      const parsedInstructions = parseSpecialInstructions(booking.special_instructions)
+      const dressCodeCandidates = [
+        booking.dress_code,
+        parsedInstructions?.personnel?.dressCode,
+        parsedInstructions?.dressCode,
+      ]
+
+      for (const candidate of dressCodeCandidates) {
+        if (typeof candidate !== "string" || !candidate.trim()) continue
+        const normalizedKey = normalizeDressCodeKey(candidate)
+        const image = dressCodeImageByKey[normalizedKey]
+        if (image) return image
+      }
+
+      return booking.assigned_agent?.profile_image || "/images/business-formal-agent.png"
+    }
+
     return bookings.map(booking => ({
       id: booking.id,
       booking_code: booking.booking_code,
       type: formatServiceType(booking.service_type),
       protectorName: booking.assigned_agent?.name || 'TBD',
-      vehicleType: booking.assigned_vehicle?.model || 'TBD',
+      vehicleType:
+        booking.assigned_vehicle?.model ||
+        parseBookedVehicleSummary(booking.special_instructions) ||
+        'TBD',
       status: formatStatus(booking.status),
       estimatedArrival: calculateETA(booking.status),
       pickupLocation: booking.pickup_address || 'TBD',
       destination: booking.destination_address || 'TBD',
       startTime: formatTime(booking.scheduled_time),
-      protectorImage: booking.assigned_agent?.profile_image || '/images/business-formal-agent.png',
+      protectorImage: resolveDressCodeImage(booking),
+      dressCode: booking.dress_code,
       currentLocation: booking.pickup_coordinates ? {
         lat: booking.pickup_coordinates.lat || booking.pickup_coordinates.x,
         lng: booking.pickup_coordinates.lng || booking.pickup_coordinates.y
@@ -420,6 +575,58 @@ export default function ProtectorApp() {
       'cancelled': 'Cancelled'
     }
     return statusMap[status] || 'Unknown'
+  }
+
+  const normalizeBookingStatus = (status?: string): string => {
+    return (status || "").toLowerCase().trim().replace(/[\s-]+/g, "_")
+  }
+
+  const rememberNotifiedMessageIds = (messages: any[] = []) => {
+    if (!Array.isArray(messages) || messages.length === 0) return
+
+    messages.forEach((message) => {
+      if (message?.id) {
+        notifiedChatMessageIdsRef.current.add(String(message.id))
+      }
+    })
+
+    if (notifiedChatMessageIdsRef.current.size > 1200) {
+      const latestMessageIds = Array.from(notifiedChatMessageIdsRef.current).slice(-600)
+      notifiedChatMessageIdsRef.current = new Set(latestMessageIds)
+    }
+  }
+
+  const truncateNotificationText = (value: string, maxLength = 120) => {
+    if (value.length <= maxLength) return value
+    return `${value.slice(0, maxLength - 3)}...`
+  }
+
+  const notifyIncomingChatMessage = (message: any, booking: any) => {
+    if (!message?.id) return
+
+    const messageId = String(message.id)
+    if (notifiedChatMessageIdsRef.current.has(messageId)) return
+    notifiedChatMessageIdsRef.current.add(messageId)
+
+    const senderId = message?.sender_id ? String(message.sender_id) : ""
+    const isOwnMessage = !!user?.id && senderId === String(user.id)
+    if (isOwnMessage) return
+
+    const bookingLabel =
+      booking?.booking_code ||
+      booking?.id ||
+      selectedChatBooking?.booking_code ||
+      selectedChatBooking?.id ||
+      "Booking"
+    const messageBody = truncateNotificationText(
+      String(message?.message || message?.content || "You have a new chat update."),
+    )
+
+    notifyRealtimeEvent({
+      title: `New message (${bookingLabel})`,
+      description: messageBody,
+      tag: `app-message-${messageId}`,
+    })
   }
 
   // Convert PostgreSQL POINT format to lat/lng
@@ -719,6 +926,29 @@ export default function ProtectorApp() {
     )
   }
 
+  const getBookingTrackingId = (booking: BookingDisplay): string => {
+    return booking.id || booking.booking_code || ""
+  }
+
+  useEffect(() => {
+    if (activeBookings.length === 0) {
+      if (selectedTrackingBookingId !== null) {
+        setSelectedTrackingBookingId(null)
+      }
+      return
+    }
+
+    if (!selectedTrackingBookingId) return
+
+    const hasSelectedBooking = activeBookings.some(
+      (booking) => getBookingTrackingId(booking) === selectedTrackingBookingId,
+    )
+
+    if (!hasSelectedBooking) {
+      setSelectedTrackingBookingId(null)
+    }
+  }, [activeBookings, selectedTrackingBookingId])
+
   const calculateETA = (status: string): string => {
     const statusMap: { [key: string]: string } = {
       'en_route': '8 mins',
@@ -789,6 +1019,13 @@ export default function ProtectorApp() {
       loadUserProfile(user.id)
     }
   }, [user?.id])
+
+  useEffect(() => {
+    if (!user?.id) return
+    requestNotificationPermissionIfNeeded().catch((error) => {
+      console.warn("Unable to request notification permission:", error)
+    })
+  }, [user?.id])
   
   // Refresh bookings when switching to bookings tab
   useEffect(() => {
@@ -797,6 +1034,95 @@ export default function ProtectorApp() {
       loadBookings()
     }
   }, [activeTab, user?.id])
+
+  useEffect(() => {
+    if (!user?.id) return
+
+    const channel = supabase
+      .channel(`client-booking-status-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "bookings",
+          filter: `client_id=eq.${user.id}`,
+        },
+        (payload: any) => {
+          const previousStatus = normalizeBookingStatus(payload?.old?.status)
+          const nextStatus = normalizeBookingStatus(payload?.new?.status)
+
+          if (!nextStatus || previousStatus === nextStatus) return
+
+          const bookingDatabaseId = payload?.new?.id
+          const bookingCode = payload?.new?.booking_code
+          const bookingLabel = bookingCode || bookingDatabaseId || "Booking"
+
+          notifyRealtimeEvent({
+            title: `Booking status updated (${bookingLabel})`,
+            description: `New status: ${formatStatus(nextStatus)}`,
+            tag: `booking-status-${bookingDatabaseId || bookingCode || nextStatus}`,
+          })
+
+          setSelectedChatBooking((prev: any) => {
+            if (!prev) return prev
+            const matchesBooking =
+              prev.id === bookingDatabaseId ||
+              prev.id === bookingCode ||
+              prev.booking_code === bookingCode ||
+              prev.booking_code === bookingDatabaseId
+
+            if (!matchesBooking) return prev
+            return { ...prev, status: nextStatus }
+          })
+
+          setActiveBookings((prev) =>
+            prev.map((booking) => {
+              const matchesBooking =
+                booking.id === bookingDatabaseId ||
+                booking.id === bookingCode ||
+                booking.booking_code === bookingCode ||
+                booking.booking_code === bookingDatabaseId
+
+              if (!matchesBooking) return booking
+
+              return {
+                ...booking,
+                status: formatStatus(nextStatus),
+                estimatedArrival: calculateETA(nextStatus),
+              }
+            }),
+          )
+
+          setBookingHistory((prev) =>
+            prev.map((booking) => {
+              const matchesBooking =
+                booking.id === bookingDatabaseId ||
+                booking.id === bookingCode ||
+                booking.booking_code === bookingCode ||
+                booking.booking_code === bookingDatabaseId
+
+              if (!matchesBooking) return booking
+
+              return {
+                ...booking,
+                status: formatStatus(nextStatus),
+                estimatedArrival: calculateETA(nextStatus),
+              }
+            }),
+          )
+
+          loadBookings()
+        },
+      )
+      .subscribe((status) => {
+        console.log("Client booking status subscription:", status)
+      })
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [user?.id])
 
   // Set up location tracking subscriptions for active bookings
   useEffect(() => {
@@ -821,9 +1147,10 @@ export default function ProtectorApp() {
       // Set up real-time subscriptions for each active booking
       activeBookings.forEach(booking => {
         const bookingId = booking.id || booking.booking_code
-        if (bookingId && booking.status !== 'completed' && booking.status !== 'cancelled') {
+        const normalizedStatus = normalizeBookingStatus(booking.status)
+        if (bookingId && normalizedStatus !== 'completed' && normalizedStatus !== 'cancelled') {
           // Only track bookings that are in progress
-          if (['accepted', 'en_route', 'arrived', 'in_service'].includes(booking.status.toLowerCase())) {
+          if (['accepted', 'en_route', 'arrived', 'in_service'].includes(normalizedStatus)) {
             const channel = subscribeToLocationUpdates(bookingId, booking.id)
             if (channel) {
               subscriptions.set(bookingId, channel)
@@ -908,10 +1235,14 @@ export default function ProtectorApp() {
   // Load chat messages when switching to chat tab
   useEffect(() => {
     if (activeTab === 'chat' && user?.id) {
+      if (isCreatingBookingChat) {
+        console.log('⏳ Skipping default chat load while opening new booking chat')
+        return
+      }
       console.log('💬 Chat tab opened, loading messages...')
       loadChatMessages()
     }
-  }, [activeTab, user?.id])
+  }, [activeTab, user?.id, isCreatingBookingChat])
 
   // Load chat messages from database (WhatsApp-style persistence)
   const loadChatMessages = async () => {
@@ -938,6 +1269,7 @@ export default function ProtectorApp() {
           if (storedMessages) {
             const messages = JSON.parse(storedMessages)
             setChatMessages(messages)
+            rememberNotifiedMessageIds(messages)
             console.log('📱 Loaded chat messages from localStorage:', messages.length)
           }
         }
@@ -979,7 +1311,16 @@ export default function ProtectorApp() {
     if (!booking) return
     
     try {
+      setIsLoadingChatMessages(true)
       console.log('📥 Loading messages for booking:', booking.id)
+      if (chatSubscription) {
+        if (typeof chatSubscription === 'number') {
+          clearInterval(chatSubscription)
+        } else if (chatSubscription.unsubscribe) {
+          supabase.removeChannel(chatSubscription)
+        }
+        setChatSubscription(null)
+      }
       setSelectedChatBooking(booking)
       
       // REMOVED: await loadBookings() - This was causing unnecessary re-renders and clearing chat
@@ -992,6 +1333,7 @@ export default function ProtectorApp() {
           try {
             const cachedMessages = JSON.parse(cached)
             setChatMessages(cachedMessages)
+            rememberNotifiedMessageIds(cachedMessages)
             console.log('📱 Loaded', cachedMessages.length, 'messages from cache instantly')
           } catch (e) {
             console.warn('Failed to parse cached messages:', e)
@@ -1010,6 +1352,7 @@ export default function ProtectorApp() {
       if (data.success && data.data && data.data.length > 0) {
         loadedMessages = data.data
         setChatMessages(loadedMessages)
+        rememberNotifiedMessageIds(loadedMessages)
         console.log('📥 Loaded', loadedMessages.length, 'messages from database')
         
         // Save to localStorage for persistence
@@ -1046,6 +1389,7 @@ export default function ProtectorApp() {
               console.log('📨 Real-time: New message received!', payload.new)
               
               const newMessage = payload.new
+              let messageToNotify: any | null = null
               
               setChatMessages(prev => {
                 const exists = prev.some(msg => msg.id === newMessage.id)
@@ -1060,6 +1404,7 @@ export default function ProtectorApp() {
                   message: newMessage.content || newMessage.message,
                   sender_type: newMessage.sender_type || 'client'
                 }
+                messageToNotify = formattedMessage
                 
                 const updated = [...prev, formattedMessage]
                 console.log('✅ Added new message via real-time, total:', updated.length)
@@ -1072,6 +1417,10 @@ export default function ProtectorApp() {
                 
                 return updated
               })
+
+              if (messageToNotify) {
+                notifyIncomingChatMessage(messageToNotify, booking)
+              }
               
               // Check for invoice in new message
               if (newMessage.message_type === 'invoice' && newMessage.metadata) {
@@ -1097,10 +1446,15 @@ export default function ProtectorApp() {
         const pollInterval = setInterval(async () => {
           try {
             const updatedMessages = await unifiedChatService.getMessages(booking.id)
+            let messagesToNotify: any[] = []
             
             // CRITICAL: MERGE messages instead of replacing to prevent disappearing
             setChatMessages(prev => {
               const messageMap = new Map(prev.map(m => [m.id, m]))
+              messagesToNotify = updatedMessages.filter((message: any) => {
+                if (!message?.id) return false
+                return !messageMap.has(message.id)
+              })
               updatedMessages.forEach(m => messageMap.set(m.id, m))
               const merged = Array.from(messageMap.values()).sort((a, b) => 
                 new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
@@ -1115,6 +1469,10 @@ export default function ProtectorApp() {
               
               return merged
             })
+
+            if (messagesToNotify.length > 0) {
+              messagesToNotify.forEach((message) => notifyIncomingChatMessage(message, booking))
+            }
             
             // Check for new invoice data
             const invoiceMessage = updatedMessages.find(msg => msg.has_invoice && msg.invoice_data)
@@ -1131,6 +1489,8 @@ export default function ProtectorApp() {
       }
     } catch (error) {
       console.error('Error loading messages:', error)
+    } finally {
+      setIsLoadingChatMessages(false)
     }
   }
 
@@ -1516,6 +1876,7 @@ export default function ProtectorApp() {
     
     // Get initial session
     const getInitialSession = async () => {
+      let authTimeoutHandle: ReturnType<typeof setTimeout> | null = null
       try {
         setIsCheckingAuth(true)
         
@@ -1527,9 +1888,17 @@ export default function ProtectorApp() {
           return
         }
         
+        const AUTH_CHECK_TIMEOUT_MS = 8000
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          authTimeoutHandle = setTimeout(() => reject(new Error("Authentication check timed out")), AUTH_CHECK_TIMEOUT_MS)
+        })
         const {
           data: { session },
-        } = await supabase.auth.getSession()
+        } = (await Promise.race([sessionPromise, timeoutPromise])) as Awaited<typeof sessionPromise>
+        if (authTimeoutHandle) {
+          clearTimeout(authTimeoutHandle)
+        }
         if (session?.user) {
           // Check if email is verified
         if (session.user.email_confirmed_at) {
@@ -1563,6 +1932,9 @@ export default function ProtectorApp() {
         setIsLoggedIn(false)
         setIsCheckingAuth(false)
       } finally {
+        if (authTimeoutHandle) {
+          clearTimeout(authTimeoutHandle)
+        }
         setIsDataLoaded(true)
       }
     }
@@ -1574,106 +1946,114 @@ export default function ProtectorApp() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state change:', event, 'User:', session?.user?.email, 'Verified:', session?.user?.email_confirmed_at)
-      
-      // Explicitly handle SIGNED_OUT event to prevent re-authentication
-      if (event === 'SIGNED_OUT') {
-        console.log('🚪 [Auth] User signed out event received')
-        setUser(null)
-        setIsLoggedIn(false)
-        setUserProfile({
-          email: "",
-          firstName: "",
-          lastName: "",
-          phone: "",
-          address: "",
-          emergencyContact: "",
-          emergencyPhone: "",
-        })
-        setAuthStep("login")
-        authStepRef.current = "login"
-        setShowLoginForm(true)
-        setAuthSuccess("")
-        setAuthError("")
-        return // Don't process further
-      }
-      
-      if (session?.user) {
-        // Check for stored redirect path and navigate to it
-        if (typeof window !== 'undefined') {
-          const redirectPath = sessionStorage.getItem('redirectAfterAuth')
-          if (redirectPath) {
-            console.log('🔄 Redirecting to stored path:', redirectPath)
-            sessionStorage.removeItem('redirectAfterAuth')
-            router.push(redirectPath)
-            // Don't return here - continue to set user state
-          }
-          
-          // Fallback: Check for last visited location (only if no redirect path)
-          if (!redirectPath) {
-            const lastVisitedLocation = sessionStorage.getItem('lastVisitedLocation')
-            if (lastVisitedLocation && lastVisitedLocation !== '/app') {
-              console.log('🔄 Redirecting to last visited location:', lastVisitedLocation)
-              sessionStorage.removeItem('lastVisitedLocation')
-              router.push(lastVisitedLocation)
-              // Don't return here - continue to set user state
-            }
-          }
+      try {
+        console.log('Auth state change:', event, 'User:', session?.user?.email, 'Verified:', session?.user?.email_confirmed_at)
+        
+        // Explicitly handle SIGNED_OUT event to prevent re-authentication
+        if (event === 'SIGNED_OUT') {
+          console.log('🚪 [Auth] User signed out event received')
+          setUser(null)
+          setIsLoggedIn(false)
+          setUserProfile({
+            email: "",
+            firstName: "",
+            lastName: "",
+            phone: "",
+            address: "",
+            emergencyContact: "",
+            emergencyPhone: "",
+          })
+          setAuthStep("login")
+          authStepRef.current = "login"
+          setShowLoginForm(true)
+          setAuthSuccess("")
+          setAuthError("")
+          return // Don't process further
         }
         
-        // Check if email is verified
-        if (session.user.email_confirmed_at) {
-          console.log('Email is verified, setting user as logged in')
-          setUser(session.user)
-          setIsLoggedIn(true)
-          setShowLoginForm(false) // Hide login form immediately when authenticated
-          await loadUserProfile(session.user.id)
-          
-          // If we were on email verification step, move to profile completion
-          if (authStepRef.current === "email-verification") {
-            console.log('Moving from email verification to profile completion step')
-            setAuthStep("profile-completion")
-            authStepRef.current = "profile-completion"
-            setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
-            
-            // Clear any verification check interval
-            if (verificationCheckIntervalRef.current) {
-              clearInterval(verificationCheckIntervalRef.current)
-              verificationCheckIntervalRef.current = null
+        if (session?.user) {
+          // Check for stored redirect path and navigate to it
+          if (typeof window !== 'undefined') {
+            const redirectPath = sessionStorage.getItem('redirectAfterAuth')
+            if (redirectPath) {
+              console.log('🔄 Redirecting to stored path:', redirectPath)
+              sessionStorage.removeItem('redirectAfterAuth')
+              router.push(redirectPath)
+              // Don't return here - continue to set user state
             }
-          } else if (authStepRef.current === "login" || authStepRef.current === "register") {
-            // User just logged in and email is verified, go to profile
-            setAuthStep("profile")
-            authStepRef.current = "profile"
-            setShowLoginForm(false)
+            
+            // Fallback: Check for last visited location (only if no redirect path)
+            if (!redirectPath) {
+              const lastVisitedLocation = sessionStorage.getItem('lastVisitedLocation')
+              if (lastVisitedLocation && lastVisitedLocation !== '/app') {
+                console.log('🔄 Redirecting to last visited location:', lastVisitedLocation)
+                sessionStorage.removeItem('lastVisitedLocation')
+                router.push(lastVisitedLocation)
+                // Don't return here - continue to set user state
+              }
+            }
+          }
+          
+          // Check if email is verified
+          if (session.user.email_confirmed_at) {
+            console.log('Email is verified, setting user as logged in')
+            setUser(session.user)
+            setIsLoggedIn(true)
+            setShowLoginForm(false) // Hide login form immediately when authenticated
+            await loadUserProfile(session.user.id)
+            
+            // If we were on email verification step, move to profile completion
+            if (authStepRef.current === "email-verification") {
+              console.log('Moving from email verification to profile completion step')
+              setAuthStep("profile-completion")
+              authStepRef.current = "profile-completion"
+              setAuthSuccess("🎉 Email verified successfully! Please complete your profile.")
+              
+              // Clear any verification check interval
+              if (verificationCheckIntervalRef.current) {
+                clearInterval(verificationCheckIntervalRef.current)
+                verificationCheckIntervalRef.current = null
+              }
+            } else if (authStepRef.current === "login" || authStepRef.current === "register") {
+              // User just logged in and email is verified, go to profile
+              setAuthStep("profile")
+              authStepRef.current = "profile"
+              setShowLoginForm(false)
+            }
+          } else {
+            console.log('Email not verified, showing verification step')
+            // User exists but email not verified
+            setVerificationEmail(session.user.email || "")
+            setAuthStep("email-verification")
+            authStepRef.current = "email-verification"
+            setEmailVerificationSent(true)
+            setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
           }
         } else {
-          console.log('Email not verified, showing verification step')
-          // User exists but email not verified
-          setVerificationEmail(session.user.email || "")
-          setAuthStep("email-verification")
-          authStepRef.current = "email-verification"
-          setEmailVerificationSent(true)
-          setAuthSuccess("Please verify your email to continue. Check your inbox for the verification link.")
+          // No session - user is logged out
+          console.log('🚪 [Auth] No session - user logged out')
+          setUser(null)
+          setIsLoggedIn(false)
+          setUserProfile({
+            email: "",
+            firstName: "",
+            lastName: "",
+            phone: "",
+            address: "",
+            emergencyContact: "",
+            emergencyPhone: "",
+          })
+          setAuthStep("login")
+          setShowLoginForm(true)
+          setAuthSuccess("")
+          setAuthError("")
         }
-      } else {
-        // No session - user is logged out
-        console.log('🚪 [Auth] No session - user logged out')
-        setUser(null)
-        setIsLoggedIn(false)
-        setUserProfile({
-          email: "",
-          firstName: "",
-          lastName: "",
-          phone: "",
-          address: "",
-          emergencyContact: "",
-          emergencyPhone: "",
-        })
-        setAuthStep("login")
+      } catch (error) {
+        console.error('Auth state change handling error:', error)
         setShowLoginForm(true)
-        setAuthSuccess("")
-        setAuthError("")
+        setIsLoggedIn(false)
+      } finally {
+        setIsCheckingAuth(false)
       }
     })
 
@@ -2284,7 +2664,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     }
   }
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     console.log('🔄 handleNextStep called - bookingStep:', bookingStep, 'selectedService:', selectedService)
     
     if (selectedService === "armed-protection") {
@@ -2306,6 +2686,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         
         setIsCreatingBooking(true)
         console.log('🚀 Starting booking creation process...')
+        const resolvedCoordinates = await resolveBookingCoordinates()
         
         // Compile booking summary payload
         const payload = {
@@ -2315,12 +2696,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           protectionType: protectorArmed ? "Armed" : "Unarmed",
           pickupDetails: {
             location: pickupLocation,
+            coordinates: resolvedCoordinates.pickupCoordinates,
             date: pickupDate,
             time: pickupTime,
             duration: duration,
           },
           destinationDetails: {
             primary: destinationLocation,
+            coordinates: resolvedCoordinates.destinationCoordinates,
             additional: multipleDestinations,
           },
           personnel: {
@@ -2351,10 +2734,15 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         // Create immediate summary message for instant display
         const immediateSummary = createBookingSummaryMessage(payload)
         console.log('⚡ Setting immediate summary:', immediateSummary.id)
+        setSelectedChatBooking(bookingDisplay)
+        setNewChatMessage("")
+        setChatInvoiceData(null)
         setChatMessages([immediateSummary])
         
         // Switch to chat tab immediately for instant feedback
         console.log('⚡ Switching to chat tab')
+        setIsCreatingBookingChat(true)
+        setIsLoadingChatMessages(true)
         setActiveTab("chat")
         setIsCreatingBooking(false)
         console.log('✅ Immediate feedback complete - user can see chat summary now')
@@ -2382,10 +2770,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           
           // Reload messages to get the full system message from database
           console.log('🔄 Now reloading messages from database')
-          loadMessagesForBooking(updatedBookingDisplay)
+          await loadMessagesForBooking(updatedBookingDisplay)
+          setIsCreatingBookingChat(false)
         }).catch(error => {
           console.error('⚠️ Background booking storage failed:', error)
           // Keep the immediate summary message as fallback
+          setIsCreatingBookingChat(false)
+          setIsLoadingChatMessages(false)
         })
         return
       }
@@ -2404,6 +2795,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         }
         
         setIsCreatingBooking(true)
+        const resolvedCoordinates = await resolveBookingCoordinates()
         
         // Compile booking summary payload for car-only service
         const payload = {
@@ -2412,12 +2804,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           serviceType: selectedService,
           pickupDetails: {
             location: pickupLocation,
+            coordinates: resolvedCoordinates.pickupCoordinates,
             date: pickupDate,
             time: pickupTime,
             duration: duration,
           },
           destinationDetails: {
             primary: destinationLocation,
+            coordinates: resolvedCoordinates.destinationCoordinates,
             additional: multipleDestinations,
           },
           vehicles: selectedVehicles,
@@ -2443,10 +2837,15 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         // Create immediate summary message for instant display
         const immediateSummary = createBookingSummaryMessage(payload)
         console.log('⚡ Setting immediate summary:', immediateSummary.id)
+        setSelectedChatBooking(bookingDisplay)
+        setNewChatMessage("")
+        setChatInvoiceData(null)
         setChatMessages([immediateSummary])
         
         // Switch to chat tab immediately for instant feedback
         console.log('⚡ Switching to chat tab')
+        setIsCreatingBookingChat(true)
+        setIsLoadingChatMessages(true)
         setActiveTab("chat")
         setIsCreatingBooking(false)
         console.log('✅ Immediate feedback complete - user can see chat summary now')
@@ -2474,10 +2873,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           
           // Reload messages to get the full system message from database
           console.log('🔄 Now reloading messages from database')
-          loadMessagesForBooking(updatedBookingDisplay)
+          await loadMessagesForBooking(updatedBookingDisplay)
+          setIsCreatingBookingChat(false)
         }).catch(error => {
           console.error('⚠️ Background booking storage failed:', error)
           // Keep the immediate summary message as fallback
+          setIsCreatingBookingChat(false)
+          setIsLoadingChatMessages(false)
         })
         return
       }
@@ -2741,6 +3143,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       setSelectedChatBooking(null)
       setCurrentBooking(null)
       setShowChatThread(false)
+      notifiedChatMessageIdsRef.current.clear()
       
       // Reset UI state
       setShowLoginForm(true)
@@ -3862,34 +4265,297 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     return selectedService === "car-only" ? "₦180,000.00" : "₦450,000.00"
   }
 
-  const getCurrentLocation = async () => {
-    setIsLoadingLocation(true)
-    if (navigator.geolocation) {
-      try {
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(resolve, reject, {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 300000 // 5 minutes
-          })
-        })
+  const searchGooglePlaceSuggestions = async (query: string, exclude: string[] = []) => {
+    if (!isGooglePlacesLoaded || typeof window === "undefined" || !(window as any).google?.maps?.places) {
+      return []
+    }
 
-        const { latitude, longitude } = position.coords
-        console.log("GPS coordinates:", latitude, longitude)
+    const normalizedQuery = query.trim()
+    if (normalizedQuery.length < 2) return []
 
-        // Use coordinates directly instead of reverse geocoding
-        setPickupLocation(`${latitude}, ${longitude}`)
-        setIsLoadingLocation(false)
-      } catch (error) {
-        console.error("Error getting location:", error)
-        alert("Unable to get your location. Please enter your address manually.")
-        setIsLoadingLocation(false)
+    const googleMaps = (window as any).google.maps
+    const selectedCityConfig = cities.find((city) => city.name === selectedCity)
+    const excludedSet = new Set(exclude.map((value) => value.trim().toLowerCase()))
+
+    const request: any = {
+      input: normalizedQuery,
+      componentRestrictions: { country: "ng" },
+      language: "en",
+      region: "ng",
+    }
+
+    if (selectedCityConfig?.coordinates) {
+      request.location = new googleMaps.LatLng(
+        selectedCityConfig.coordinates.lat,
+        selectedCityConfig.coordinates.lng,
+      )
+      request.radius = 70000
+    }
+
+    const predictions = await new Promise<any[]>((resolve) => {
+      const service = new googleMaps.places.AutocompleteService()
+      service.getPlacePredictions(request, (items: any[] | null, status: string) => {
+        if (status !== googleMaps.places.PlacesServiceStatus.OK || !items) {
+          if (status && status !== googleMaps.places.PlacesServiceStatus.ZERO_RESULTS) {
+            console.warn("Google Places autocomplete returned non-OK status:", status)
+          }
+          resolve([])
+          return
+        }
+        resolve(items)
+      })
+    })
+
+    const unique: string[] = []
+    predictions.forEach((prediction) => {
+      const description = prediction?.description?.trim()
+      if (!description) return
+
+      const normalizedDescription = description.toLowerCase()
+      if (excludedSet.has(normalizedDescription) || unique.includes(description)) {
+        return
       }
-    } else {
-      alert("Geolocation is not supported by this browser.")
+
+      unique.push(description)
+    })
+
+    return unique.slice(0, 6)
+  }
+
+  const searchAddressSuggestions = async (query: string, exclude: string[] = []) => {
+    const normalizedQuery = query.trim()
+    if (normalizedQuery.length < 3) return []
+
+    const googleSuggestions = await searchGooglePlaceSuggestions(normalizedQuery, exclude)
+    if (googleSuggestions.length > 0) {
+      return googleSuggestions
+    }
+
+    const suggestions = await GeocodingService.searchSuggestions(normalizedQuery, {
+      city: selectedCity,
+      countryCode: 'ng',
+      limit: 6,
+    })
+
+    const excludedSet = new Set(exclude.map((value) => value.trim().toLowerCase()))
+    const unique: string[] = []
+
+    suggestions.forEach((suggestion) => {
+      const displayName = suggestion.displayName.trim()
+      const normalizedDisplayName = displayName.toLowerCase()
+      if (!displayName || excludedSet.has(normalizedDisplayName) || unique.includes(displayName)) {
+        return
+      }
+      unique.push(displayName)
+    })
+
+    return unique.slice(0, 6)
+  }
+
+  const queuePickupSuggestions = (query: string) => {
+    if (pickupSuggestionTimeoutRef.current) clearTimeout(pickupSuggestionTimeoutRef.current)
+
+    const normalizedQuery = query.trim()
+    latestPickupQueryRef.current = normalizedQuery
+    if (normalizedQuery.length < 3) {
+      setLocationSuggestions([])
+      setShowLocationSuggestions(false)
+      return
+    }
+
+    pickupSuggestionTimeoutRef.current = setTimeout(async () => {
+      const suggestions = await searchAddressSuggestions(normalizedQuery)
+      if (latestPickupQueryRef.current !== normalizedQuery) return
+      setLocationSuggestions(suggestions)
+      setShowLocationSuggestions(suggestions.length > 0)
+    }, 300)
+  }
+
+  const queueDestinationSuggestions = (query: string) => {
+    if (destinationSuggestionTimeoutRef.current) clearTimeout(destinationSuggestionTimeoutRef.current)
+
+    const normalizedQuery = query.trim()
+    latestDestinationQueryRef.current = normalizedQuery
+    if (normalizedQuery.length < 3) {
+      setDestinationSuggestions([])
+      setShowDestinationSuggestions(false)
+      return
+    }
+
+    destinationSuggestionTimeoutRef.current = setTimeout(async () => {
+      const suggestions = await searchAddressSuggestions(normalizedQuery)
+      if (latestDestinationQueryRef.current !== normalizedQuery) return
+      setDestinationSuggestions(suggestions)
+      setShowDestinationSuggestions(suggestions.length > 0)
+    }, 300)
+  }
+
+  const queueExtraStopSuggestions = (query: string) => {
+    if (extraStopSuggestionTimeoutRef.current) clearTimeout(extraStopSuggestionTimeoutRef.current)
+
+    const normalizedQuery = query.trim()
+    latestExtraStopQueryRef.current = normalizedQuery
+    if (normalizedQuery.length < 3) {
+      setCurrentDestinationSuggestions([])
+      setShowCurrentDestinationSuggestions(false)
+      return
+    }
+
+    extraStopSuggestionTimeoutRef.current = setTimeout(async () => {
+      const suggestions = await searchAddressSuggestions(normalizedQuery, [
+        destinationLocation,
+        ...multipleDestinations,
+      ])
+      if (latestExtraStopQueryRef.current !== normalizedQuery) return
+      setCurrentDestinationSuggestions(suggestions)
+      setShowCurrentDestinationSuggestions(suggestions.length > 0)
+    }, 300)
+  }
+
+  const getCurrentLocation = async (isAutomatic = false) => {
+    setIsLoadingLocation(true)
+
+    const applyPickupFromCoordinates = async (latitude: number, longitude: number) => {
+      const reverseGeocodeResult = await GeocodingService.reverseGeocode(latitude, longitude)
+      const resolvedAddress =
+        reverseGeocodeResult?.displayName || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+
+      setDetectedPickupCoordinates({ lat: latitude, lng: longitude })
+      setPickupLocation(resolvedAddress)
+      setShowLocationSuggestions(false)
+      setLocationSuggestions([])
+    }
+
+    const fallbackToSelectedCity = async () => {
+      const selectedCityConfig = cities.find((city) => city.name === selectedCity)
+      if (!selectedCityConfig?.coordinates) {
+        return false
+      }
+
+      await applyPickupFromCoordinates(
+        selectedCityConfig.coordinates.lat,
+        selectedCityConfig.coordinates.lng,
+      )
+      return true
+    }
+
+    try {
+      if (!navigator.geolocation) {
+        const didFallback = await fallbackToSelectedCity()
+        if (!didFallback && !isAutomatic) {
+          alert("Geolocation is not supported by this browser.")
+        }
+        return
+      }
+
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 300000, // 5 minutes
+        })
+      })
+
+      const { latitude, longitude } = position.coords
+      console.log("GPS coordinates:", latitude, longitude)
+      await applyPickupFromCoordinates(latitude, longitude)
+    } catch (error) {
+      console.error("Error getting location:", error)
+      const didFallback = await fallbackToSelectedCity()
+      if (!didFallback && !isAutomatic) {
+        alert("Unable to get your location. Please enter your address manually.")
+      }
+    } finally {
       setIsLoadingLocation(false)
     }
   }
+
+  const buildContextualAddress = (rawAddress: string) => {
+    const address = rawAddress.trim()
+    if (!address) return address
+
+    const normalizedAddress = address.toLowerCase()
+    const normalizedCity = selectedCity.toLowerCase()
+
+    if (normalizedAddress.includes(normalizedCity) || normalizedAddress.includes("nigeria")) {
+      return address
+    }
+
+    return `${address}, ${selectedCity}, Nigeria`
+  }
+
+  const resolveAddressCoordinates = async (rawAddress: string) => {
+    const contextualAddress = buildContextualAddress(rawAddress)
+    if (!contextualAddress) return undefined
+
+    if (isGooglePlacesLoaded && typeof window !== "undefined" && (window as any).google?.maps?.Geocoder) {
+      try {
+        const googleMaps = (window as any).google.maps
+        const geocoder = new googleMaps.Geocoder()
+
+        const googleResult = await new Promise<{ lat: number; lng: number } | null>((resolve) => {
+          geocoder.geocode(
+            {
+              address: contextualAddress,
+              componentRestrictions: { country: "NG" },
+            },
+            (results: any[] | null, status: string) => {
+              if (status !== "OK" || !results?.[0]?.geometry?.location) {
+                resolve(null)
+                return
+              }
+
+              const location = results[0].geometry.location
+              resolve({ lat: location.lat(), lng: location.lng() })
+            },
+          )
+        })
+
+        if (googleResult) {
+          return googleResult
+        }
+      } catch (error) {
+        console.warn("Google geocoder failed; falling back to OpenStreetMap geocode", error)
+      }
+    }
+
+    const geocodeResult = await GeocodingService.geocode(contextualAddress)
+    if (geocodeResult) {
+      return { lat: geocodeResult.lat, lng: geocodeResult.lng }
+    }
+
+    return undefined
+  }
+
+  const resolveBookingCoordinates = async () => {
+    let pickupCoordinates = detectedPickupCoordinates || undefined
+    let destinationCoordinates = detectedDestinationCoordinates || undefined
+
+    if (!pickupCoordinates && pickupLocation.trim()) {
+      const resolvedPickupCoordinates = await resolveAddressCoordinates(pickupLocation)
+      if (resolvedPickupCoordinates) {
+        pickupCoordinates = resolvedPickupCoordinates
+      }
+    }
+
+    if (!destinationCoordinates && destinationLocation.trim()) {
+      const resolvedDestinationCoordinates = await resolveAddressCoordinates(destinationLocation)
+      if (resolvedDestinationCoordinates) {
+        destinationCoordinates = resolvedDestinationCoordinates
+      }
+    }
+
+    return { pickupCoordinates, destinationCoordinates }
+  }
+
+  useEffect(() => {
+    if (activeTab !== "booking" || bookingStep !== 1) return
+    if (pickupLocation.trim()) return
+    if (hasAutoLocationAttemptRef.current) return
+
+    hasAutoLocationAttemptRef.current = true
+    void getCurrentLocation(true)
+  }, [activeTab, bookingStep, pickupLocation])
 
 
 
@@ -4235,16 +4901,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
   // Remove loading screen - show app immediately
   // Show loading state while checking authentication to prevent login form flash
   if (isCheckingAuth) {
-    return (
-      <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-            <p className="text-gray-400">Loading...</p>
-          </div>
-        </div>
-      </div>
-    )
+    return <LoadingLogo />
   }
 
   if (!isLoggedIn) {
@@ -4468,51 +5125,20 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                         type="text"
                         value={pickupLocation}
                         onChange={(e) => {
-                          setPickupLocation(e.target.value)
-                          if (e.target.value.length > 2) {
-                            const citySuggestions = {
-                              "Lagos": [
-                                "15 Admiralty Way, Lekki Phase 1, Lagos",
-                                "23 Adeola Odeku Street, Victoria Island, Lagos",
-                                "78 Allen Avenue, Ikeja, Lagos",
-                                "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
-                                "45 Awolowo Road, Ikoyi, Lagos",
-                                "12 Tiamiyu Savage Street, Victoria Island, Lagos",
-                                "67 Admiralty Way, Lekki Phase 1, Lagos"
-                              ],
-                              "Abuja": [
-                                "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
-                                "45 Aminu Kano Crescent, Wuse 2, Abuja",
-                                "Plot 567 Maitama District, Abuja",
-                                "Plot 890 Asokoro District, Abuja",
-                                "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
-                                "Plot 1001 Diplomatic Drive, Central Area, Abuja"
-                              ],
-                              "Port Harcourt": [
-                                "12 Trans Amadi Industrial Layout, Port Harcourt",
-                                "34 GRA Phase 2, Port Harcourt",
-                                "56 Aba Road, Port Harcourt",
-                                "78 Olu Obasanjo Road, Port Harcourt",
-                                "23 Stadium Road, Port Harcourt"
-                              ]
-                            }
-                            
-                            const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
-                            const filteredSuggestions = suggestions.filter((addr) => 
-                              addr.toLowerCase().includes(e.target.value.toLowerCase())
-                            )
-                            setLocationSuggestions(filteredSuggestions.slice(0, 5))
-                            setShowLocationSuggestions(suggestions.length > 0)
-                          } else {
-                            setShowLocationSuggestions(false)
-                          }
+                          const query = e.target.value
+                          setPickupLocation(query)
+                          setDetectedPickupCoordinates(null)
+                          queuePickupSuggestions(query)
                         }}
                         placeholder="Enter your pickup address"
                         className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
                       />
                       <button
-                        onClick={getCurrentLocation}
+                        type="button"
+                        onClick={() => void getCurrentLocation()}
                         disabled={isLoadingLocation}
+                        title="Use current location"
+                        aria-label="Use current location"
                         className="p-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
                       >
                         {isLoadingLocation ? (
@@ -4532,6 +5158,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                             onClick={() => {
                               setPickupLocation(suggestion)
                               setShowLocationSuggestions(false)
+                              void resolveAddressCoordinates(suggestion).then((coordinates) => {
+                                if (coordinates) {
+                                  setDetectedPickupCoordinates(coordinates)
+                                }
+                              })
                             }}
                             className="w-full text-left p-3 hover:bg-gray-700 text-white text-sm border-b border-gray-700 last:border-b-0"
                           >
@@ -4553,44 +5184,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                         type="text"
                         value={destinationLocation}
                         onChange={(e) => {
-                          setDestinationLocation(e.target.value)
-                          if (e.target.value.length > 2) {
-                            const citySuggestions = {
-                              "Lagos": [
-                                "15 Admiralty Way, Lekki Phase 1, Lagos",
-                                "23 Adeola Odeku Street, Victoria Island, Lagos",
-                                "78 Allen Avenue, Ikeja, Lagos",
-                                "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
-                                "45 Awolowo Road, Ikoyi, Lagos",
-                                "12 Tiamiyu Savage Street, Victoria Island, Lagos",
-                                "67 Admiralty Way, Lekki Phase 1, Lagos"
-                              ],
-                              "Abuja": [
-                                "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
-                                "45 Aminu Kano Crescent, Wuse 2, Abuja",
-                                "Plot 567 Maitama District, Abuja",
-                                "Plot 890 Asokoro District, Abuja",
-                                "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
-                                "Plot 1001 Diplomatic Drive, Central Area, Abuja"
-                              ],
-                              "Port Harcourt": [
-                                "12 Trans Amadi Industrial Layout, Port Harcourt",
-                                "34 GRA Phase 2, Port Harcourt",
-                                "56 Aba Road, Port Harcourt",
-                                "78 Olu Obasanjo Road, Port Harcourt",
-                                "23 Stadium Road, Port Harcourt"
-                              ]
-                            }
-                            
-                            const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
-                            const filteredSuggestions = suggestions.filter((addr) => 
-                              addr.toLowerCase().includes(e.target.value.toLowerCase())
-                            )
-                            setDestinationSuggestions(filteredSuggestions.slice(0, 5))
-                            setShowDestinationSuggestions(suggestions.length > 0)
-                          } else {
-                            setShowDestinationSuggestions(false)
-                          }
+                          const query = e.target.value
+                          setDestinationLocation(query)
+                          setDetectedDestinationCoordinates(null)
+                          queueDestinationSuggestions(query)
                         }}
                         placeholder="Enter your destination address"
                         className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
@@ -4606,6 +5203,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                             onClick={() => {
                               setDestinationLocation(suggestion)
                               setShowDestinationSuggestions(false)
+                              void resolveAddressCoordinates(suggestion).then((coordinates) => {
+                                if (coordinates) {
+                                  setDetectedDestinationCoordinates(coordinates)
+                                }
+                              })
                             }}
                             className="w-full text-left p-3 hover:bg-gray-700 text-white text-sm border-b border-gray-700 last:border-b-0"
                           >
@@ -4665,47 +5267,9 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                           type="text"
                           value={currentDestinationInput}
                           onChange={(e) => {
-                            setCurrentDestinationInput(e.target.value)
-                            if (e.target.value.length > 2) {
-                              const citySuggestions = {
-                                "Lagos": [
-                                  "15 Admiralty Way, Lekki Phase 1, Lagos",
-                                  "23 Adeola Odeku Street, Victoria Island, Lagos",
-                                  "78 Allen Avenue, Ikeja, Lagos",
-                                  "89 Ozumba Mbadiwe Avenue, Victoria Island, Lagos",
-                                  "45 Awolowo Road, Ikoyi, Lagos",
-                                  "12 Tiamiyu Savage Street, Victoria Island, Lagos",
-                                  "67 Admiralty Way, Lekki Phase 1, Lagos"
-                                ],
-                                "Abuja": [
-                                  "Plot 1234 Cadastral Zone A0, Central Business District, Abuja",
-                                  "45 Aminu Kano Crescent, Wuse 2, Abuja",
-                                  "Plot 567 Maitama District, Abuja",
-                                  "Plot 890 Asokoro District, Abuja",
-                                  "12 Adetokunbo Ademola Crescent, Wuse 2, Abuja",
-                                  "Plot 1001 Diplomatic Drive, Central Area, Abuja"
-                                ],
-                                "Port Harcourt": [
-                                  "12 Trans Amadi Industrial Layout, Port Harcourt",
-                                  "34 GRA Phase 2, Port Harcourt",
-                                  "56 Aba Road, Port Harcourt",
-                                  "78 Olu Obasanjo Road, Port Harcourt",
-                                  "23 Stadium Road, Port Harcourt"
-                                ]
-                              }
-                              
-                              const suggestions = citySuggestions[selectedCity as keyof typeof citySuggestions] || []
-                              const filteredSuggestions = suggestions.filter(
-                                (addr) =>
-                                  addr.toLowerCase().includes(e.target.value.toLowerCase()) &&
-                                  !multipleDestinations.includes(addr) &&
-                                  addr !== destinationLocation,
-                              )
-                              setCurrentDestinationSuggestions(filteredSuggestions.slice(0, 5))
-                              setShowCurrentDestinationSuggestions(suggestions.length > 0)
-                            } else {
-                              setShowCurrentDestinationSuggestions(false)
-                            }
+                            const query = e.target.value
+                            setCurrentDestinationInput(query)
+                            queueExtraStopSuggestions(query)
                           }}
                           placeholder="Enter additional stop address"
                           className="flex-1 bg-transparent text-white placeholder-gray-400 focus:outline-none"
@@ -5217,12 +5781,12 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        <div className="flex-1">
-                          <h4 className="text-white font-medium">{vehicle.name}</h4>
-                          <p className="text-gray-400 text-sm">{vehicle.description}</p>
-                          <p className="text-gray-400 text-sm">Capacity: {vehicle.capacity} people</p>
+                        <div className="flex-1 min-w-0 max-w-[18rem] flex flex-col gap-0.5 text-left">
+                          <h4 className="text-white font-semibold text-base leading-tight">{vehicle.name}</h4>
+                          <p className="text-gray-400 text-sm leading-snug">{vehicle.description}</p>
+                          <p className="text-gray-400 text-sm leading-snug">Capacity: {vehicle.capacity} people</p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-shrink-0">
                           <button
                             onClick={() => updateVehicleCount(vehicle.id, -1)}
                             className="w-8 h-8 rounded-full bg-gray-700 text-white flex items-center justify-center hover:bg-gray-600"
@@ -5607,33 +6171,61 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 {isLoadingBookings ? (
                   // Loading State
                   <div className="p-4">
-                    <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                      <h3 className="text-xl font-semibold text-white">Loading bookings...</h3>
-                      <p className="text-gray-400">Please wait while we fetch your bookings.</p>
+                    <div className="bg-gray-900 rounded-lg p-6">
+                      <LoadingLogo fullscreen={false} label="Loading bookings..." />
                     </div>
                   </div>
                 ) : (
                   // Active Bookings with Map
                   activeBookings.length > 0 ? (
                   <div className="space-y-4">
-                    {/* Map Section - Show map for first active booking with tracking */}
+                    {/* Map Section - opens only after user chooses a booking to track */}
                     {(() => {
-                      // Find the first booking that has location tracking or is in progress
-                      const trackingBooking = activeBookings.find(b => {
-                        const bookingId = b.id || b.booking_code
-                        const hasLocation = bookingLocations.has(bookingId) || b.currentLocation
-                        const isTrackable = ['accepted', 'en_route', 'arrived', 'in_service'].includes(b.status.toLowerCase())
-                        return hasLocation || isTrackable
-                      }) || activeBookings[0]
+                      if (!selectedTrackingBookingId) {
+                        return (
+                          <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+                            <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
+                              <div className="text-center space-y-2 px-4">
+                                <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
+                                <p className="text-white text-sm font-medium">Trip tracking is ready</p>
+                                <p className="text-gray-400 text-xs">
+                                  Tap "Track Trip on Map" on any active booking to open its live map.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
 
-                      return trackingBooking ? renderLiveTrackingMap(trackingBooking) : (
+                      const trackingBooking = activeBookings.find(
+                        (booking) => getBookingTrackingId(booking) === selectedTrackingBookingId,
+                      )
+
+                      return trackingBooking ? (
+                        <div className="space-y-2">
+                          <div className="mx-4 flex items-center justify-between rounded-lg border border-gray-700 bg-gray-900 px-3 py-2">
+                            <p className="text-xs text-gray-300 truncate pr-2">
+                              Tracking now:
+                              <span className="text-white font-medium"> {trackingBooking.destination || trackingBooking.pickupLocation}</span>
+                            </p>
+                            <Button
+                              onClick={() => setSelectedTrackingBookingId(null)}
+                              size="sm"
+                              variant="outline"
+                              className="border-gray-600 text-gray-200 hover:bg-gray-800 shrink-0"
+                            >
+                              Hide Map
+                            </Button>
+                          </div>
+                          {renderLiveTrackingMap(trackingBooking)}
+                        </div>
+                      ) : (
                         <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
                           <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
-                            <div className="text-center space-y-2">
+                            <div className="text-center space-y-2 px-4">
                               <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
-                              <p className="text-white text-sm">Live Tracking</p>
-                              <p className="text-gray-400 text-xs">Location updates will appear here</p>
+                              <p className="text-white text-sm">Tracking unavailable</p>
+                              <p className="text-gray-400 text-xs">This booking is no longer active. Select another booking to track.</p>
                             </div>
                           </div>
                         </div>
@@ -5641,7 +6233,21 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                     })()}
 
                     {/* Active Booking Cards */}
-                    {activeBookings.map((booking) => (
+                    {activeBookings.map((booking) => {
+                      const bookingTrackingId = getBookingTrackingId(booking)
+                      const isTrackingSelected = selectedTrackingBookingId === bookingTrackingId
+                      const normalizedServiceType = normalizeBookingStatus(booking.service_type || booking.type)
+                      const isArmedProtectionBooking = normalizedServiceType.startsWith("armed_protection")
+                      const bookedVehicleLabel =
+                        booking.vehicleType && booking.vehicleType !== "TBD"
+                          ? booking.vehicleType
+                          : "Booked vehicle pending assignment"
+                      const bookingTitle = isArmedProtectionBooking
+                        ? "Assigned Vehicle"
+                        : bookedVehicleLabel
+                      const bookingSubtitle = isArmedProtectionBooking ? bookedVehicleLabel : "Booked Vehicle(s)"
+
+                      return (
                       <div key={booking.id} className="mx-4 bg-gray-900 rounded-lg p-4 space-y-4">
                         {/* Status Header */}
                         <div className="flex items-center justify-between">
@@ -5655,21 +6261,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                         </div>
 
                         {/* Service Info */}
-                        <div className="flex items-center space-x-4">
-                          {booking.type === "armed-protection" && (
-                            <div className="w-12 h-12 bg-gray-700 rounded-full overflow-hidden">
-                              <img
-                                src={booking.protectorImage || "/placeholder.svg"}
-                                alt={booking.protectorName}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                          )}
+                        <div className="flex items-center">
                           <div className="flex-1">
-                            <h3 className="text-white font-semibold">
-                              {booking.type === "armed-protection" ? booking.protectorName : "Professional Driver"}
-                            </h3>
-                            <p className="text-gray-400 text-sm">{booking.vehicleType}</p>
+                            <h3 className="text-white font-semibold">{bookingTitle}</h3>
+                            <p className="text-gray-400 text-sm">{bookingSubtitle}</p>
                           </div>
                         </div>
 
@@ -5693,28 +6288,39 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="flex space-x-3 pt-2">
+                        <div className="grid grid-cols-2 gap-2 pt-2">
+                          <Button
+                            onClick={() => setSelectedTrackingBookingId(bookingTrackingId || null)}
+                            disabled={!bookingTrackingId}
+                            className={`text-white ${
+                              isTrackingSelected
+                                ? "bg-blue-700 hover:bg-blue-800"
+                                : "bg-blue-600 hover:bg-blue-700"
+                            }`}
+                          >
+                            {isTrackingSelected ? "Tracking on Map" : "Track Trip on Map"}
+                          </Button>
                           <Button 
                             onClick={() => handleChatNavigation(booking)}
-                            className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
+                            className="bg-indigo-600 text-white hover:bg-indigo-700"
                           >
                             View Chat
                           </Button>
                           <Button 
                             onClick={() => handleContact(booking)}
-                            className="flex-1 bg-gray-700 text-white hover:bg-gray-600"
+                            className="bg-gray-700 text-white hover:bg-gray-600"
                           >
                             Contact
                           </Button>
                           <Button 
                             onClick={() => handleCancelBooking(booking)}
-                            className="flex-1 bg-red-600 text-white hover:bg-red-700"
+                            className="bg-red-600 text-white hover:bg-red-700"
                           >
                             Cancel
                           </Button>
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 ) : (
                   // No Active Bookings
@@ -5753,10 +6359,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               {isLoadingBookings ? (
                 // Loading State
                 <div className="p-4">
-                  <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                    <h3 className="text-xl font-semibold text-white">Loading history...</h3>
-                    <p className="text-gray-400">Please wait while we fetch your booking history.</p>
+                  <div className="bg-gray-900 rounded-lg p-6">
+                    <LoadingLogo fullscreen={false} label="Loading history..." />
                   </div>
                 </div>
               ) : bookingHistory.length > 0 ? (
@@ -5873,6 +6477,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {selectedChatBooking && isLoadingChatMessages && chatMessages.length > 0 && (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-3">
+                  <LoadingLogo
+                    fullscreen={false}
+                    label={isCreatingBookingChat ? "Opening your new booking chat..." : "Refreshing chat..."}
+                  />
+                </div>
+              )}
               {!selectedChatBooking ? (
                 <div className="text-center py-8">
                   <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -5884,6 +6496,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   >
                     Create Booking
                   </Button>
+                </div>
+              ) : isLoadingChatMessages && chatMessages.length === 0 ? (
+                <div className="py-8">
+                  <LoadingLogo
+                    fullscreen={false}
+                    label={isCreatingBookingChat ? "Opening your new booking chat..." : "Loading chat..."}
+                  />
                 </div>
               ) : chatMessages.length === 0 ? (
                 <div className="text-center py-8">

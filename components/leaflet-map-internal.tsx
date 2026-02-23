@@ -7,6 +7,7 @@ import L from 'leaflet'
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css'
 import { RouteCalculationService, RoutePoint } from '@/lib/services/route-calculation'
+import LoadingLogo from "@/components/loading-logo"
 
 // Fix for default marker icons in Next.js
 if (typeof window !== 'undefined') {
@@ -33,6 +34,23 @@ interface LeafletMapInternalProps {
   currentSpeed?: number // in km/h
 }
 
+const toFiniteNumber = (value: unknown): number | null => {
+  const numeric = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+const normalizeLatLng = (value?: { lat?: unknown; lng?: unknown } | null): RoutePoint | null => {
+  if (!value) return null
+
+  const lat = toFiniteNumber(value.lat)
+  const lng = toFiniteNumber(value.lng)
+
+  if (lat === null || lng === null) return null
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null
+
+  return { lat, lng }
+}
+
 export default function LeafletMapInternal({ 
   booking, 
   bookingLocationsMap, 
@@ -47,28 +65,37 @@ export default function LeafletMapInternal({
   const [isLoading, setIsLoading] = useState(true)
   
   const bookingId = booking.id || booking.booking_code
-  const currentLocation = bookingLocationsMap.get(bookingId || '') || booking.currentLocation
+  const rawCurrentLocation = bookingLocationsMap.get(bookingId || '') || booking.currentLocation
+  const currentLocation = normalizeLatLng(rawCurrentLocation)
   
   // Geocode addresses and calculate route
   useEffect(() => {
     const loadMapData = async () => {
       setIsLoading(true)
+      setPickupCoords(null)
+      setDestinationCoords(null)
+      setRouteGeometry(null)
+      setRouteDistance(0)
+      setEta('Calculating...')
+
       try {
         const { GeocodingService } = await import('@/lib/services/geocoding')
         
         // Geocode pickup
         if (booking.pickupLocation && booking.pickupLocation !== 'TBD') {
           const pickup = await GeocodingService.geocode(booking.pickupLocation)
-          if (pickup) {
-            setPickupCoords({ lat: pickup.lat, lng: pickup.lng })
+          const normalizedPickup = normalizeLatLng(pickup)
+          if (normalizedPickup) {
+            setPickupCoords(normalizedPickup)
           }
         }
         
         // Geocode destination
         if (booking.destination && booking.destination !== 'TBD') {
           const dest = await GeocodingService.geocode(booking.destination)
-          if (dest) {
-            setDestinationCoords({ lat: dest.lat, lng: dest.lng })
+          const normalizedDestination = normalizeLatLng(dest)
+          if (normalizedDestination) {
+            setDestinationCoords(normalizedDestination)
           }
         }
       } catch (error) {
@@ -134,14 +161,54 @@ export default function LeafletMapInternal({
     }
     return [6.5244, 3.3792] // Default: Lagos
   }
+
+  const validRoutePath = (routeGeometry || [])
+    .map(([lng, lat]) => {
+      const point = normalizeLatLng({ lat, lng })
+      return point ? ([point.lat, point.lng] as [number, number]) : null
+    })
+    .filter((point): point is [number, number] => point !== null)
+
+  const validLocationHistoryPath = locationHistory
+    .map((loc) => normalizeLatLng(loc))
+    .filter((point): point is RoutePoint => point !== null)
+    .map((point) => [point.lat, point.lng] as [number, number])
+
+  const openGoogleNavigation = () => {
+    if (typeof window === 'undefined') return
+
+    const origin = currentLocation || pickupCoords
+    const destination = destinationCoords
+    if (!origin && !destination) return
+
+    let url = "https://www.google.com/maps/dir/?api=1&travelmode=driving&dir_action=navigate"
+    if (origin) {
+      url += `&origin=${encodeURIComponent(`${origin.lat},${origin.lng}`)}`
+    }
+    if (destination) {
+      url += `&destination=${encodeURIComponent(`${destination.lat},${destination.lng}`)}`
+    }
+
+    window.open(url, "_blank", "noopener,noreferrer")
+  }
   
-  if (isLoading || (!pickupCoords && !currentLocation)) {
+  if (isLoading) {
     return (
       <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
-          <div className="text-center space-y-2">
-            <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
-            <p className="text-white text-sm">Loading map...</p>
+          <LoadingLogo fullscreen={false} label="Loading map..." />
+        </div>
+      </div>
+    )
+  }
+
+  if (!pickupCoords && !currentLocation) {
+    return (
+      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
+          <div className="text-center space-y-2 px-4">
+            <p className="text-white text-sm font-medium">Location unavailable</p>
+            <p className="text-gray-300 text-xs">We could not resolve this booking location yet.</p>
           </div>
         </div>
       </div>
@@ -157,6 +224,14 @@ export default function LeafletMapInternal({
         )}
         <div>ETA: {eta}</div>
       </div>
+
+      <button
+        type="button"
+        onClick={openGoogleNavigation}
+        className="absolute top-2 right-2 z-[1000] bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded-md transition-colors"
+      >
+        Navigate
+      </button>
       
       {/* Leaflet Map */}
       <MapContainer
@@ -223,9 +298,9 @@ export default function LeafletMapInternal({
         )}
         
         {/* Route Polyline */}
-        {routeGeometry && routeGeometry.length > 1 && (
+        {validRoutePath.length > 1 && (
           <Polyline
-            positions={routeGeometry.map(([lng, lat]) => [lat, lng])}
+            positions={validRoutePath}
             color="#3B82F6"
             weight={4}
             opacity={0.7}
@@ -233,9 +308,9 @@ export default function LeafletMapInternal({
         )}
         
         {/* Location History Path */}
-        {locationHistory.length > 1 && (
+        {validLocationHistoryPath.length > 1 && (
           <Polyline
-            positions={locationHistory.map(loc => [loc.lat, loc.lng])}
+            positions={validLocationHistoryPath}
             color="#10B981"
             weight={2}
             opacity={0.5}
