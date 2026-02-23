@@ -278,7 +278,8 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   const latestPickupQueryRef = useRef("")
   const latestDestinationQueryRef = useRef("")
   const latestExtraStopQueryRef = useRef("")
-  const hasAutoLocationAttemptRef = useRef(false)
+  const getInitialSessionInProgressRef = useRef(false)
+  const loadUserProfileInProgressRef = useRef<string | null>(null)
 
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false)
 
@@ -1871,19 +1872,33 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     
     // Get initial session
     const getInitialSession = async () => {
+      if (getInitialSessionInProgressRef.current) return
+      getInitialSessionInProgressRef.current = true
       let authTimeoutHandle: ReturnType<typeof setTimeout> | null = null
+      let safetyHandle: ReturnType<typeof setTimeout> | null = null
+      const SAFETY_MAX_MS = 20000 // Force stop loading after 20s so user never stays stuck (e.g. slow/hanging getSession in some browsers)
       try {
         setIsCheckingAuth(true)
+        
+        // Safety: in some browsers getSession() can hang; ensure we always stop showing loading
+        safetyHandle = setTimeout(() => {
+          setIsCheckingAuth(false)
+          setShowLoginForm(true)
+          setIsLoggedIn(false)
+        }, SAFETY_MAX_MS)
         
         // Quick check: if we already have user state, don't show login form
         // This prevents flash when navigating back from sub-pages
         if (user && isLoggedIn) {
+          getInitialSessionInProgressRef.current = false
+          if (safetyHandle) clearTimeout(safetyHandle)
           setShowLoginForm(false)
           setIsCheckingAuth(false)
           return
         }
         
-        const AUTH_CHECK_TIMEOUT_MS = 15000
+        const AUTH_CHECK_TIMEOUT_MS = 12000
+        const RETRY_TIMEOUT_MS = 5000
         let session: Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"] = null
         try {
           const sessionPromise = supabase.auth.getSession()
@@ -1901,8 +1916,15 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
             clearTimeout(authTimeoutHandle)
             authTimeoutHandle = null
           }
-          const retry = await supabase.auth.getSession()
-          session = retry?.data?.session ?? null
+          // Retry with its own timeout so we never hang (e.g. Safari/strict storage)
+          try {
+            const retryPromise = supabase.auth.getSession()
+            const retryTimeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Retry timed out")), RETRY_TIMEOUT_MS))
+            const retryResult = (await Promise.race([retryPromise, retryTimeout])) as Awaited<ReturnType<typeof supabase.auth.getSession>>
+            session = retryResult?.data?.session ?? null
+          } catch {
+            session = null
+          }
         }
         if (session?.user) {
           // Check if email is verified
@@ -1937,9 +1959,10 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
         setIsLoggedIn(false)
         setIsCheckingAuth(false)
       } finally {
-        if (authTimeoutHandle) {
-          clearTimeout(authTimeoutHandle)
-        }
+        getInitialSessionInProgressRef.current = false
+        if (authTimeoutHandle) clearTimeout(authTimeoutHandle)
+        if (safetyHandle) clearTimeout(safetyHandle)
+        setIsCheckingAuth(false)
         setIsDataLoaded(true)
       }
     }
@@ -2072,6 +2095,8 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   }, [])
 
   const loadUserProfile = async (userId: string, currentUserForFallback?: SupabaseUser | null) => {
+    if (loadUserProfileInProgressRef.current === userId) return
+    loadUserProfileInProgressRef.current = userId
     const fallbackUser = currentUserForFallback ?? user
     try {
       console.log('👤 [App] Loading user profile for:', userId)
@@ -2150,6 +2175,8 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
           emergencyPhone: fallbackUser.user_metadata?.emergency_phone || fallbackUser.user_metadata?.emergencyPhone || "",
         })
       }
+    } finally {
+      if (loadUserProfileInProgressRef.current === userId) loadUserProfileInProgressRef.current = null
     }
   }
 
@@ -4422,11 +4449,12 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     setIsLoadingLocation(true)
 
     const applyPickupFromCoordinates = async (latitude: number, longitude: number) => {
+      setDetectedPickupCoordinates({ lat: latitude, lng: longitude })
       const reverseGeocodeResult = await GeocodingService.reverseGeocode(latitude, longitude)
       const resolvedAddress =
-        reverseGeocodeResult?.displayName || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-
-      setDetectedPickupCoordinates({ lat: latitude, lng: longitude })
+        (reverseGeocodeResult?.displayName?.trim() && reverseGeocodeResult.displayName.length > 3)
+          ? reverseGeocodeResult.displayName
+          : `Current location (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`
       setPickupLocation(resolvedAddress)
       setShowLocationSuggestions(false)
       setLocationSuggestions([])
@@ -4454,16 +4482,18 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         return
       }
 
+      // Request a fresh position when user clicks (maximumAge: 0) to avoid wrong/cached location
       const position = await new Promise<GeolocationPosition>((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
-          timeout: 10000,
-          maximumAge: 300000, // 5 minutes
+          timeout: 15000,
+          maximumAge: 0, // always get fresh position on click
         })
       })
 
       const { latitude, longitude } = position.coords
-      console.log("GPS coordinates:", latitude, longitude)
+      const accuracy = position.coords.accuracy
+      console.log("GPS coordinates:", latitude, longitude, "accuracy ~", accuracy, "m")
       await applyPickupFromCoordinates(latitude, longitude)
     } catch (error) {
       console.error("Error getting location:", error)
@@ -4554,14 +4584,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     return { pickupCoordinates, destinationCoordinates }
   }
 
-  useEffect(() => {
-    if (activeTab !== "booking" || bookingStep !== 1) return
-    if (pickupLocation.trim()) return
-    if (hasAutoLocationAttemptRef.current) return
-
-    hasAutoLocationAttemptRef.current = true
-    void getCurrentLocation(true)
-  }, [activeTab, bookingStep, pickupLocation])
+  // Location is only fetched when the user clicks the "Use current location" button (no automatic fetch).
 
 
 
