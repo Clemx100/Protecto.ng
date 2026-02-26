@@ -5,8 +5,8 @@ const DYNAMIC_CACHE = CACHE_VERSION + '-dynamic';
 
 // Static assets that can be cached long-term
 const staticAssets = [
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
+  '/icons/icon-192x192.svg',
+  '/icons/icon-512x512.svg',
   '/manifest.json'
 ];
 
@@ -171,8 +171,8 @@ self.addEventListener('push', (event) => {
     
     const options = {
       body: data.body,
-      icon: '/icons/icon-192x192.png',
-      badge: '/icons/icon-72x72.png',
+      icon: '/icons/icon-192x192.svg',
+      badge: '/icons/icon-72x72.svg',
       vibrate: [100, 50, 100],
       data: {
         dateOfArrival: Date.now(),
@@ -182,12 +182,12 @@ self.addEventListener('push', (event) => {
         {
           action: 'explore',
           title: 'View Details',
-          icon: '/icons/icon-192x192.png'
+          icon: '/icons/icon-192x192.svg'
         },
         {
           action: 'close',
           title: 'Close',
-          icon: '/icons/icon-192x192.png'
+          icon: '/icons/icon-192x192.svg'
         }
       ]
     };

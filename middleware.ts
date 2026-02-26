@@ -45,9 +45,9 @@ export const config = {
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
+     * - service-worker.js, manifest.json (PWA - must not redirect)
      * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
-     * Feel free to modify this pattern to include more paths.
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|obj|mtl|glb|gltf)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|service-worker\\.js|manifest\\.json|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|obj|mtl|glb|gltf)$).*)",
   ],
 }

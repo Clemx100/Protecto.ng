@@ -36,7 +36,12 @@ export default function PWAInstaller() {
       setShowInstallBanner(true)
     }
 
+    const handleOpenIOSInstallModal = () => {
+      setShowIOSModal(true)
+    }
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+    window.addEventListener('open-ios-install-modal', handleOpenIOSInstallModal)
 
     // Listen for app installed
     window.addEventListener('appinstalled', () => {
@@ -58,6 +63,7 @@ export default function PWAInstaller() {
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt)
+      window.removeEventListener('open-ios-install-modal', handleOpenIOSInstallModal)
     }
   }, [])
 
