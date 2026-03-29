@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceRoleClient } from '@/lib/config/database'
+import { blockInProduction } from '@/lib/api/route-security'
+import { requireSuperAdminAuth } from '@/lib/auth/superAdminAuth'
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🔧 Setting up chat room tables...')
-    
-    // Import Supabase client
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Use service role for database operations (bypass RLS)
-    const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
-    )
+
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
+    const authResult = await requireSuperAdminAuth(request)
+    if (authResult.error) return authResult.response
+
+    const supabase = createServiceRoleClient()
 
     // Create chat_rooms table
     const createChatRoomsTable = `

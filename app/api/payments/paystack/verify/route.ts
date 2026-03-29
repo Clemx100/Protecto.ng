@@ -63,6 +63,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const bookingIdFromMetadata = paymentData.metadata?.booking_id
+    if (bookingIdFromMetadata && bookingIdFromMetadata !== bookingId) {
+      return NextResponse.json(
+        { error: 'Payment booking mismatch detected' },
+        { status: 400 }
+      )
+    }
+
+    const verifiedBookingId = bookingIdFromMetadata || bookingId
+
     // Payment was successful - update database
     const supabase = await createClient()
 
@@ -81,7 +91,7 @@ export async function POST(request: NextRequest) {
           payment_approved: true,
           payment_approved_at: new Date().toISOString()
         })
-        .eq('id', bookingId)
+        .eq('id', verifiedBookingId)
 
       if (bookingError) {
         console.error('Error updating booking:', bookingError)
@@ -94,7 +104,7 @@ export async function POST(request: NextRequest) {
       // Send success message to chat
       const { unifiedChatService } = await import('@/lib/services/unifiedChatService')
       await unifiedChatService.sendMessage(
-        bookingId,
+        verifiedBookingId,
         "✅ Payment completed successfully! Your protection service is now confirmed.",
         'system',
         'system',
@@ -103,7 +113,7 @@ export async function POST(request: NextRequest) {
 
       // Send operator notification
       await unifiedChatService.sendMessage(
-        bookingId,
+        verifiedBookingId,
         "💰 Payment received! Client has paid for the protection service. Ready for deployment.",
         'system',
         'system',

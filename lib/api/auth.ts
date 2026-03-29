@@ -68,7 +68,9 @@ export class AuthAPI {
         email,
         password
       })
-
+      // #region agent log
+      fetch('http://127.0.0.1:7379/ingest/0c0b09ec-0795-419f-8cb5-0e4e2d4cba59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b732d'},body:JSON.stringify({sessionId:'0b732d',hypothesisId:'H1_H5',location:'auth.ts:signIn',message:'signInWithPassword result',data:{hasUser:!!authData?.user,authError:authError?.message||null},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (authError) {
         return { data: null as any, error: authError.message }
       }
@@ -83,7 +85,9 @@ export class AuthAPI {
         .select('*')
         .eq('id', authData.user.id)
         .single()
-
+      // #region agent log
+      fetch('http://127.0.0.1:7379/ingest/0c0b09ec-0795-419f-8cb5-0e4e2d4cba59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b732d'},body:JSON.stringify({sessionId:'0b732d',hypothesisId:'H5',location:'auth.ts:signIn profile',message:'profile fetch result',data:{hasProfile:!!profile,profileError:profileError?.message||null,profileRole:profile?.role},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       if (profileError) {
         return { data: null as any, error: profileError.message }
       }

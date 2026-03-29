@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
 import { NextRequest } from 'next/server'
-import { fallbackAuth } from '@/lib/services/fallbackAuth'
 import { shouldUseMockDatabase } from '@/lib/config/database-backup'
 
 // Initialize Supabase client with service role for admin operations
@@ -9,6 +9,26 @@ const getSupabaseAdmin = () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   )
+}
+
+const getSupabaseSessionClient = (request: NextRequest) => {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null
+  }
+
+  return createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll()
+      },
+      setAll() {
+        // Route handlers in this flow only need cookie reads for auth verification.
+      }
+    }
+  })
 }
 
 /**
@@ -42,30 +62,35 @@ export async function verifyOperatorAuth(request: NextRequest): Promise<{
       }
     }
 
-    // Get authorization header
+    // Prefer bearer token when provided, but allow authenticated cookie sessions.
     const authHeader = request.headers.get('authorization')
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return {
-        isAuthorized: false,
-        userId: null,
-        role: null,
-        error: 'No authorization token provided'
+    const supabase = getSupabaseAdmin()
+    let user: { id: string } | null = null
+
+    if (authHeader?.startsWith('Bearer ')) {
+      const token = authHeader.replace('Bearer ', '')
+      const { data, error: tokenError } = await supabase.auth.getUser(token)
+      if (!tokenError && data.user) {
+        user = data.user
       }
     }
 
-    const token = authHeader.replace('Bearer ', '')
-    const supabase = getSupabaseAdmin()
+    if (!user) {
+      const sessionClient = getSupabaseSessionClient(request)
+      if (sessionClient) {
+        const { data, error: sessionError } = await sessionClient.auth.getUser()
+        if (!sessionError && data.user) {
+          user = data.user
+        }
+      }
+    }
 
-    // Verify the JWT token
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-
-    if (authError || !user) {
+    if (!user) {
       return {
         isAuthorized: false,
         userId: null,
         role: null,
-        error: 'Invalid or expired token'
+        error: 'Invalid, expired, or missing authentication'
       }
     }
 

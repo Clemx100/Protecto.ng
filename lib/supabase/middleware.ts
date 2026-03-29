@@ -57,6 +57,7 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/app") ||
     request.nextUrl.pathname.startsWith("/client") ||
     request.nextUrl.pathname.startsWith("/operator") ||
+    request.nextUrl.pathname.startsWith("/super-admin") ||
     request.nextUrl.pathname.startsWith("/auth/reset-password") ||
     request.nextUrl.pathname.startsWith("/auth/callback")
 

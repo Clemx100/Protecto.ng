@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceRoleClient } from '@/lib/config/database'
 
 export async function GET(request: NextRequest) {
   try {
@@ -49,10 +49,7 @@ export async function GET(request: NextRequest) {
     // Payment is successful - update booking status
     console.log('✅ Payment verified successfully!')
     
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const supabase = createServiceRoleClient()
 
     // Extract booking ID from metadata or URL parameter
     const bookingIdToUpdate = verificationData.data.metadata?.booking_id || bookingId

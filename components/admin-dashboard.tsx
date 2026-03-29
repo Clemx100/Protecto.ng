@@ -264,6 +264,14 @@ export default function AdminDashboard() {
             <div className="flex items-center space-x-4">
               <Bell className="h-6 w-6 text-white" />
               <span className="text-white">Admin Dashboard</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.location.href = '/super-admin'}
+                className="border-amber-500/50 text-amber-400 hover:bg-amber-500/20"
+              >
+                Super Admin
+              </Button>
             </div>
           </div>
         </div>

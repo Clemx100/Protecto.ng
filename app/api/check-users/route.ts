@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createServiceRoleClient } from '@/lib/config/database'
+import { blockInProduction } from '@/lib/api/route-security'
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     console.log('🔍 Checking existing users...')
-    
-    // Import Supabase client dynamically
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Use service role for demo API to bypass RLS
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://kifcevffaputepvpjpip.supabase.co',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-    )
+
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
+    const supabase = createServiceRoleClient()
     
     // Check profiles table
     const { data: profiles, error: profilesError } = await supabase

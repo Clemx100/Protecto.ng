@@ -1,22 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceRoleClient } from '@/lib/config/database'
+import { blockInProduction } from '@/lib/api/route-security'
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { roomId: string } }
 ) {
   try {
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
     const { roomId } = params
     console.log('📥 Chat room messages GET API called for room:', roomId)
-    
-    // Import Supabase client
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Use service role for database operations (bypass RLS)
-    const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
-    )
+    const supabase = createServiceRoleClient()
 
     // Get messages for the chat room
     const { data: messages, error } = await supabase
@@ -46,6 +42,9 @@ export async function POST(
   { params }: { params: { roomId: string } }
 ) {
   try {
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
     const { roomId } = params
     console.log('📤 Chat room message POST API called for room:', roomId)
     
@@ -58,14 +57,7 @@ export async function POST(
       }, { status: 400 })
     }
 
-    // Import Supabase client
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Use service role for database operations (bypass RLS)
-    const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1qZGJodXNucGx2ZWVhdmVlb3ZkIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1Nzk0NTk1MywiZXhwIjoyMDczNTIxOTUzfQ.7KGWZNRe7q2OvE-DeOJL8MKKx_NP7iACNvOC2FCkR5E'
-    )
+    const supabase = createServiceRoleClient()
 
     // Create message
     const { data: chatMessage, error } = await supabase

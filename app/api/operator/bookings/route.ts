@@ -6,14 +6,20 @@ import { shouldUseMockDatabase } from '@/lib/config/database-backup'
 export async function GET(request: NextRequest) {
   try {
     console.log('🔍 Operator bookings API called')
-    
+
+    const authResult = await requireOperatorAuth(request)
+    if (authResult.error) {
+      console.log('❌ Unauthorized access attempt to operator bookings')
+      return authResult.response
+    }
+
     // Use mock database if configured
     if (shouldUseMockDatabase()) {
       console.log('🔄 Using mock database for operator bookings')
       const bookings = await fallbackAuth.getAllBookings()
       return NextResponse.json({ bookings })
     }
-    
+
     console.log('🔄 Using real Supabase database for operator bookings')
     
     // Import Supabase client dynamically
@@ -47,7 +53,7 @@ export async function GET(request: NextRequest) {
       `)
       .order('created_at', { ascending: false })
 
-    console.log('Raw bookings from database:', bookings)
+    console.log('Fetched operator bookings:', bookings?.length || 0)
 
     if (bookingsError) {
       console.error('Error fetching bookings:', bookingsError)

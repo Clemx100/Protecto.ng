@@ -2706,7 +2706,7 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
               <div className="space-y-6">
                 <div className="text-center space-y-2">
                   <h2 className="text-xl font-semibold text-white">Pick Dress Code</h2>
-                  <p className="text-gray-400">Protectors tailor their uniform for any occasion.</p>
+                  <p className="text-gray-400">Protectors tailor their uniform for any occasion. Armed personnel will be in tactical gear.</p>
                 </div>
 
                 <div className="relative h-96 bg-gray-800 rounded-lg overflow-hidden">

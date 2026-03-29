@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { v4 as uuidv4 } from 'uuid'
+import { createServiceRoleClient } from '@/lib/config/database'
+import { blockInProduction } from '@/lib/api/route-security'
 
 export async function POST(request: NextRequest) {
   try {
     console.log('🧪 Demo booking creation API called')
-    
-    // Import Supabase client dynamically
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Use service role for demo API to bypass RLS
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://kifcevffaputepvpjpip.supabase.co',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-    )
+
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
+    const supabase = createServiceRoleClient()
     
     const bookingData = await request.json()
     console.log('Demo booking creation request:', JSON.stringify(bookingData, null, 2))
@@ -129,16 +126,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
-    // Import Supabase client dynamically
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Use service role for demo API to bypass RLS
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://kifcevffaputepvpjpip.supabase.co',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-    )
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
+    const supabase = createServiceRoleClient()
     
     // Get all demo bookings
     const { data: bookings, error: bookingsError } = await supabase

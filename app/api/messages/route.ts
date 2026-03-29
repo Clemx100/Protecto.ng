@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createClient as createServerSupabaseClient } from '@/lib/supabase/server'
 
 // Initialize Supabase with centralized configuration
 import { createServiceRoleClient } from '@/lib/config/database'
@@ -8,13 +8,58 @@ import { shouldUseMockDatabase } from '@/lib/config/database-backup'
 
 const supabase = createServiceRoleClient()
 const useMockDatabase = shouldUseMockDatabase()
+const PRIVILEGED_ROLES = new Set(['operator', 'admin', 'agent'])
 
-// GET /api/messages?bookingId=xxx
-// Fetch all messages for a booking from Supabase
+async function getRequestUserContext(request: NextRequest): Promise<{ id: string; role: string | null } | null> {
+  let userId: string | null = null
+
+  const authHeader = request.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.replace('Bearer ', '')
+    const { data, error } = await supabase.auth.getUser(token)
+    if (!error && data.user) {
+      userId = data.user.id
+    }
+  }
+
+  if (!userId) {
+    try {
+      const sessionSupabase = await createServerSupabaseClient()
+      const {
+        data: { user },
+        error
+      } = await sessionSupabase.auth.getUser()
+      if (!error && user) {
+        userId = user.id
+      }
+    } catch {
+      userId = null
+    }
+  }
+
+  if (!userId) return null
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .single()
+
+  return { id: userId, role: profile?.role || null }
+}
+
+// GET /api/messages?bookingId=xxx&limit=300
+// Fetch messages for a booking from Supabase (with limit and cache headers for speed)
 export async function GET(request: NextRequest) {
   try {
+    const requestUser = await getRequestUserContext(request)
+    if (!requestUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
     const bookingIdentifier = searchParams.get('bookingId')
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '300', 10), 1), 500)
 
     if (!bookingIdentifier) {
       return NextResponse.json(
@@ -22,8 +67,6 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       )
     }
-
-    console.log('📥 Fetching messages for booking:', bookingIdentifier)
 
     // Use mock database if configured
     if (useMockDatabase) {
@@ -34,35 +77,50 @@ export async function GET(request: NextRequest) {
 
     // Check if it's a UUID or booking code
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingIdentifier)
-    
-    let bookingId = bookingIdentifier
-    
-    // If it's a booking code, look up the UUID
-    if (!isUUID) {
-      const { data: booking } = await supabase
+
+    let booking: { id: string; client_id: string; assigned_agent_id: string | null } | null = null
+
+    if (isUUID) {
+      const { data } = await supabase
         .from('bookings')
-        .select('id')
+        .select('id, client_id, assigned_agent_id')
+        .eq('id', bookingIdentifier)
+        .single()
+      booking = data
+    } else {
+      const { data } = await supabase
+        .from('bookings')
+        .select('id, client_id, assigned_agent_id')
         .eq('booking_code', bookingIdentifier)
         .single()
-      
-      if (!booking) {
-        console.error('❌ Booking not found for code:', bookingIdentifier)
-        return NextResponse.json(
-          { error: 'Booking not found' },
-          { status: 404 }
-        )
-      }
-      
-      bookingId = booking.id
-      console.log('✅ Resolved booking code to UUID:', bookingId)
+      booking = data
     }
 
-    // Fetch messages from Supabase using messages table
+    if (!booking) {
+      console.error('❌ Booking not found for identifier:', bookingIdentifier)
+      return NextResponse.json(
+        { error: 'Booking not found' },
+        { status: 404 }
+      )
+    }
+
+    const isPrivileged = requestUser.role ? PRIVILEGED_ROLES.has(requestUser.role) : false
+    const isBookingParticipant =
+      requestUser.id === booking.client_id ||
+      (booking.assigned_agent_id != null && requestUser.id === booking.assigned_agent_id)
+    if (!isPrivileged && !isBookingParticipant) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const bookingId = booking.id
+
+    // Fetch messages from Supabase (limit for faster response)
     const { data: messages, error } = await supabase
       .from('messages')
       .select('*')
       .eq('booking_id', bookingId)
       .order('created_at', { ascending: true })
+      .limit(limit)
 
     if (error) {
       console.error('❌ Supabase error:', error)
@@ -92,11 +150,18 @@ export async function GET(request: NextRequest) {
       updated_at: msg.updated_at || msg.created_at
     }))
 
-    return NextResponse.json({
-      success: true,
-      data: transformedMessages,
-      count: transformedMessages.length
-    })
+    return NextResponse.json(
+      {
+        success: true,
+        data: transformedMessages,
+        count: transformedMessages.length,
+      },
+      {
+        headers: {
+          'Cache-Control': 'private, max-age=15, stale-while-revalidate=30',
+        },
+      }
+    )
 
   } catch (error: any) {
     console.error('❌ Error fetching messages:', error)
@@ -111,6 +176,11 @@ export async function GET(request: NextRequest) {
 // Send a new message and save to Supabase
 export async function POST(request: NextRequest) {
   try {
+    const requestUser = await getRequestUserContext(request)
+    if (!requestUser) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
     const body = await request.json()
     const { 
       bookingId, 
@@ -146,7 +216,7 @@ export async function POST(request: NextRequest) {
     if (useMockDatabase) {
       console.log('🔄 Using mock database for sending message')
       const result = await fallbackAuth.sendMessage({
-        sender_id: senderId || 'mock-user',
+        sender_id: requestUser.id || senderId || 'mock-user',
         sender_type: senderType || 'client',
         message: messageContent,
         booking_id: bookingId
@@ -156,35 +226,23 @@ export async function POST(request: NextRequest) {
 
     // Check if it's a UUID or booking code
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)
-    
-    let actualBookingId = bookingId
-    
-    // If it's a booking code, look up the UUID
-    if (!isUUID) {
-      const { data: bookingLookup } = await supabase
+
+    let booking: { id: string; client_id: string; assigned_agent_id: string | null } | null = null
+    if (isUUID) {
+      const { data } = await supabase
         .from('bookings')
-        .select('id')
+        .select('id, client_id, assigned_agent_id')
+        .eq('id', bookingId)
+        .single()
+      booking = data
+    } else {
+      const { data } = await supabase
+        .from('bookings')
+        .select('id, client_id, assigned_agent_id')
         .eq('booking_code', bookingId)
         .single()
-      
-      if (!bookingLookup) {
-        console.error('❌ Booking not found for code:', bookingId)
-        return NextResponse.json(
-          { error: 'Booking not found' },
-          { status: 404 }
-        )
-      }
-      
-      actualBookingId = bookingLookup.id
-      console.log('✅ Resolved booking code to UUID:', actualBookingId)
+      booking = data
     }
-
-    // Get the actual client ID from the booking
-    const { data: booking } = await supabase
-      .from('bookings')
-      .select('client_id, assigned_agent_id')
-      .eq('id', actualBookingId)
-      .single()
 
     if (!booking) {
       return NextResponse.json(
@@ -193,21 +251,33 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const actualBookingId = booking.id
+    const isPrivileged = requestUser.role ? PRIVILEGED_ROLES.has(requestUser.role) : false
+    const isBookingParticipant =
+      requestUser.id === booking.client_id ||
+      (booking.assigned_agent_id != null && requestUser.id === booking.assigned_agent_id)
+    if (!isPrivileged && !isBookingParticipant) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const effectiveSenderType: 'client' | 'operator' | 'system' =
+      senderType === 'operator' || senderType === 'system' ? senderType : 'client'
+    if (effectiveSenderType === 'system' && !isPrivileged) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     // Determine sender and recipient based on sender type
-    let actualSenderId = senderId
+    let actualSenderId = requestUser.id
     let recipientId = null
     
-    if (senderType === 'client') {
+    if (effectiveSenderType === 'client') {
       // Client is sending to operator/agent
-      actualSenderId = senderId || booking.client_id
       recipientId = booking.assigned_agent_id || booking.client_id // Fallback to client_id for compatibility
-    } else if (senderType === 'operator') {
+    } else if (effectiveSenderType === 'operator') {
       // Operator is sending to client
-      actualSenderId = senderId || booking.assigned_agent_id || booking.client_id
       recipientId = booking.client_id
     } else {
       // System message
-      actualSenderId = senderId || booking.client_id
       recipientId = booking.client_id
     }
 
@@ -218,7 +288,7 @@ export async function POST(request: NextRequest) {
     const messageData: any = {
       booking_id: actualBookingId,
       sender_id: actualSenderId,
-      sender_type: senderType || 'client', // Required field - specify sender type
+      sender_type: effectiveSenderType,
       recipient_id: recipientId,
       content: messageContent, // Primary column name
       message_type: messageType
@@ -269,7 +339,7 @@ export async function POST(request: NextRequest) {
       id: newMessage.id,
       booking_id: newMessage.booking_id,
       sender_id: newMessage.sender_id,
-      sender_type: senderType || 'client', // Use the original senderType parameter
+      sender_type: effectiveSenderType,
       message: newMessage.content || newMessage.message, // ✅ Use 'content' column first, fallback to 'message'
       message_type: newMessage.message_type,
       metadata: newMessage.metadata,

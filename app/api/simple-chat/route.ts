@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServiceRoleClient } from '@/lib/config/database'
+import { blockInProduction } from '@/lib/api/route-security'
 
 // Simple chat API that just works
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://kifcevffaputepvpjpip.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-)
+const supabase = createServiceRoleClient()
 
 export async function GET(request: NextRequest) {
   try {
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
     console.log('💬 Simple chat GET API called')
     
     const { searchParams } = new URL(request.url)
@@ -67,6 +68,9 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
     console.log('💬 Simple chat PUT API called')
     
     const { messageId, content } = await request.json()
@@ -104,6 +108,9 @@ export async function PUT(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
     console.log('💬 Simple chat POST API called')
     
     const { bookingId, content, senderType = 'client' } = await request.json()

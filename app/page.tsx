@@ -16,6 +16,7 @@ import {
   CheckCircle, 
   Star,
   Car,
+  CarFront,
   UserCheck,
   Globe,
   Menu,
@@ -24,6 +25,7 @@ import {
   DollarSign,
   FileText,
   Users,
+  Home,
   Mail,
   ExternalLink
 } from "lucide-react"
@@ -240,8 +242,8 @@ function HomePageContent() {
             Executive Protection{' '}
             <span className="block text-blue-400">Services</span>
           </h1>
-          <p className="text-lg md:text-xl text-gray-300 mb-8 max-w-4xl mx-auto leading-relaxed">
-            Book a bulletproof vehicle and armed escort now. Track your team live. 24/7 across Nigeria.
+          <p className="text-lg md:text-xl font-bold text-white mb-8 max-w-4xl mx-auto leading-relaxed drop-shadow-md">
+            Book a bulletproof vehicle and armed escort now.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12 items-center">
@@ -377,17 +379,169 @@ function HomePageContent() {
             
             <div className="bg-white/10 rounded-xl p-6 border border-white/20 hover:border-cyan-400/50 transition-colors">
               <Globe className="h-12 w-12 text-cyan-400 mb-4" />
-              <h3 className="text-xl font-semibold text-white mb-3">Travel Security</h3>
+              <h3 className="text-xl font-semibold text-white mb-3">Secure Travel</h3>
               <p className="text-gray-300 mb-4">
-                International travel protection with local expertise, cultural awareness, 
-                and seamless coordination across borders.
+                We plan your travel itinerary from departure to arrival and provide secure travel 
+                support with local expertise, cultural awareness, and seamless coordination across borders.
               </p>
               <ul className="text-sm text-gray-400 space-y-1">
-                <li>• International coverage</li>
-                <li>• Local expertise</li>
-                <li>• Travel coordination</li>
+                <li>• Travel itinerary planning</li>
+                <li>• Secure transport and route coordination</li>
+                <li>• International coverage with local expertise</li>
               </ul>
             </div>
+
+            <div className="bg-white/10 rounded-xl p-6 border border-white/20 hover:border-indigo-400/50 transition-colors">
+              <svg
+                className="h-12 w-12 text-indigo-400 mb-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="6" cy="6" r="2.5" />
+                <circle cx="18" cy="6" r="2.5" />
+                <circle cx="6" cy="18" r="2.5" />
+                <circle cx="18" cy="18" r="2.5" />
+                <path d="M8 8l8 8" />
+                <path d="M16 8l-8 8" />
+                <rect x="10" y="10" width="4" height="4" rx="1" />
+              </svg>
+              <h3 className="text-xl font-semibold text-white mb-3">Drone Surveillance Services</h3>
+              <p className="text-gray-300 mb-4">
+                Aerial surveillance support for route monitoring, perimeter visibility, 
+                and improved incident awareness during operations.
+              </p>
+              <ul className="text-sm text-gray-400 space-y-1">
+                <li>• Aerial route monitoring</li>
+                <li>• Perimeter observation</li>
+                <li>• Real-time reporting</li>
+              </ul>
+            </div>
+
+            <div className="bg-white/10 rounded-xl p-6 border border-white/20 hover:border-emerald-400/50 transition-colors">
+              <Users className="h-12 w-12 text-emerald-400 mb-4" />
+              <h3 className="text-xl font-semibold text-white mb-3">Unarmed Security</h3>
+              <p className="text-gray-300 mb-4">
+                Trained unarmed security officers for low-profile protection, access control, 
+                and safe environment management.
+              </p>
+              <ul className="text-sm text-gray-400 space-y-1">
+                <li>• Low-profile presence</li>
+                <li>• Access control</li>
+                <li>• Incident response</li>
+              </ul>
+            </div>
+
+            <div className="bg-white/10 rounded-xl p-6 border border-white/20 hover:border-pink-400/50 transition-colors">
+              <Home className="h-12 w-12 text-pink-400 mb-4" />
+              <h3 className="text-xl font-semibold text-white mb-3">Home Private Security</h3>
+              <p className="text-gray-300 mb-4">
+                Residential security support for homes, estates, and private compounds with
+                trained personnel and proactive threat prevention.
+              </p>
+              <ul className="text-sm text-gray-400 space-y-1">
+                <li>• Residential patrol and access control</li>
+                <li>• Visitor verification</li>
+                <li>• Incident prevention and response</li>
+              </ul>
+            </div>
+
+            <div className="bg-white/10 rounded-xl p-6 border border-white/20 hover:border-orange-400/50 transition-colors">
+              <Car className="h-12 w-12 text-orange-400 mb-4" />
+              <h3 className="text-xl font-semibold text-white mb-3">Professional Defensive Driver</h3>
+              <p className="text-gray-300 mb-4">
+                Certified defensive driving support for secure transportation, route planning, 
+                and executive movement in high-risk conditions.
+              </p>
+              <ul className="text-sm text-gray-400 space-y-1">
+                <li>• Defensive driving</li>
+                <li>• Secure route planning</li>
+                <li>• Executive transport</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Why Bulletproof Vehicles and Armed Escort Section */}
+      <section id="why-bulletproof" className="py-16 md:py-24 bg-slate-900/40 border-y border-white/10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+              Why You Need Bulletproof Vehicles and Armed Escort
+            </h2>
+            <p className="text-lg text-gray-300 max-w-4xl mx-auto">
+              High-profile movement, business travel, family transfers, and airport pickups can be exposed to
+              unpredictable threats. Bulletproof vehicles and trained armed escorts reduce risk, improve response time,
+              and keep your mission moving safely.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white/10 rounded-xl p-6 border border-white/20">
+              <div className="flex items-start space-x-4">
+                <Shield className="h-7 w-7 text-blue-400 mt-1 flex-shrink-0" />
+                <div>
+                  <h3 className="text-xl font-semibold text-white mb-2">Ballistic Protection in Transit</h3>
+                  <p className="text-gray-300">
+                    Armored vehicles provide critical protection against ballistic threats, forced stoppage attempts,
+                    and violent roadside incidents.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/10 rounded-xl p-6 border border-white/20">
+              <div className="flex items-start space-x-4">
+                <UserCheck className="h-7 w-7 text-green-400 mt-1 flex-shrink-0" />
+                <div>
+                  <h3 className="text-xl font-semibold text-white mb-2">Visible Deterrence and Rapid Response</h3>
+                  <p className="text-gray-300">
+                    Armed escorts discourage opportunistic attacks and provide immediate tactical response when threats
+                    appear.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/10 rounded-xl p-6 border border-white/20">
+              <div className="flex items-start space-x-4">
+                <MapPin className="h-7 w-7 text-purple-400 mt-1 flex-shrink-0" />
+                <div>
+                  <h3 className="text-xl font-semibold text-white mb-2">Safer Route Execution</h3>
+                  <p className="text-gray-300">
+                    Security teams plan safer routes, identify hotspots early, and adjust movement in real time to
+                    avoid exposure.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/10 rounded-xl p-6 border border-white/20">
+              <div className="flex items-start space-x-4">
+                <CheckCircle className="h-7 w-7 text-yellow-400 mt-1 flex-shrink-0" />
+                <div>
+                  <h3 className="text-xl font-semibold text-white mb-2">Confidence for Business and Family Travel</h3>
+                  <p className="text-gray-300">
+                    You arrive focused and protected while your team, family, or guests move with confidence and peace
+                    of mind.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-10 text-center">
+            <button
+              onClick={handleRequestClick}
+              className="px-8 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+            >
+              Request Bulletproof Vehicle and Armed Escort
+            </button>
           </div>
         </div>
       </section>
@@ -399,7 +553,7 @@ function HomePageContent() {
             <div>
               <h2 className="text-3xl md:text-4xl font-bold text-white mb-6">Why Choose Protector.Ng?</h2>
               <p className="text-lg text-gray-300 mb-8">
-                We are Nigeria's premier executive protection service, combining cutting-edge technology 
+                We are Nigeria's fisrt premier executive protection service, combining cutting-edge technology 
                 with world-class security expertise to deliver unmatched protection for our clients.
               </p>
               
@@ -435,7 +589,7 @@ function HomePageContent() {
               <div className="space-y-4">
                 <div className="flex items-center space-x-4">
                   <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">1</div>
-                  <span className="text-white">Request protection through our app or web</span>
+                  <span className="text-white">Request protection through call,email,app</span>
                 </div>
                 <div className="flex items-center space-x-4">
                   <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">2</div>
@@ -592,7 +746,7 @@ function HomePageContent() {
               
               <div className="text-center">
                 <div className="bg-blue-500/20 rounded-lg p-4 mb-4">
-                  <Truck className="h-8 w-8 text-blue-400 mx-auto mb-2" />
+                  <CarFront className="h-8 w-8 text-blue-400 mx-auto mb-2" />
                   <h4 className="text-lg font-semibold text-white">Armored Sedan</h4>
                 </div>
                 <p className="text-gray-300 mb-2">₦400,000 - ₦550,000</p>
@@ -602,7 +756,7 @@ function HomePageContent() {
               <div className="text-center">
                 <div className="bg-purple-500/20 rounded-lg p-4 mb-4">
                   <Shield className="h-8 w-8 text-purple-400 mx-auto mb-2" />
-                  <h4 className="text-lg font-semibold text-white">VIP Limousine</h4>
+                  <h4 className="text-lg font-semibold text-white">Armored SUV</h4>
                 </div>
                 <p className="text-gray-300 mb-2">₦550,000 - ₦700,000+</p>
                 <p className="text-sm text-gray-400">Per 8-hour mission</p>
@@ -634,7 +788,7 @@ function HomePageContent() {
             <div className="text-center">
               <MapPin className="h-12 w-12 text-green-400 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-white mb-2">Headquarters</h3>
-              <p className="text-gray-300 mb-2">No 3 Balogu street Anifowoshe, Ikeja</p>
+              <p className="text-gray-300 mb-2">No 3 Balogun street Anifowoshe, Ikeja</p>
               <p className="text-sm text-gray-400">Lagos, Nigeria</p>
             </div>
             
@@ -659,7 +813,7 @@ function HomePageContent() {
                 <h3 className="text-xl font-bold text-white">Protector.Ng</h3>
               </div>
               <p className="text-gray-300 text-sm">
-                Nigeria's premier executive protection service, delivering world-class security 
+                Nigeria's first premier executive protection service, delivering world-class security 
                 with cutting-edge technology.
               </p>
             </div>

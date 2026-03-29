@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createServiceRoleClient } from '@/lib/config/database'
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,18 +23,7 @@ export async function POST(request: NextRequest) {
     // Resolve booking (accept UUID or booking_code like REQ...)
     let actualBookingId = bookingId
 
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Check environment variables
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL) {
-      console.error('❌ NEXT_PUBLIC_SUPABASE_URL not configured')
-      return NextResponse.json({ error: 'Database configuration error' }, { status: 500 })
-    }
-    
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
+    const supabase = createServiceRoleClient()
 
     // If not UUID, look up by booking_code
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)

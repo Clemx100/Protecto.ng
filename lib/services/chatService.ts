@@ -121,29 +121,28 @@ export class ChatService {
     return chatMessage
   }
 
-  // Get messages for a specific booking
+  // Get messages for a specific booking (with timeout for fast fallback to cache)
   async getMessages(bookingId: string) {
-    // Try to get from API first
+    const FETCH_TIMEOUT_MS = 6000
     try {
-      console.log('Getting messages for booking ID:', bookingId)
-      
-      // Try client API first
-      let response = await fetch(`/api/messages?bookingId=${bookingId}`, {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+      let response = await fetch(`/api/messages?bookingId=${bookingId}&limit=300`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
       })
+      clearTimeout(timeoutId)
 
-      // If client API fails, try operator API
       if (!response.ok) {
-        console.log('Client API failed, trying operator API...')
+        const controller2 = new AbortController()
+        const t2 = setTimeout(() => controller2.abort(), FETCH_TIMEOUT_MS)
         response = await fetch(`/api/operator/messages?bookingId=${bookingId}`, {
           method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller2.signal,
         })
+        clearTimeout(t2)
       }
 
       // If that fails and it looks like a booking code, try to find the database ID

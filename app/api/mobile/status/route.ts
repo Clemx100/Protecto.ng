@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createServiceRoleClient } from '@/lib/config/database'
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic'
@@ -12,19 +13,14 @@ export async function GET(request: NextRequest) {
     const userAgent = request.headers.get('user-agent') || ''
     const isMobile = /iPhone|iPad|iPod|Android|BlackBerry|IEMobile|Opera Mini/i.test(userAgent)
     
-    // Get current bookings count
-    const { createClient } = await import('@supabase/supabase-js')
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://kifcevffaputepvpjpip.supabase.co',
-      process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-    )
+    const supabase = createServiceRoleClient()
 
-    const { data: bookings, error: bookingsError } = await supabase
+    const { count, error: bookingsError } = await supabase
       .from('bookings')
       .select('id', { count: 'exact', head: true })
-      .eq('client_id', '9882762d-93e4-484c-b055-a14737f76cba')
 
-    const bookingsCount = bookingsError ? 0 : (bookings?.length || 0)
+    const bookingsCount = bookingsError ? 0 : (count || 0)
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin
 
     const mobileStatus = {
       success: true,
@@ -42,11 +38,11 @@ export async function GET(request: NextRequest) {
         operatorDashboardEnabled: true
       },
       endpoints: {
-        client: 'http://localhost:3004',
-        operator: 'http://localhost:3004/operator',
-        api: 'http://localhost:3004/api',
-        chat: 'http://localhost:3004/api/messages',
-        bookings: 'http://localhost:3004/api/bookings'
+        client: baseUrl,
+        operator: `${baseUrl}/operator`,
+        api: `${baseUrl}/api`,
+        chat: `${baseUrl}/api/messages`,
+        bookings: `${baseUrl}/api/bookings`
       },
       features: {
         bookingCreation: true,

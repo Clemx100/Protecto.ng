@@ -38,15 +38,15 @@ function BreadcrumbLink({
 }: React.ComponentProps<"a"> & {
   asChild?: boolean
 }) {
-  const Comp = asChild ? Slot : "a"
-
-  return (
-    <Comp
-      data-slot="breadcrumb-link"
-      className={cn("hover:text-foreground transition-colors", className)}
-      {...props}
-    />
-  )
+  const common = {
+    "data-slot": "breadcrumb-link",
+    className: cn("hover:text-foreground transition-colors", className)
+  }
+  if (asChild) {
+    const { popover: _p, ...slotRest } = props as Record<string, unknown> & { popover?: string }
+    return <Slot {...common} {...(slotRest as React.ComponentProps<typeof Slot>)} />
+  }
+  return <a {...common} {...props} />
 }
 
 function BreadcrumbPage({ className, ...props }: React.ComponentProps<"span">) {

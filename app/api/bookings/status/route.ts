@@ -1,20 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireOperatorAuth } from '@/lib/auth/operatorAuth'
+import { createServiceRoleClient } from '@/lib/config/database'
 
 export async function PATCH(request: NextRequest) {
   try {
     console.log('🔄 Booking status update API called')
-    
-    // Import Supabase client dynamically
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Use service role for real API to bypass RLS
-    const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-    )
-    
-    // For now, skip authentication check to allow operator dashboard to work
-    console.log('⚠️ Skipping authentication for status update compatibility')
+
+    const authResult = await requireOperatorAuth(request)
+    if (authResult.error) {
+      console.log('❌ Unauthorized access attempt to update booking status')
+      return authResult.response
+    }
+
+    const supabase = createServiceRoleClient()
 
     const { bookingId, status, notes } = await request.json()
 
@@ -154,18 +152,14 @@ export async function PATCH(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     console.log('🔄 Booking status update POST API called')
-    
-    // Import Supabase client dynamically
-    const { createClient } = await import('@supabase/supabase-js')
-    
-    // Use service role for real API to bypass RLS
-    const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-    )
-    
-    // For now, skip authentication check to allow operator dashboard to work
-    console.log('⚠️ Skipping authentication for status update compatibility')
+
+    const authResult = await requireOperatorAuth(request)
+    if (authResult.error) {
+      console.log('❌ Unauthorized access attempt to update booking status')
+      return authResult.response
+    }
+
+    const supabase = createServiceRoleClient()
 
     const { booking_id, status, message } = await request.json()
 

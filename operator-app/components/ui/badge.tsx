@@ -32,15 +32,14 @@ function Badge({
   ...props
 }: React.ComponentProps<"span"> &
   VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot : "span"
+  const combinedClassName = cn(badgeVariants({ variant }), className)
+  const common = { "data-slot": "badge", className: combinedClassName }
 
-  return (
-    <Comp
-      data-slot="badge"
-      className={cn(badgeVariants({ variant }), className)}
-      {...props}
-    />
-  )
+  if (asChild) {
+    const { popover: _p, ...slotRest } = props as Record<string, unknown> & { popover?: string }
+    return <Slot {...common} {...(slotRest as React.ComponentProps<typeof Slot>)} />
+  }
+  return <span {...common} {...props} />
 }
 
 export { Badge, badgeVariants }

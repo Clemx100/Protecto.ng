@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { blockInProduction } from '@/lib/api/route-security'
 
 export async function GET(request: NextRequest) {
   try {
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
     console.log('💬 Simple Chat Rooms API called')
     
     const { searchParams } = new URL(request.url)
@@ -44,6 +48,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const blocked = blockInProduction()
+    if (blocked) return blocked
+
     console.log('💬 Simple Chat Room Creation API called')
     
     const body = await request.json()

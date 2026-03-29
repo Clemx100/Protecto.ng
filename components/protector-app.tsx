@@ -287,12 +287,83 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   
   // Contact and Cancel booking states
   const [showContactModal, setShowContactModal] = useState(false)
+  const [showBookViaMailModal, setShowBookViaMailModal] = useState(false)
+  const [contactBooking, setContactBooking] = useState<any>(null)
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [bookingToCancel, setBookingToCancel] = useState<any>(null)
+  const [isSubmittingBookViaMail, setIsSubmittingBookViaMail] = useState(false)
+  const [bookViaMailStatus, setBookViaMailStatus] = useState<{ type: "success" | "error" | ""; message: string }>({
+    type: "",
+    message: "",
+  })
+  const [bookViaMailForm, setBookViaMailForm] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    subject: "",
+    message: "",
+  })
 
   // Handle contact options
   const handleContact = (booking: any) => {
+    setContactBooking(booking)
     setShowContactModal(true)
+  }
+
+  const buildDefaultBookViaMailMessage = (booking?: any) => {
+    const bookingReference = booking?.booking_code || booking?.id || "N/A"
+    const profileName = `${userProfile.firstName || ""} ${userProfile.lastName || ""}`.trim()
+    const fallbackName = `${user?.user_metadata?.first_name || user?.user_metadata?.firstName || ""} ${user?.user_metadata?.last_name || user?.user_metadata?.lastName || ""}`.trim()
+    const fullName = profileName || fallbackName || "N/A"
+    const email = userProfile.email || user?.email || "N/A"
+    const phone = userProfile.phone || user?.user_metadata?.phone || "N/A"
+    const serviceType = booking?.service_type || (selectedService ? selectedService.replace(/-/g, " ") : "protection service")
+    const preferredDate = booking?.scheduled_date || pickupDate || "N/A"
+    const preferredTime = booking?.scheduled_time || pickupTime || "N/A"
+    const pickup = booking?.pickupLocation || pickupLocation || "N/A"
+    const destination = booking?.destination || destinationLocation || "N/A"
+
+    return [
+      "Hello Protector Team,",
+      "",
+      "I want to book protection service.",
+      "",
+      `Name: ${fullName}`,
+      `Email: ${email}`,
+      `Phone: ${phone}`,
+      `Service: ${serviceType}`,
+      `Pickup: ${pickup}`,
+      `Destination: ${destination}`,
+      `Preferred Date: ${preferredDate}`,
+      `Preferred Time: ${preferredTime}`,
+      `Booking Reference: ${bookingReference}`,
+      "",
+      "Please contact me to confirm pricing and deployment details.",
+      "",
+      "Thank you."
+    ].join("\n")
+  }
+
+  const openBookViaMailModal = (booking?: any) => {
+    const profileName = `${userProfile.firstName || ""} ${userProfile.lastName || ""}`.trim()
+    const fallbackName = `${user?.user_metadata?.first_name || user?.user_metadata?.firstName || ""} ${user?.user_metadata?.last_name || user?.user_metadata?.lastName || ""}`.trim()
+    const fullName = profileName || fallbackName
+    const email = userProfile.email || user?.email || ""
+    const phone = userProfile.phone || user?.user_metadata?.phone || ""
+    const bookingReference = booking?.booking_code || booking?.id
+    const subject = bookingReference
+      ? `Booking Support Request (${bookingReference})`
+      : "Book Protection Request"
+
+    setBookViaMailStatus({ type: "", message: "" })
+    setBookViaMailForm({
+      fullName,
+      email,
+      phone,
+      subject,
+      message: buildDefaultBookViaMailMessage(booking),
+    })
+    setShowBookViaMailModal(true)
   }
 
   // Handle cancel booking
@@ -356,7 +427,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     }
   }
 
-  // Load bookings function with proper validation
+  // Load bookings function with proper validation (cache-first for fast display)
   const loadBookings = async () => {
     const currentUserId = user?.id
     if (!currentUserId) {
@@ -371,13 +442,21 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
 
     const requestId = ++latestBookingsRequestRef.current
     bookingsRequestInFlightRef.current = true
-    setIsLoadingBookings(true)
+
+    const dataSync = await import('@/lib/utils/data-sync')
+    const cachedActive = dataSync.getFromCache<any[]>('bookings_active', currentUserId)
+    const cachedHistory = dataSync.getFromCache<any[]>('bookings_history', currentUserId)
+    if (cachedActive?.length !== undefined || cachedHistory?.length !== undefined) {
+      setActiveBookings(transformBookings(cachedActive || []))
+      setBookingHistory(transformBookings(cachedHistory || []))
+      setIsLoadingBookings(false)
+    } else {
+      setIsLoadingBookings(true)
+    }
 
     try {
       console.log('📥 Loading bookings for user:', currentUserId)
-      
-      const dataSync = await import('@/lib/utils/data-sync')
-      const BOOKING_LOAD_TIMEOUT_MS = 18000
+      const BOOKING_LOAD_TIMEOUT_MS = 12000
 
       const bookingsPromise = dataSync.loadBookingsWithValidation(currentUserId)
       const timeoutPromise = new Promise<{ active: any[]; history: any[]; error: string | null }>((resolve) => {
@@ -1302,42 +1381,40 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     }
   }, [chatSubscription, supabase])
 
-  // Load messages for selected booking
+  // Load messages for selected booking (cache-first for instant chat, then refresh in background)
   const loadMessagesForBooking = async (booking: any) => {
     if (!booking) return
-    
+
+    if (chatSubscription) {
+      if (typeof chatSubscription === 'number') {
+        clearInterval(chatSubscription)
+      } else if (chatSubscription.unsubscribe) {
+        supabase.removeChannel(chatSubscription)
+      }
+      setChatSubscription(null)
+    }
+    setSelectedChatBooking(booking)
+
+    let hadCache = false
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem(`chat_messages_${booking.id}`)
+      if (cached) {
+        try {
+          const cachedMessages = JSON.parse(cached)
+          setChatMessages(cachedMessages)
+          rememberNotifiedMessageIds(cachedMessages)
+          hadCache = true
+          console.log('📱 Loaded', cachedMessages.length, 'messages from cache instantly')
+        } catch (e) {
+          console.warn('Failed to parse cached messages:', e)
+        }
+      }
+    }
+    if (!hadCache) setIsLoadingChatMessages(true)
+
     try {
-      setIsLoadingChatMessages(true)
       console.log('📥 Loading messages for booking:', booking.id)
-      if (chatSubscription) {
-        if (typeof chatSubscription === 'number') {
-          clearInterval(chatSubscription)
-        } else if (chatSubscription.unsubscribe) {
-          supabase.removeChannel(chatSubscription)
-        }
-        setChatSubscription(null)
-      }
-      setSelectedChatBooking(booking)
-      
-      // REMOVED: await loadBookings() - This was causing unnecessary re-renders and clearing chat
-      // Bookings are already loaded, no need to refresh again
-      
-      // Try loading from localStorage first for instant display
-      if (typeof window !== 'undefined') {
-        const cached = localStorage.getItem(`chat_messages_${booking.id}`)
-        if (cached) {
-          try {
-            const cachedMessages = JSON.parse(cached)
-            setChatMessages(cachedMessages)
-            rememberNotifiedMessageIds(cachedMessages)
-            console.log('📱 Loaded', cachedMessages.length, 'messages from cache instantly')
-          } catch (e) {
-            console.warn('Failed to parse cached messages:', e)
-          }
-        }
-      }
-      
-      // Load messages from API (more reliable than unified service)
+      // Load from API in background (cache already shown if present)
       const response = await fetch(`/api/messages?bookingId=${booking.id}`)
       const data = await response.json()
       
@@ -2502,6 +2579,72 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     }
   }
 
+  const handleBookViaMail = () => {
+    setContactBooking(null)
+    openBookViaMailModal()
+  }
+
+  const handleSubmitBookViaMail = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!bookViaMailForm.subject.trim() || !bookViaMailForm.message.trim()) {
+      setBookViaMailStatus({
+        type: "error",
+        message: "Subject and message are required."
+      })
+      return
+    }
+
+    if (!bookViaMailForm.email.trim() && !bookViaMailForm.phone.trim()) {
+      setBookViaMailStatus({
+        type: "error",
+        message: "Please provide at least an email address or phone number."
+      })
+      return
+    }
+
+    setIsSubmittingBookViaMail(true)
+    setBookViaMailStatus({ type: "", message: "" })
+
+    try {
+      const response = await fetch("/api/contact/book-via-mail", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          fullName: bookViaMailForm.fullName.trim(),
+          email: bookViaMailForm.email.trim(),
+          phone: bookViaMailForm.phone.trim(),
+          subject: bookViaMailForm.subject.trim(),
+          message: bookViaMailForm.message.trim(),
+          bookingId: contactBooking?.id || null,
+          bookingCode: contactBooking?.booking_code || null,
+          source: contactBooking ? "booking-contact-modal" : "home-book-via-mail"
+        })
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(result?.error || "Unable to send booking email right now.")
+      }
+
+      setBookViaMailStatus({
+        type: "success",
+        message: "Booking email sent to operator@protector.ng. The team will contact you shortly."
+      })
+      setShowContactModal(false)
+      setContactBooking(null)
+    } catch (error: any) {
+      setBookViaMailStatus({
+        type: "error",
+        message: error?.message || "Unable to send booking email right now."
+      })
+    } finally {
+      setIsSubmittingBookViaMail(false)
+    }
+  }
+
   const storeBookingInSupabase = async (payload: any) => {
     try {
       console.log('🚀 Starting booking storage process...')
@@ -2535,11 +2678,11 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       
       // Use the API endpoint instead of direct Supabase calls
       console.log('📤 Submitting booking via API with user:', user.id)
-      
+
       // Add timeout to the fetch request
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
-      
+
       const response = await fetch('/api/bookings', {
         method: 'POST',
         headers: {
@@ -2553,7 +2696,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       clearTimeout(timeoutId)
 
       const result = await response.json()
-      
+
       if (!response.ok) {
         console.error('❌ API returned error:', result)
         throw new Error(result.error || 'Failed to create booking')
@@ -5061,6 +5204,13 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                     <Phone className="h-4 w-4 mr-2" />
                     Call Instead
                   </Button>
+                  <Button
+                    onClick={handleBookViaMail}
+                    className="w-full bg-transparent border-2 border-blue-400 !text-blue-300 hover:!bg-blue-500 hover:!text-white font-semibold px-6 py-3 rounded-full transition-colors"
+                  >
+                    <Mail className="h-4 w-4 mr-2" />
+                    Book via Mail
+                  </Button>
                 </div>
               </div>
 
@@ -5669,7 +5819,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               <div className="space-y-6">
                 <div className="text-center space-y-2">
                   <h2 className="text-xl font-semibold text-white">Pick Dress Code</h2>
-                  <p className="text-gray-400">Protectors tailor their uniform for any occasion.</p>
+                  <p className="text-gray-400">Protectors tailor their uniform for any occasion. Armed personnel will be in tactical gear.</p>
                 </div>
 
                 <div className="relative h-96 bg-gray-800 rounded-lg overflow-hidden">
@@ -7276,6 +7426,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 onClick={() => {
                   window.open('tel:+2347120005328', '_self')
                   setShowContactModal(false)
+                  setContactBooking(null)
                 }}
                 className="w-full bg-green-600 text-white hover:bg-green-700 flex items-center justify-center gap-2"
               >
@@ -7285,22 +7436,136 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               
               <Button
                 onClick={() => {
-                  window.open('mailto:Operator@protector.ng?subject=Booking Support Request', '_blank')
                   setShowContactModal(false)
+                  openBookViaMailModal(contactBooking)
                 }}
                 className="w-full bg-blue-600 text-white hover:bg-blue-700 flex items-center justify-center gap-2"
               >
                 <Mail className="h-4 w-4" />
-                Send Email (Operator@protector.ng)
+                Book via Mail (In-app)
               </Button>
             </div>
             
             <Button
-              onClick={() => setShowContactModal(false)}
+              onClick={() => {
+                setShowContactModal(false)
+                setContactBooking(null)
+              }}
               className="w-full mt-4 bg-gray-700 text-white hover:bg-gray-600"
             >
               Close
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* In-app Book via Mail Modal */}
+      {showBookViaMailModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-semibold text-white mb-2">Book via Mail</h3>
+            <p className="text-gray-300 text-sm mb-4">
+              Send your request directly to operator@protector.ng without leaving the app.
+            </p>
+
+            <form onSubmit={handleSubmitBookViaMail} className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={bookViaMailForm.fullName}
+                  onChange={(e) => setBookViaMailForm((prev) => ({ ...prev, fullName: e.target.value }))}
+                  className="w-full rounded-md bg-gray-800 border border-gray-700 px-3 py-2 text-white text-sm"
+                  placeholder="Your full name"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={bookViaMailForm.email}
+                    onChange={(e) => setBookViaMailForm((prev) => ({ ...prev, email: e.target.value }))}
+                    className="w-full rounded-md bg-gray-800 border border-gray-700 px-3 py-2 text-white text-sm"
+                    placeholder="you@email.com"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-300 mb-1">Phone</label>
+                  <input
+                    type="text"
+                    value={bookViaMailForm.phone}
+                    onChange={(e) => setBookViaMailForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    className="w-full rounded-md bg-gray-800 border border-gray-700 px-3 py-2 text-white text-sm"
+                    placeholder="+234..."
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Subject</label>
+                <input
+                  type="text"
+                  value={bookViaMailForm.subject}
+                  onChange={(e) => setBookViaMailForm((prev) => ({ ...prev, subject: e.target.value }))}
+                  className="w-full rounded-md bg-gray-800 border border-gray-700 px-3 py-2 text-white text-sm"
+                  placeholder="Book Protection Request"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-gray-300 mb-1">Message</label>
+                <textarea
+                  value={bookViaMailForm.message}
+                  onChange={(e) => setBookViaMailForm((prev) => ({ ...prev, message: e.target.value }))}
+                  className="w-full rounded-md bg-gray-800 border border-gray-700 px-3 py-2 text-white text-sm resize-none"
+                  rows={8}
+                  required
+                />
+              </div>
+
+              {bookViaMailStatus.message && (
+                <div
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    bookViaMailStatus.type === "success"
+                      ? "bg-green-900/30 border-green-700 text-green-300"
+                      : "bg-red-900/30 border-red-700 text-red-300"
+                  }`}
+                >
+                  {bookViaMailStatus.message}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setShowBookViaMailModal(false)
+                    setBookViaMailStatus({ type: "", message: "" })
+                    setContactBooking(null)
+                  }}
+                  className="flex-1 bg-gray-700 text-white hover:bg-gray-600"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isSubmittingBookViaMail}
+                  className="flex-1 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {isSubmittingBookViaMail ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Sending...
+                    </span>
+                  ) : (
+                    "Send Request"
+                  )}
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

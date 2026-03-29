@@ -1,7 +1,7 @@
 // Database types for Protector.Ng
 // Generated from Supabase schema
 
-export type UserRole = 'client' | 'agent' | 'admin';
+export type UserRole = 'client' | 'agent' | 'admin' | 'operator';
 export type BookingStatus = 'pending' | 'accepted' | 'en_route' | 'arrived' | 'in_service' | 'completed' | 'cancelled';
 export type ServiceType = 'armed_protection' | 'unarmed_protection' | 'armored_vehicle' | 'convoy' | 'event_security';
 export type VehicleType = 'sedan' | 'suv' | 'van' | 'motorcade';

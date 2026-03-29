@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { 
-  MessageSquare, 
-  Search, 
+import {
+  MessageSquare,
+  Search,
   RefreshCw,
   Bell,
   Shield,
@@ -17,6 +17,10 @@ import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
 import { unifiedChatService, UnifiedChatMessage } from "@/lib/services/unifiedChatService"
 import LoadingLogo from "@/components/loading-logo"
+import {
+  notifyRealtimeEvent,
+  requestNotificationPermissionIfNeeded,
+} from "@/lib/utils/realtime-notifications"
 
 export default function OperatorDashboard() {
   const supabase = createClient()
@@ -54,10 +58,11 @@ export default function OperatorDashboard() {
   
   // Payment tracking
   const [paymentApproved, setPaymentApproved] = useState<{ [bookingId: string]: boolean }>({})
-  
+
   // New booking notifications
   const [newBookingCount, setNewBookingCount] = useState(0)
   const [lastBookingCount, setLastBookingCount] = useState(0)
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set())
   
   // Location tracking
   const [isTrackingLocation, setIsTrackingLocation] = useState<{ [bookingId: string]: boolean }>({})
@@ -70,6 +75,13 @@ export default function OperatorDashboard() {
   // Initialize dashboard
   useEffect(() => {
     initializeDashboard()
+  }, [])
+
+  // Request notification permission on mount (for booking + chat notifications)
+  useEffect(() => {
+    requestNotificationPermissionIfNeeded().catch((err) => {
+      console.warn('Unable to request notification permission:', err)
+    })
   }, [])
 
   // Get current user
@@ -104,15 +116,32 @@ export default function OperatorDashboard() {
             }
             console.log('✅ Adding new message to operator chat')
             const updated = [...prev, newMessage]
-            
+
             // CRITICAL: Save to localStorage immediately
             if (typeof window !== 'undefined' && selectedBooking) {
               localStorage.setItem(`operator_chat_${selectedBooking.id}`, JSON.stringify(updated))
               console.log('💾 Operator messages backed up to localStorage')
             }
-            
+
             return updated
           })
+          // Notify operator for new client messages (toast + browser notification)
+          if (newMessage.sender_type === 'client' && newMessage.id) {
+            const id = String(newMessage.id)
+            if (!notifiedMessageIdsRef.current.has(id)) {
+              notifiedMessageIdsRef.current.add(id)
+              if (notifiedMessageIdsRef.current.size > 600) {
+                const latest = Array.from(notifiedMessageIdsRef.current).slice(-300)
+                notifiedMessageIdsRef.current = new Set(latest)
+              }
+              const body = (newMessage.message || 'New message').slice(0, 120)
+              notifyRealtimeEvent({
+                title: `New client message (${selectedBooking.id})`,
+                description: body.length === (newMessage.message?.length || 0) ? body : `${body}...`,
+                tag: `operator-msg-${id}`,
+              })
+            }
+          }
           // Don't auto-scroll - let operator control their view
         }
       )
@@ -161,15 +190,14 @@ export default function OperatorDashboard() {
               }
             }
             
-            // Show browser notification if permitted
-            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-              new Notification('🆕 New Booking Request!', {
-                body: `New protection booking from ${payload.new.pickup_address || 'client'}`,
-                icon: '/icon-192x192.png',
-                badge: '/icon-192x192.png'
-              })
-            }
-            
+            // Toast + browser notification (unified with app and main operator dashboard)
+            const code = payload.new?.booking_code || 'Unknown'
+            notifyRealtimeEvent({
+              title: 'New booking request',
+              description: `${code} — ${payload.new?.pickup_address || 'New protection request'}`,
+              tag: `operator-booking-${payload.new?.id || code}`,
+            })
+
             // Increment new booking counter
             setNewBookingCount(prev => prev + 1)
             

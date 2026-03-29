@@ -268,10 +268,16 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           
           // Refresh bookings when any booking changes
           loadBookings()
-          
-          // Show notification for new bookings
+
+          // Show notification for new bookings (toast + browser notification)
           if (payload.eventType === 'INSERT') {
-            setSuccess(`New booking received: ${payload.new?.booking_code || 'Unknown'}`)
+            const code = payload.new?.booking_code || 'Unknown'
+            setSuccess(`New booking received: ${code}`)
+            notifyRealtimeEvent({
+              title: 'New booking request',
+              description: `${code} — ${payload.new?.pickup_address || 'New protection request'}`,
+              tag: `operator-booking-${payload.new?.id || code}`,
+            })
           }
         }
       )
@@ -393,15 +399,28 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     }
   }
 
+  const OPERATOR_BOOKINGS_CACHE_KEY = 'operator_bookings_cache'
+  const OPERATOR_BOOKINGS_CACHE_MAX_AGE_MS = 20000 // 20s
+
   const loadBookings = async () => {
+    if (typeof window !== 'undefined') {
+      const raw = sessionStorage.getItem(OPERATOR_BOOKINGS_CACHE_KEY)
+      const ts = sessionStorage.getItem(`${OPERATOR_BOOKINGS_CACHE_KEY}_ts`)
+      if (raw && ts && Date.now() - parseInt(ts, 10) < OPERATOR_BOOKINGS_CACHE_MAX_AGE_MS) {
+        try {
+          const cached = JSON.parse(raw)
+          setBookings(cached)
+          setIsLoading(false)
+        } catch (_) {}
+      }
+    }
+
     try {
-      // Get auth headers with retry logic
       let headers
       try {
         headers = await getAuthHeaders()
       } catch (authError) {
         console.error('❌ Authentication error, retrying...', authError)
-        // Try to refresh the session
         const { data: { session } } = await supabase.auth.refreshSession()
         if (session) {
           headers = {
@@ -412,8 +431,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           throw new Error('No valid session available')
         }
       }
-      
-      // Use the new API endpoint
+
       const response = await fetch('/api/operator/bookings', {
         method: 'GET',
         headers,
@@ -429,9 +447,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       }
 
       const result = await response.json()
-      
+
       console.log('API response:', result)
-      
+
       if (result.success) {
         const transformedBookings = result.data.map((booking: any) => ({
           ...booking,
@@ -449,11 +467,17 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         }))
         
         setBookings(transformedBookings)
-        
+        if (typeof window !== 'undefined') {
+          try {
+            sessionStorage.setItem(OPERATOR_BOOKINGS_CACHE_KEY, JSON.stringify(transformedBookings))
+            sessionStorage.setItem(`${OPERATOR_BOOKINGS_CACHE_KEY}_ts`, Date.now().toString())
+          } catch (_) {}
+        }
+
         // Update payment approval status
         const paymentStatus: { [bookingId: string]: boolean } = {}
         transformedBookings.forEach((booking: any) => {
-          paymentStatus[booking.id] = booking.status === 'paid' // Check status instead of non-existent column
+          paymentStatus[booking.id] = booking.status === 'paid'
         })
           setPaymentApproved(paymentStatus)
           
@@ -784,11 +808,10 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             requestUrl: '/api/bookings/status'
           })
 
+          const authHeaders = await getAuthHeaders()
           const response = await fetch('/api/bookings/status', {
             method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: authHeaders,
             body: JSON.stringify({
               bookingId: databaseId,
               status: newStatus.toLowerCase().replace(/\s+/g, '_'),

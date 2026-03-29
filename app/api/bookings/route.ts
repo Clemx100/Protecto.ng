@@ -1,23 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createServiceRoleClient } from '@/lib/config/database'
+import { createClient as createServerSupabaseClient } from '@/lib/supabase/server'
 
-export async function GET(request: NextRequest) {
+async function getAuthenticatedUserId(): Promise<string | null> {
+  try {
+    const userSupabase = await createServerSupabaseClient()
+    const {
+      data: { user },
+      error
+    } = await userSupabase.auth.getUser()
+    if (error || !user) return null
+    return user.id
+  } catch {
+    return null
+  }
+}
+
+export async function GET(_request: NextRequest) {
   try {
     console.log('📥 Client bookings GET API called')
-    
-    // Import Supabase clients
-    const { createClient } = await import('@supabase/supabase-js')
-    const { createServerClient } = await import('@supabase/ssr')
-    const { cookies } = await import('next/headers')
-    
-    // Use service role for database operations (bypass RLS)
-    const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-    )
 
-    // For development/testing, use a known user ID
-    const clientId = '9882762d-93e4-484c-b055-a14737f76cba'
-    console.log('🔐 Using test user ID:', clientId)
+    const clientId = await getAuthenticatedUserId()
+    if (!clientId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const supabase = createServiceRoleClient()
 
     // Get user's bookings
     const { data: bookings, error: bookingsError } = await supabase
@@ -47,19 +55,12 @@ export async function POST(request: NextRequest) {
   try {
     console.log('🚀 BOOKING CREATION API CALLED')
     console.log('=' .repeat(50))
-    
-    // Import Supabase clients
-    const { createClient } = await import('@supabase/supabase-js')
-    const { createServerClient } = await import('@supabase/ssr')
-    const { cookies } = await import('next/headers')
-    
-    // Use service role for database operations (bypass RLS)
-    const supabase = createClient(
-      'https://kifcevffaputepvpjpip.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1OTc5NDQ3NiwiZXhwIjoyMDc1MzcwNDc2fQ.O2hluhPKj1GiERmTlXQ0N35mV2loJ2L2WGsnOkIQpio'
-    )
 
     const bookingData = await request.json()
+    if (!bookingData?.id) {
+      return NextResponse.json({ error: 'booking id is required' }, { status: 400 })
+    }
+
     console.log('📝 Received booking data:', {
       id: bookingData.id,
       serviceType: bookingData.serviceType,
@@ -68,49 +69,12 @@ export async function POST(request: NextRequest) {
       hasUser: !!bookingData.contact?.user
     })
 
-    // Check for authenticated user using Next.js server client
-    let clientId = null
-    
-    try {
-      console.log('🔐 Checking for authenticated user via session cookies')
-      const cookieStore = await cookies()
-      
-      // Create proper server-side Supabase client
-      const userSupabase = createServerClient(
-        'https://kifcevffaputepvpjpip.supabase.co',
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtpZmNldmZmYXB1dGVwdnBqcGlwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3OTQ0NzYsImV4cCI6MjA3NTM3MDQ3Nn0.YuVbfSbrDUy2nPigODzCcaOWTEXaJlPrVGE1L0C3y6g',
-        {
-          cookies: {
-            getAll() {
-              return cookieStore.getAll()
-            },
-            setAll(cookiesToSet) {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              )
-            },
-          },
-        }
-      )
-      
-      const { data: { user }, error: authError } = await userSupabase.auth.getUser()
-      
-      if (user && !authError) {
-        clientId = user.id
-        console.log('✅ Using authenticated user ID from session:', clientId)
-      } else {
-        console.log('⚠️ No authenticated user found in session:', authError?.message)
-      }
-    } catch (authCheckError) {
-      console.log('⚠️ Error checking authentication from session:', authCheckError)
+    const clientId = await getAuthenticatedUserId()
+    if (!clientId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // If no authenticated user, use the test client for now
-    if (!clientId) {
-      console.log('👤 No authenticated user, using test client')
-      clientId = '9882762d-93e4-484c-b055-a14737f76cba' // Test client ID
-      console.log('✅ Using test client ID:', clientId)
-    }
+    const supabase = createServiceRoleClient()
 
     // Use an existing service ID for mobile app bookings
     const serviceId = 'd5bcc8bd-a566-4094-8ac9-d25b7b356834' // Armed Protection Service
@@ -119,8 +83,12 @@ export async function POST(request: NextRequest) {
 
     // Parse duration to get hours
     const durationText = bookingData.pickupDetails?.duration || '1 day'
-    const durationHours = durationText.includes('day') ? 24 : 
-                         durationText.includes('hour') ? parseInt(durationText) : 4
+    const parsedDurationHours = parseInt(durationText, 10)
+    const durationHours = durationText.includes('day')
+      ? 24
+      : durationText.includes('hour') && !Number.isNaN(parsedDurationHours)
+        ? parsedDurationHours
+        : 4
 
     // Parse coordinates properly
     const pickupCoords = bookingData.pickupDetails?.coordinates
@@ -129,15 +97,12 @@ export async function POST(request: NextRequest) {
     // Default to Lagos coordinates if none provided
     const defaultLat = 6.5244
     const defaultLng = 3.3792
-    
-    // Use raw SQL to handle PostGIS coordinates properly
-    const pickupCoordsString = pickupCoords ? `${pickupCoords.lng},${pickupCoords.lat}` : `${defaultLng},${defaultLat}`
-    const destinationCoordsString = destinationCoords ? `${destinationCoords.lng},${destinationCoords.lat}` : null
+    const bookingCode = String(bookingData.id)
 
     // Create booking directly in the database
     console.log('💾 Creating booking in database...')
     console.log('📊 Booking details:', {
-      booking_code: bookingData.id,
+      booking_code: bookingCode,
       client_id: clientId,
       service_type: serviceType,
       pickup_address: bookingData.pickupDetails?.location || '',
@@ -145,7 +110,7 @@ export async function POST(request: NextRequest) {
     })
     
     const bookingPayload = {
-      booking_code: bookingData.id,
+      booking_code: bookingCode,
       client_id: clientId,
       service_id: serviceId,
       service_type: serviceType,

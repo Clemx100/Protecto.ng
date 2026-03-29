@@ -6,6 +6,12 @@ import { shouldUseMockDatabase } from '@/lib/config/database-backup'
 export async function GET(request: NextRequest) {
   try {
     console.log('💬 Operator messages GET API called')
+
+    const authResult = await requireOperatorAuth(request)
+    if (authResult.error) {
+      console.log('❌ Unauthorized access attempt to operator messages')
+      return authResult.response
+    }
     
     // Use mock database if configured
     if (shouldUseMockDatabase()) {
@@ -21,17 +27,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ messages })
     }
     
-    // ✅ SECURITY: Verify operator authentication (dev-tolerant)
-    const authResult = await requireOperatorAuth(request)
-    if (authResult.error) {
-      console.log('❌ Unauthorized access attempt to operator messages')
-      console.log('🔄 Dev bypass: continuing without operator auth for GET (real DB)')
-    } else {
-      console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
-    }
-    
-    // Import Supabase client dynamically
-    const { createClient } = await import('@supabase/supabase-js')
+    console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
     
     // Use centralized database configuration
     const { createServiceRoleClient } = await import('@/lib/config/database')
@@ -65,7 +61,7 @@ export async function GET(request: NextRequest) {
       console.log('✅ Found booking UUID:', actualBookingId)
     }
 
-    // Get messages for the booking
+    // Get messages for the booking (limit for faster response)
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
       .select(`
@@ -79,6 +75,7 @@ export async function GET(request: NextRequest) {
       `)
       .eq('booking_id', actualBookingId)
       .order('created_at', { ascending: true })
+      .limit(300)
 
     if (messagesError) {
       console.error('Error fetching messages:', messagesError)
@@ -113,10 +110,10 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json({
-      success: true,
-      data: transformedMessages
-    })
+    return NextResponse.json(
+      { success: true, data: transformedMessages },
+      { headers: { 'Cache-Control': 'private, max-age=15, stale-while-revalidate=30' } }
+    )
 
   } catch (error) {
     console.error('Operator messages API error:', error)
@@ -128,17 +125,12 @@ export async function POST(request: NextRequest) {
   try {
     console.log('💬 Operator messages POST API called')
     
-    // ✅ SECURITY: Verify operator authentication (dev-tolerant)
     const authResult = await requireOperatorAuth(request)
     if (authResult.error) {
       console.log('❌ Unauthorized access attempt to send operator message')
-      console.log('🔄 Dev bypass: continuing without operator auth for POST (real DB)')
-    } else {
-      console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
+      return authResult.response
     }
-    
-    // Import Supabase client dynamically
-    const { createClient } = await import('@supabase/supabase-js')
+    console.log('✅ Operator authenticated:', { userId: authResult.userId, role: authResult.role })
     
     // Use centralized database configuration
     const { createServiceRoleClient } = await import('@/lib/config/database')
@@ -208,8 +200,6 @@ export async function POST(request: NextRequest) {
       baseData.is_system_message = true
     }
     
-    // Try different column names for message content (schema cache issue workaround)
-    const messageColumns = ['content', 'message', 'text', 'body']
     let newMessage, messageError
     let insertSuccessful = false
     

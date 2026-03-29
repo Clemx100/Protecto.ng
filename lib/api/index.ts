@@ -6,6 +6,8 @@ export { RealtimeAPI } from './realtime'
 export { PaymentsAPI } from './payments'
 export { AdminAPI } from './admin'
 export { AdminAnalyticsAPI } from './admin-analytics'
+export { SuperAdminAPI } from './super-admin'
+export type { SuperAdminStats, TrackingResponse } from './super-admin'
 
 // Re-export types
 export type {
