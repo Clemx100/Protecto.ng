@@ -276,7 +276,7 @@ function HomePageContent() {
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 max-w-4xl mx-auto">
             <div className="text-center">
-              <div className="text-3xl font-bold text-blue-400">25+</div>
+              <div className="text-3xl font-bold text-blue-400">76+</div>
               <div className="text-gray-300 text-sm">Successful Missions</div>
             </div>
             <div className="text-center">
@@ -284,7 +284,7 @@ function HomePageContent() {
               <div className="text-gray-300 text-sm">Emergency Response</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-purple-400">8+</div>
+              <div className="text-3xl font-bold text-purple-400">89+</div>
               <div className="text-gray-300 text-sm">Trained Agents</div>
             </div>
             <div className="text-center">
