@@ -1,9 +1,10 @@
 import { readFile } from "fs/promises"
+import path from "path"
 import { NextResponse } from "next/server"
 
 export const dynamic = "force-dynamic"
 
-const REQUIREMENTS_PDF_PATH = "C:\\Users\\Mx01\\Downloads\\Red and White Modern Letterhead .pdf"
+const REQUIREMENTS_PDF_PATH = path.join(process.cwd(), "public", "documents", "vehicle-requirements.pdf")
 const REQUIREMENTS_PDF_FILENAME = "vehicle-requirements.pdf"
 
 export async function GET() {
