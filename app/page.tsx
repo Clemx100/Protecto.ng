@@ -36,6 +36,7 @@ const REQUEST_PHONE = "+2347120005328"
 const REQUEST_WEBSITE = "https://www.protector.ng/app"
 const REGISTER_VEHICLE_WHATSAPP_URL = "https://wa.me/2348131074911"
 const REQUIREMENTS_PDF_URL = "/api/requirements-pdf"
+const AFFILIATE_AGENT_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfANJ6wGjaIngesAFuBeJGxfnF7G39a4yWM2nlh6L0fFuT4Xg/viewform?usp=publish-editor"
 
 const HERO_SLIDES = [
   "/images/PRADO/slideshow/lexus-lx570-gallery-1.webp",
@@ -140,6 +141,7 @@ function HomePageContent() {
               <a href="#services" className="text-gray-300 hover:text-white transition-colors">Services</a>
               <a href="#about" className="text-gray-300 hover:text-white transition-colors">About</a>
               <a href="#vehicle-owners" className="text-gray-300 hover:text-white transition-colors">Vehicle Owners</a>
+              <a href="#affiliate-agent" className="text-gray-300 hover:text-white transition-colors">Affiliate Agent</a>
               <a href="#contact" className="text-gray-300 hover:text-white transition-colors">Contact</a>
             </nav>
 
@@ -179,6 +181,7 @@ function HomePageContent() {
                 <a href="#services" className="text-gray-300 hover:text-white transition-colors py-2">Services</a>
                 <a href="#about" className="text-gray-300 hover:text-white transition-colors py-2">About</a>
                 <a href="#vehicle-owners" className="text-gray-300 hover:text-white transition-colors py-2">Vehicle Owners</a>
+                <a href="#affiliate-agent" className="text-gray-300 hover:text-white transition-colors py-2">Affiliate Agent</a>
                 <a href="#contact" className="text-gray-300 hover:text-white transition-colors py-2">Contact</a>
                 <button
                   id="mobileDownloadBtn"
@@ -761,6 +764,57 @@ function HomePageContent() {
                 <p className="text-gray-300 mb-2">₦550,000 - ₦700,000+</p>
                 <p className="text-sm text-gray-400">Per 8-hour mission</p>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Affiliate Agent Section */}
+      <section id="affiliate-agent" className="py-16 md:py-24 bg-white/5">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+              Affiliate Agent Program
+            </h2>
+            <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+              Join our affiliate agent network and earn by connecting qualified clients to Protector.Ng services.
+              Registration is simple and takes only a few minutes.
+            </p>
+          </div>
+
+          <div className="max-w-3xl mx-auto bg-white/10 rounded-xl p-8 border border-white/20">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <div className="flex items-start space-x-3">
+                <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
+                <p className="text-gray-300">Earn commissions on successful referrals</p>
+              </div>
+              <div className="flex items-start space-x-3">
+                <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
+                <p className="text-gray-300">Represent a trusted executive protection brand</p>
+              </div>
+              <div className="flex items-start space-x-3">
+                <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
+                <p className="text-gray-300">Flexible work with scalable income potential</p>
+              </div>
+              <div className="flex items-start space-x-3">
+                <CheckCircle className="h-5 w-5 text-green-400 mt-1 flex-shrink-0" />
+                <p className="text-gray-300">Fast onboarding through our registration form</p>
+              </div>
+            </div>
+
+            <div className="text-center">
+              <a
+                href={AFFILIATE_AGENT_FORM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-blue-600 hover:bg-blue-700 text-white text-lg font-semibold rounded-lg transition-colors"
+              >
+                <Users className="h-5 w-5" />
+                Register as Affiliate Agent
+              </a>
+              <p className="text-sm text-gray-400 mt-4">
+                You will be redirected to our official Google Form to complete registration.
+              </p>
             </div>
           </div>
         </div>
