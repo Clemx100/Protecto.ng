@@ -31,12 +31,33 @@ import {
 } from "lucide-react"
 
 const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=co.median.android.krmyrmj&pcampaignid=web_share"
-const REQUEST_EMAIL = "info@protector.ng"
+const REQUEST_EMAIL_RECIPIENTS = "info@protector.ng,operator@gmail.com"
 const REQUEST_PHONE = "+2347120005328"
 const REQUEST_WEBSITE = "https://www.protector.ng/app"
 const REGISTER_VEHICLE_WHATSAPP_URL = "https://wa.me/2348131074911"
 const REQUIREMENTS_PDF_URL = "/api/requirements-pdf"
 const AFFILIATE_AGENT_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfANJ6wGjaIngesAFuBeJGxfnF7G39a4yWM2nlh6L0fFuT4Xg/viewform?usp=publish-editor"
+const REQUEST_MAIL_BODY = [
+  "Hello Protector Team,",
+  "",
+  "I want to book protection service.",
+  "",
+  "Name: ",
+  "Email: ",
+  "Phone: ",
+  "Service: ",
+  "Pickup: ",
+  "Destination: ",
+  "Preferred Date: ",
+  "Preferred Time: ",
+  "Booking Reference: ",
+  "Referral Code: ",
+  "Referral Discount: 30% (applies with valid referral code)",
+  "",
+  "Please contact me to confirm pricing and deployment details.",
+  "",
+  "Thank you."
+].join("\n")
 
 const HERO_SLIDES = [
   "/images/PRADO/slideshow/lexus-lx570-gallery-1.webp",
@@ -986,12 +1007,15 @@ function HomePageContent() {
             <p className="text-gray-300 text-sm mb-6">Get in touch via mail, call, or our app.</p>
             <div className="space-y-3">
               <a
-                href={`mailto:${REQUEST_EMAIL}?subject=Protection%20Request`}
+                href={`mailto:${REQUEST_EMAIL_RECIPIENTS}?subject=${encodeURIComponent("Book Protection Request")}&body=${encodeURIComponent(REQUEST_MAIL_BODY)}`}
                 className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors"
               >
                 <Mail className="h-5 w-5 flex-shrink-0" />
-                <span>Send us mail</span>
+                <span>Book via Mail</span>
               </a>
+              <p className="text-xs text-blue-200 text-center">
+                Add your referral code in the email to get 30% discount.
+              </p>
               <a
                 href={`tel:${REQUEST_PHONE.replace(/\s/g, "")}`}
                 className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors"

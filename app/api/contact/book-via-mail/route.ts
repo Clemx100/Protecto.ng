@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 export const runtime = "nodejs"
 
-const OPERATOR_EMAIL = process.env.BOOKING_OPERATOR_EMAIL || "operator@protector.ng"
+const OPERATOR_EMAIL = "operator@protector.ng"
 
 type BookViaMailPayload = {
   fullName?: string
@@ -48,10 +48,9 @@ function getSmtpConfig() {
   const host = process.env.SMTP_HOST
   const user = process.env.SMTP_USER
   const pass = process.env.SMTP_PASS
-  const from = process.env.SMTP_FROM
   const port = Number(process.env.SMTP_PORT || 587)
 
-  if (!host || !user || !pass || !from) {
+  if (!host || !user || !pass) {
     return null
   }
 
@@ -62,8 +61,7 @@ function getSmtpConfig() {
     auth: {
       user,
       pass
-    },
-    from
+    }
   }
 }
 
@@ -106,7 +104,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Mail service is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, and SMTP_FROM."
+            "Mail service is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS."
         },
         { status: 503 }
       )
@@ -153,10 +151,15 @@ export async function POST(request: NextRequest) {
       <pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(message)}</pre>
     `
 
+    const fromAddress = OPERATOR_EMAIL
+    const toAddress = OPERATOR_EMAIL
+    const replyToAddress = email || undefined
+
     await transporter.sendMail({
-      from: smtp.from,
-      to: OPERATOR_EMAIL,
-      replyTo: email || undefined,
+      // Send from the connected operator mailbox to avoid sender identity rejection.
+      from: fromAddress,
+      to: toAddress,
+      replyTo: replyToAddress,
       subject,
       text: messageText,
       html: messageHtml
