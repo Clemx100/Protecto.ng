@@ -19,6 +19,7 @@ import {
   notifyRealtimeEvent,
   requestNotificationPermissionIfNeeded,
 } from "@/lib/utils/realtime-notifications"
+import { registerPushSubscription } from "@/lib/utils/push-subscriptions"
 
 const GOOGLE_PLACES_LIBRARIES: ("places")[] = ["places"]
 
@@ -165,6 +166,23 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   }, [authStep])
 
   useEffect(() => {
+    const formatTime = () =>
+      new Date().toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      })
+
+    setHeroTimeLabel(formatTime())
+    const timerId = window.setInterval(() => {
+      setHeroTimeLabel(formatTime())
+    }, 30000)
+
+    return () => {
+      window.clearInterval(timerId)
+    }
+  }, [])
+
+  useEffect(() => {
     return () => {
       if (pickupSuggestionTimeoutRef.current) clearTimeout(pickupSuggestionTimeoutRef.current)
       if (destinationSuggestionTimeoutRef.current) clearTimeout(destinationSuggestionTimeoutRef.current)
@@ -275,6 +293,9 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   const pickupSuggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const destinationSuggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const extraStopSuggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const foregroundCityWatchRef = useRef<number | null>(null)
+  const lastForegroundCityCheckRef = useRef(0)
+  const cityEntryInFlightRef = useRef(false)
   const latestPickupQueryRef = useRef("")
   const latestDestinationQueryRef = useRef("")
   const latestExtraStopQueryRef = useRef("")
@@ -284,6 +305,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   const [showCustomDurationInput, setShowCustomDurationInput] = useState(false)
 
   const [userLocation, setUserLocation] = useState("Lagos")
+  const [heroTimeLabel, setHeroTimeLabel] = useState("")
   
   // Contact and Cancel booking states
   const [showContactModal, setShowContactModal] = useState(false)
@@ -1070,9 +1092,67 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
 
   useEffect(() => {
     if (!user?.id) return
-    requestNotificationPermissionIfNeeded().catch((error) => {
-      console.warn("Unable to request notification permission:", error)
-    })
+
+    let cancelled = false
+    const setupNotifications = async () => {
+      try {
+        const permission = await requestNotificationPermissionIfNeeded()
+        if (cancelled || permission !== "granted") return
+
+        const registrationResult = await registerPushSubscription()
+        if (!registrationResult.ok) {
+          console.warn(
+            "Push subscription setup skipped:",
+            "reason" in registrationResult ? registrationResult.reason : "unknown_reason",
+          )
+        }
+      } catch (error) {
+        console.warn("Unable to setup notification permission/subscription:", error)
+      }
+    }
+
+    void setupNotifications()
+
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !navigator.geolocation) return
+
+    const handlePosition = (position: GeolocationPosition) => {
+      const latitude = Number(position?.coords?.latitude)
+      const longitude = Number(position?.coords?.longitude)
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+
+      void maybeNotifyCityEntry({
+        latitude,
+        longitude,
+        source: "foreground-geolocation-watch",
+      })
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      handlePosition,
+      (error) => {
+        console.warn("Foreground city watcher geolocation error:", error?.message || error)
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 20000,
+        maximumAge: 180000,
+      },
+    )
+
+    foregroundCityWatchRef.current = watchId
+
+    return () => {
+      if (foregroundCityWatchRef.current !== null) {
+        navigator.geolocation.clearWatch(foregroundCityWatchRef.current)
+        foregroundCityWatchRef.current = null
+      }
+    }
   }, [user?.id])
   
   // Refresh bookings when switching to bookings tab
@@ -4500,10 +4580,243 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     }, 300)
   }
 
+  const CITY_NOTIFICATION_COOLDOWN_MS = 6 * 60 * 60 * 1000
+  const CITY_CHECK_MIN_INTERVAL_MS = 2 * 60 * 1000
+
+  const getNearestSupportedCity = (latitude?: number | null, longitude?: number | null) => {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null
+    }
+
+    const toRadians = (value: number) => (value * Math.PI) / 180
+    const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+      const earthRadiusKm = 6371
+      const dLat = toRadians(lat2 - lat1)
+      const dLng = toRadians(lng2 - lng1)
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRadians(lat1)) *
+          Math.cos(toRadians(lat2)) *
+          Math.sin(dLng / 2) *
+          Math.sin(dLng / 2)
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+      return earthRadiusKm * c
+    }
+
+    let bestCity: string | null = null
+    let bestDistance = Number.POSITIVE_INFINITY
+
+    for (const city of cities) {
+      const distance = distanceKm(latitude as number, longitude as number, city.coordinates.lat, city.coordinates.lng)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        bestCity = city.name
+      }
+    }
+
+    return bestDistance <= 120 ? bestCity : null
+  }
+
+  const resolveCityFromSignal = ({
+    city,
+    address,
+    latitude,
+    longitude,
+  }: {
+    city?: string | null
+    address?: string | null
+    latitude?: number | null
+    longitude?: number | null
+  }) => {
+    const fromBody = city?.trim()
+    if (fromBody) return fromBody
+
+    const normalizedAddress = (address || "").toLowerCase()
+    if (normalizedAddress.includes("port harcourt") || normalizedAddress.includes("port-harcourt")) {
+      return "Port Harcourt"
+    }
+    if (normalizedAddress.includes("abuja")) {
+      return "Abuja"
+    }
+    if (normalizedAddress.includes("lagos")) {
+      return "Lagos"
+    }
+
+    return getNearestSupportedCity(latitude, longitude)
+  }
+
+  const syncDisplayedCity = (candidateCity?: string | null) => {
+    const normalizedCandidate = candidateCity?.trim().toLowerCase()
+    if (!normalizedCandidate) return
+
+    const matchedCity = cities.find((city) => city.name.toLowerCase() === normalizedCandidate)
+    if (!matchedCity) return
+
+    setUserLocation((prev) => (prev === matchedCity.name ? prev : matchedCity.name))
+    setSelectedCity((prev) => (prev === matchedCity.name ? prev : matchedCity.name))
+  }
+
+  const maybeNotifyCityEntry = async ({
+    city,
+    latitude,
+    longitude,
+    address,
+    source,
+    force = false,
+  }: {
+    city?: string | null
+    latitude?: number | null
+    longitude?: number | null
+    address?: string | null
+    source: string
+    force?: boolean
+  }) => {
+    if (typeof window === "undefined") return
+
+    const resolvedCity = resolveCityFromSignal({ city, address, latitude, longitude })
+    if (!resolvedCity) return
+    syncDisplayedCity(resolvedCity)
+
+    if (!user?.id) return
+    if (cityEntryInFlightRef.current) return
+
+    const now = Date.now()
+    if (!force && now - lastForegroundCityCheckRef.current < CITY_CHECK_MIN_INTERVAL_MS) {
+      return
+    }
+
+    const localStorageKey = `protector-security-last-city-${user.id}`
+    try {
+      const cachedRaw = localStorage.getItem(localStorageKey)
+      if (cachedRaw && !force) {
+        const cached = JSON.parse(cachedRaw) as { city?: string; ts?: number } | null
+        if (
+          cached?.city &&
+          cached.city.toLowerCase() === resolvedCity.toLowerCase() &&
+          typeof cached.ts === "number" &&
+          now - cached.ts < CITY_NOTIFICATION_COOLDOWN_MS
+        ) {
+          return
+        }
+      }
+    } catch {
+      // Ignore local storage parsing issues.
+    }
+
+    lastForegroundCityCheckRef.current = now
+    cityEntryInFlightRef.current = true
+
+    try {
+      const response = await fetch("/api/notifications/security/city-entry", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          city: resolvedCity,
+          latitude,
+          longitude,
+          address,
+          source,
+          force,
+        }),
+      })
+
+      if (!response.ok) {
+        return
+      }
+
+      const result = await response.json().catch(() => null)
+      const shouldCache =
+        result?.sent === true ||
+        result?.reason === "duplicate_city_welcome" ||
+        result?.reason === "city_welcome_disabled"
+      if (shouldCache) {
+        localStorage.setItem(localStorageKey, JSON.stringify({ city: resolvedCity, ts: now }))
+      }
+
+      if (!result?.sent) {
+        return
+      }
+
+      const notificationTitle = result?.notification?.title || `Welcome to ${resolvedCity}`
+      const notificationMessage =
+        result?.notification?.message || "Security updates are available for your current city."
+      notifyRealtimeEvent({
+        title: notificationTitle,
+        description: truncateNotificationText(notificationMessage),
+        tag: `city-entry-${resolvedCity.toLowerCase().replace(/\s+/g, "-")}`,
+      })
+
+      const nearestPlace = Array.isArray(result?.nearbyPlaces) ? result.nearbyPlaces[0] : null
+      if (nearestPlace?.name) {
+        notifyRealtimeEvent({
+          title: `Nearest police location in ${resolvedCity}`,
+          description: truncateNotificationText(`${nearestPlace.name} - ${nearestPlace.address || "Address unavailable"}`),
+          tag: `city-nearest-police-${resolvedCity.toLowerCase().replace(/\s+/g, "-")}`,
+        })
+      }
+    } catch (error) {
+      console.warn("City-entry fallback notification failed:", error)
+    } finally {
+      cityEntryInFlightRef.current = false
+    }
+  }
+
+  const maybeRequestDailySecurityTip = async () => {
+    if (!user?.id || typeof window === "undefined") return
+
+    const todayKey = new Date().toISOString().split("T")[0]
+    const localStorageKey = `protector-security-daily-tip-${user.id}`
+    if (localStorage.getItem(localStorageKey) === todayKey) {
+      return
+    }
+
+    try {
+      const response = await fetch("/api/notifications/security/daily-tip", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          source: "foreground-daily-check",
+        }),
+      })
+
+      if (!response.ok) {
+        return
+      }
+
+      const result = await response.json().catch(() => null)
+      localStorage.setItem(localStorageKey, todayKey)
+
+      if (result?.sent && result?.notification) {
+        notifyRealtimeEvent({
+          title: result.notification.title || "Daily Security Tip",
+          description: truncateNotificationText(
+            result.notification.message || "Security awareness tip available.",
+          ),
+          tag: "daily-security-tip-foreground",
+        })
+      }
+    } catch (error) {
+      console.warn("Daily tip check failed:", error)
+    }
+  }
+
+  useEffect(() => {
+    if (!user?.id) return
+    void maybeRequestDailySecurityTip()
+  }, [user?.id])
+
   const getCurrentLocation = async (isAutomatic = false) => {
     setIsLoadingLocation(true)
 
-    const applyPickupFromCoordinates = async (latitude: number, longitude: number) => {
+    const applyPickupFromCoordinates = async (
+      latitude: number,
+      longitude: number,
+      source: string,
+    ) => {
       setDetectedPickupCoordinates({ lat: latitude, lng: longitude })
       const reverseGeocodeResult = await GeocodingService.reverseGeocode(latitude, longitude)
       const resolvedAddress =
@@ -4513,6 +4826,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       setPickupLocation(resolvedAddress)
       setShowLocationSuggestions(false)
       setLocationSuggestions([])
+
+      void maybeNotifyCityEntry({
+        city: reverseGeocodeResult?.address?.city || reverseGeocodeResult?.address?.state || null,
+        latitude,
+        longitude,
+        address: resolvedAddress,
+        source,
+      })
     }
 
     const fallbackToSelectedCity = async () => {
@@ -4524,6 +4845,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       await applyPickupFromCoordinates(
         selectedCityConfig.coordinates.lat,
         selectedCityConfig.coordinates.lng,
+        "selected-city-fallback",
       )
       return true
     }
@@ -4549,7 +4871,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       const { latitude, longitude } = position.coords
       const accuracy = position.coords.accuracy
       console.log("GPS coordinates:", latitude, longitude, "accuracy ~", accuracy, "m")
-      await applyPickupFromCoordinates(latitude, longitude)
+      await applyPickupFromCoordinates(
+        latitude,
+        longitude,
+        isAutomatic ? "foreground-auto-geolocation" : "manual-current-location",
+      )
     } catch (error) {
       console.error("Error getting location:", error)
       const didFallback = await fallbackToSelectedCity()
@@ -5073,6 +5399,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               </div>
             </>
           )}
+          <div className="text-right">
+            <p className="text-[11px] text-blue-200/90 leading-none">
+              {heroTimeLabel || "--:--"} {userLocation}
+            </p>
+          </div>
         </div>
       </header>
 

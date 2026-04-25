@@ -11,6 +11,7 @@ This directory contains all the necessary SQL scripts to set up the Protector.Ng
 
 ### Setup Scripts
 - **`setup_database.sql`** - Complete setup script that runs all other scripts
+- **`add_security_notifications_schema.sql`** - Adds security notification preferences, push subscriptions, and metadata fields
 - **`README.md`** - This documentation file
 
 ## Database Schema

@@ -5,8 +5,7 @@ const DYNAMIC_CACHE = CACHE_VERSION + '-dynamic';
 
 // Static assets that can be cached long-term
 const staticAssets = [
-  '/icons/icon-192x192.svg',
-  '/icons/icon-512x512.svg',
+  '/images/PRADO/slideshow/logo.PNG',
   '/manifest.json'
 ];
 
@@ -84,7 +83,8 @@ self.addEventListener('fetch', (event) => {
     request.destination === 'font' ||
     request.destination === 'manifest' ||
     url.pathname.startsWith('/icons/') ||
-    url.pathname.match(/\.(png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/);
+    url.pathname.startsWith('/images/') ||
+    url.pathname.match(/\.(png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf|eot)$/i);
 
   if (isStaticAsset) {
     // CACHE-FIRST strategy for static assets (images, icons, fonts)
@@ -163,52 +163,79 @@ async function doBackgroundSync() {
   // You can implement offline queue processing here
 }
 
-// Push notifications (for future use)
+function parsePushPayload(event) {
+  if (!event.data) return {}
+
+  try {
+    return event.data.json()
+  } catch (jsonError) {
+    try {
+      return { body: event.data.text() }
+    } catch {
+      return {}
+    }
+  }
+}
+
+// Push notifications
 self.addEventListener('push', (event) => {
-  if (event.data) {
-    const data = event.data.json();
-    console.log('Service Worker: Push notification received', data);
-    
-    const options = {
-      body: data.body,
-      icon: '/icons/icon-192x192.svg',
-      badge: '/icons/icon-72x72.svg',
-      vibrate: [100, 50, 100],
-      data: {
-        dateOfArrival: Date.now(),
-        primaryKey: 1
-      },
-      actions: [
-        {
-          action: 'explore',
-          title: 'View Details',
-          icon: '/icons/icon-192x192.svg'
-        },
-        {
-          action: 'close',
-          title: 'Close',
-          icon: '/icons/icon-192x192.svg'
-        }
-      ]
-    };
+  const data = parsePushPayload(event)
+  console.log('Service Worker: Push notification received', data)
 
-    event.waitUntil(
-      self.registration.showNotification(data.title, options)
-    );
+  const title = data.title || 'Protector.Ng Security Alert'
+  const targetUrl = data.url || data?.data?.url || '/app?tab=account'
+  const options = {
+    body: data.body || 'A new security update is available.',
+    icon: data.icon || '/images/PRADO/slideshow/logo.PNG',
+    badge: data.badge || '/images/PRADO/slideshow/logo.PNG',
+    tag: data.tag || 'protector-security-alert',
+    vibrate: [120, 60, 120],
+    data: {
+      ...data.data,
+      url: targetUrl,
+      receivedAt: Date.now()
+    },
+    actions: Array.isArray(data.actions) && data.actions.length > 0
+      ? data.actions
+      : [
+          { action: 'open', title: 'Open App' },
+          { action: 'close', title: 'Dismiss' }
+        ]
   }
-});
 
-// Notification click handler
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+// Notification click handler with deep-link support
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
+  event.notification.close()
 
-  if (event.action === 'explore') {
-    // Open the app
-    event.waitUntil(
-      clients.openWindow('/')
-    );
+  if (event.action === 'close') {
+    return
   }
-});
+
+  const targetUrl = event.notification?.data?.url || '/app?tab=account'
+  event.waitUntil((async () => {
+    const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true })
+    const absoluteTargetUrl = new URL(targetUrl, self.location.origin).href
+
+    for (const client of allClients) {
+      if (!('focus' in client)) continue
+
+      try {
+        if ('navigate' in client && typeof client.navigate === 'function') {
+          await client.navigate(absoluteTargetUrl)
+        }
+      } catch (error) {
+        console.warn('Service Worker: navigate failed, trying focus only', error)
+      }
+
+      return client.focus()
+    }
+
+    return clients.openWindow(absoluteTargetUrl)
+  })())
+})
 
 // Message listener - handle cache clearing requests from app
 self.addEventListener('message', async (event) => {

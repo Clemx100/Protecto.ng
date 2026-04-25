@@ -6,7 +6,7 @@ interface RealtimeNotificationOptions {
   tag?: string
 }
 
-const DEFAULT_NOTIFICATION_ICON = "/icons/icon-192x192.svg"
+const DEFAULT_NOTIFICATION_ICON = "/images/PRADO/slideshow/logo.PNG"
 
 const hasBrowserNotificationSupport = (): boolean =>
   typeof window !== "undefined" && "Notification" in window
