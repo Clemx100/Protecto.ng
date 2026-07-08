@@ -8,6 +8,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { RouteCalculationService, RoutePoint } from '@/lib/services/route-calculation'
 import LoadingLogo from "@/components/loading-logo"
+import { getMapShellClass, type MapShellVariant } from "@/lib/utils/map-shell"
 
 // Fix for default marker icons in Next.js
 if (typeof window !== 'undefined') {
@@ -32,6 +33,7 @@ interface LeafletMapInternalProps {
   bookingLocationsMap: Map<string, { lat: number; lng: number }>
   locationHistory?: { lat: number; lng: number; timestamp: number }[]
   currentSpeed?: number // in km/h
+  variant?: MapShellVariant
 }
 
 const toFiniteNumber = (value: unknown): number | null => {
@@ -55,7 +57,8 @@ export default function LeafletMapInternal({
   booking, 
   bookingLocationsMap, 
   locationHistory = [],
-  currentSpeed 
+  currentSpeed,
+  variant = "embedded",
 }: LeafletMapInternalProps) {
   const [pickupCoords, setPickupCoords] = useState<RoutePoint | null>(null)
   const [destinationCoords, setDestinationCoords] = useState<RoutePoint | null>(null)
@@ -191,10 +194,12 @@ export default function LeafletMapInternal({
 
     window.open(url, "_blank", "noopener,noreferrer")
   }
+
+  const mapShellClass = getMapShellClass(variant)
   
   if (isLoading) {
     return (
-      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+      <div className={mapShellClass}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
           <LoadingLogo fullscreen={false} label="Loading map..." />
         </div>
@@ -204,7 +209,7 @@ export default function LeafletMapInternal({
 
   if (!pickupCoords && !currentLocation) {
     return (
-      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+      <div className={mapShellClass}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
           <div className="text-center space-y-2 px-4">
             <p className="text-white text-sm font-medium">Location unavailable</p>
@@ -216,7 +221,7 @@ export default function LeafletMapInternal({
   }
   
   return (
-    <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+    <div className={mapShellClass}>
       {/* Map Info Overlay */}
       <div className="absolute top-2 left-2 z-[1000] bg-black/70 text-white text-xs px-2 py-1 rounded space-y-1">
         {routeDistance > 0 && (
@@ -238,7 +243,7 @@ export default function LeafletMapInternal({
         center={getMapCenter()}
         zoom={13}
         style={{ height: '100%', width: '100%' }}
-        className="rounded-lg"
+        className={variant === "hero" ? "" : "rounded-lg"}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'

@@ -142,7 +142,7 @@ export async function GET(request: NextRequest) {
       message_type: msg.message_type || 'text',
       metadata: msg.metadata,
       has_invoice: msg.message_type === 'invoice' || msg.has_invoice,
-      invoice_data: msg.invoice_data || msg.metadata,
+      invoice_data: msg.message_type === 'invoice' ? (msg.invoice_data || msg.metadata) : undefined,
       is_system_message: msg.message_type === 'system',
       is_read: false,
       status: 'sent',
@@ -191,6 +191,7 @@ export async function POST(request: NextRequest) {
       messageType = 'text',
       hasInvoice = false,
       invoiceData = null,
+      metadata = null,
       isSystemMessage = false
     } = body
 
@@ -295,8 +296,8 @@ export async function POST(request: NextRequest) {
     };
 
     // Add optional fields if provided
-    if (invoiceData) {
-      messageData.metadata = invoiceData
+    if (metadata || invoiceData) {
+      messageData.metadata = metadata || invoiceData
     }
 
     // Try inserting with current schema

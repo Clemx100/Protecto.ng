@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, type ReactNode } from "react"
 import { useRouter } from "next/navigation"
 import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -1590,7 +1590,7 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
     const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate()
     const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay()
 
-    const days = []
+    const days: ReactNode[] = []
 
     // Add empty cells for days before the first day of the month
     for (let i = 0; i < firstDayOfMonth; i++) {
@@ -2774,16 +2774,14 @@ Submitted: ${new Date(payload.timestamp).toLocaleString()}`
             {((bookingStep === 5 && selectedService === "armed-protection") ||
               (bookingStep === 4 && selectedService === "car-only")) && (
               <div className="space-y-6">
-                <div className="text-center space-y-2">
-                  <h2 className="text-xl font-semibold text-white">
-                    {selectedService === "car-only" ? "Customize Your Fleet" : "Customize Your Motorcade"}
-                  </h2>
-                  <p className="text-gray-400">
-                    {selectedService === "car-only"
-                      ? "Select your preferred vehicles and transportation options."
-                      : "Each car comes with a dedicated driver for the duration of your protection. Based on your booking detail, you will require 1 car."}
-                  </p>
-                </div>
+                {selectedService === "armed-protection" && (
+                  <div className="text-center space-y-2">
+                    <h2 className="text-xl font-semibold text-white">Customize Your Motorcade</h2>
+                    <p className="text-gray-400">
+                      Each car comes with a dedicated driver for the duration of your protection. Based on your booking detail, you will require 1 car.
+                    </p>
+                  </div>
+                )}
 
                 {selectedService === "car-only" && (
                   <div className="space-y-4">

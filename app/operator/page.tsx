@@ -1,19 +1,33 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import OperatorDashboard from "@/components/operator-dashboard"
 import OperatorLogin from "@/components/operator-login"
 import { createClient } from "@/lib/supabase/client"
 import LoadingLogo from "@/components/loading-logo"
 
+const OPERATOR_AUTH_TIMEOUT_MS = 12000
+
 export default function OperatorPage() {
   const [user, setUser] = useState<any>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const supabase = createClient()
+  const supabaseRef = useRef<any>(null)
+  if (!supabaseRef.current) {
+    supabaseRef.current = createClient()
+  }
+  const supabase = supabaseRef.current
 
   useEffect(() => {
+    let isMounted = true
+
     // Check if user is already logged in
     const checkUser = async () => {
+      const loadingFailSafe = setTimeout(() => {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }, OPERATOR_AUTH_TIMEOUT_MS)
+
       try {
         const { data: { session } } = await supabase.auth.getSession()
         if (session?.user) {
@@ -22,16 +36,23 @@ export default function OperatorPage() {
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
-            .single()
+            .maybeSingle()
 
           if (profile && (profile.role === 'admin' || profile.role === 'agent' || profile.role === 'operator')) {
-            setUser(session.user)
+            if (isMounted) setUser(session.user)
+          } else {
+            if (isMounted) setUser(null)
           }
+        } else {
+          if (isMounted) setUser(null)
         }
       } catch (error) {
         console.error('Error checking user:', error)
       } finally {
-        setIsLoading(false)
+        clearTimeout(loadingFailSafe)
+        if (isMounted) {
+          setIsLoading(false)
+        }
       }
     }
 
@@ -39,6 +60,7 @@ export default function OperatorPage() {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!isMounted) return
       if (session?.user) {
         // Check user role
         supabase
@@ -47,6 +69,7 @@ export default function OperatorPage() {
           .eq('id', session.user.id)
           .single()
           .then(({ data: profile }) => {
+            if (!isMounted) return
             if (profile && (profile.role === 'admin' || profile.role === 'agent' || profile.role === 'operator')) {
               setUser(session.user)
             } else {
@@ -58,8 +81,11 @@ export default function OperatorPage() {
       }
     })
 
-    return () => subscription.unsubscribe()
-  }, [supabase])
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
+  }, [])
 
   const handleLoginSuccess = (user: any) => {
     setUser(user)

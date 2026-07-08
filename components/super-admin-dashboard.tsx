@@ -18,7 +18,8 @@ import {
   TrendingUp,
   Search,
   UserCog,
-  Square
+  Square,
+  Building2
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -42,6 +43,7 @@ import { SuperAdminAPI, type SuperAdminStats } from "@/lib/api"
 import { createClient } from "@/lib/supabase/client"
 import LoadingLogo from "@/components/loading-logo"
 import SuperAdminMap from "@/components/super-admin-map"
+import SuperAdminCityInsights from "@/components/super-admin-city-insights"
 
 const TABS = [
   { id: "overview", label: "Overview", icon: BarChart3 },
@@ -49,6 +51,7 @@ const TABS = [
   { id: "vehicles", label: "Vehicles", icon: Car },
   { id: "trips", label: "Trips", icon: Calendar },
   { id: "map", label: "Live Map", icon: MapPin },
+  { id: "city-cards", label: "City Cards", icon: Building2 },
   { id: "drone", label: "Drone View", icon: Video }
 ] as const
 
@@ -405,7 +408,7 @@ export default function SuperAdminDashboard() {
             <Shield className="h-8 w-8 text-amber-500" />
             <div>
               <h1 className="text-xl font-bold">Super Admin</h1>
-              <p className="text-sm text-slate-400">Protector.Ng — Oversight & Control</p>
+              <p className="text-sm text-slate-400">Protector.Ng Marketplace — Oversight & Control</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -778,6 +781,8 @@ export default function SuperAdminDashboard() {
                     <SelectItem value="all">All status</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="accepted">Accepted</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                    <SelectItem value="ready_for_dispatch">Ready for dispatch</SelectItem>
                     <SelectItem value="en_route">En route</SelectItem>
                     <SelectItem value="arrived">Arrived</SelectItem>
                     <SelectItem value="in_service">In service</SelectItem>
@@ -915,6 +920,15 @@ export default function SuperAdminDashboard() {
               height="600px"
             />
           </div>
+        )}
+
+        {activeTab === "city-cards" && (
+          <SuperAdminCityInsights
+            onMessage={({ error: err, success: ok }) => {
+              if (err) setError(err)
+              if (ok) setSuccess(ok)
+            }}
+          />
         )}
 
         {activeTab === "drone" && (

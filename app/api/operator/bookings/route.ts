@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireOperatorAuth } from '@/lib/auth/operatorAuth'
 import { fallbackAuth } from '@/lib/services/fallbackAuth'
 import { shouldUseMockDatabase } from '@/lib/config/database-backup'
+import {
+  getListingSchemaMissingMessage,
+  isListingSchemaMissingError,
+  LISTING_SCHEMA_MIGRATION_SCRIPT,
+} from '@/lib/utils/listing-schema'
 
 export async function GET(request: NextRequest) {
   try {
@@ -31,27 +36,44 @@ export async function GET(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // Get all bookings with client details
-    const { data: bookings, error: bookingsError } = await supabase
+    const baseSelect = `
+      *,
+      client:profiles!bookings_client_id_fkey(
+        id,
+        first_name,
+        last_name,
+        email,
+        phone
+      ),
+      service:services(
+        id,
+        name,
+        description,
+        base_price,
+        price_per_hour
+      )
+    `
+
+    let includesListingJoins = true
+    let bookingsResult = await supabase
       .from('bookings')
       .select(`
-        *,
-        client:profiles!bookings_client_id_fkey(
-          id,
-          first_name,
-          last_name,
-          email,
-          phone
-        ),
-        service:services(
-          id,
-          name,
-          description,
-          base_price,
-          price_per_hour
-        )
+        ${baseSelect},
+        vehicle_listing:vehicle_listings(*),
+        protector_listing:protector_listings(*)
       `)
       .order('created_at', { ascending: false })
+
+    if (isListingSchemaMissingError(bookingsResult.error, ['vehicle_listings', 'protector_listings'])) {
+      includesListingJoins = false
+      bookingsResult = await supabase
+        .from('bookings')
+        .select(baseSelect)
+        .order('created_at', { ascending: false })
+    }
+
+    const bookings = bookingsResult.data
+    const bookingsError = bookingsResult.error
 
     console.log('Fetched operator bookings:', bookings?.length || 0)
 
@@ -126,7 +148,12 @@ export async function GET(request: NextRequest) {
           type: booking.service_type,
           description: booking.service?.description || ''
         },
-        serviceType: booking.service_type === 'armed_protection' ? 'armed-protection' : 'vehicle-only',
+        serviceType: booking.booking_mode === 'combined'
+          ? 'combined'
+          : booking.booking_mode === 'vehicle_only'
+            ? 'vehicle-only'
+            : 'protector-only',
+        booking_mode: booking.booking_mode || 'protector_only',
         duration: `${booking.duration_hours || 1} hour(s)`,
         total_price: booking.total_price || 0,
         personnel: {
@@ -138,6 +165,9 @@ export async function GET(request: NextRequest) {
         vehicles: vehicles,
         protectionType: protectionType,
         destinationDetails: destinationDetails,
+        vehicle_listing: includesListingJoins ? booking.vehicle_listing || null : null,
+        protector_listing: includesListingJoins ? booking.protector_listing || null : null,
+        with_driver: booking.with_driver || false,
         special_instructions: booking.special_instructions || 'N/A',
         emergency_contact: booking.emergency_contact || 'N/A',
         emergency_phone: booking.emergency_phone || 'N/A',
@@ -154,7 +184,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: transformedBookings,
-      count: transformedBookings.length
+      count: transformedBookings.length,
+      ...(includesListingJoins
+        ? {}
+        : {
+            warning: `${getListingSchemaMissingMessage('vehicle_listings')} ${getListingSchemaMissingMessage('protector_listings')}`,
+            migration_required: true,
+            migration_script: LISTING_SCHEMA_MIGRATION_SCRIPT,
+          }),
     })
 
   } catch (error) {

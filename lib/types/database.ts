@@ -2,7 +2,7 @@
 // Generated from Supabase schema
 
 export type UserRole = 'client' | 'agent' | 'admin' | 'operator';
-export type BookingStatus = 'pending' | 'accepted' | 'en_route' | 'arrived' | 'in_service' | 'completed' | 'cancelled';
+export type BookingStatus = 'pending' | 'accepted' | 'paid' | 'ready_for_dispatch' | 'en_route' | 'arrived' | 'in_service' | 'completed' | 'cancelled';
 export type ServiceType = 'armed_protection' | 'unarmed_protection' | 'armored_vehicle' | 'convoy' | 'event_security';
 export type VehicleType = 'sedan' | 'suv' | 'van' | 'motorcade';
 export type DressCode = 'business_formal' | 'business_casual' | 'tactical_casual' | 'tactical_gear' | 'plainclothes';
@@ -133,6 +133,76 @@ export interface Booking {
   special_instructions?: string;
   emergency_contact?: string;
   emergency_phone?: string;
+  booking_mode?: 'vehicle_only' | 'protector_only' | 'combined';
+  vehicle_listing_id?: string;
+  protector_listing_id?: string;
+  with_driver?: boolean;
+  rental_days?: number;
+  hourly_rate?: number;
+  daily_rate?: number;
+  kyc_status?: 'pending' | 'submitted' | 'verified' | 'rejected';
+  approval_status?: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VehicleListing {
+  id: string;
+  owner_id: string;
+  title: string;
+  description?: string;
+  make: string;
+  model: string;
+  year: number;
+  type: VehicleType;
+  seats: number;
+  with_driver: boolean;
+  price_per_day: number;
+  currency: string;
+  photos: string[];
+  availability?: Record<string, any>;
+  kyc_status: 'pending' | 'submitted' | 'verified' | 'rejected';
+  approval_status: 'pending' | 'approved' | 'rejected';
+  moderation_notes?: string;
+  approved_by?: string;
+  approved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProtectorListing {
+  id: string;
+  provider_id: string;
+  display_name: string;
+  category_label: 'Protector';
+  bio?: string;
+  qualifications: string[];
+  years_experience: number;
+  hourly_rate?: number;
+  daily_rate?: number;
+  currency: string;
+  photos: string[];
+  availability?: Record<string, any>;
+  kyc_status: 'pending' | 'submitted' | 'verified' | 'rejected';
+  approval_status: 'pending' | 'approved' | 'rejected';
+  moderation_notes?: string;
+  approved_by?: string;
+  approved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListingDocument {
+  id: string;
+  listing_type: 'vehicle' | 'protector';
+  listing_id: string;
+  provider_id: string;
+  document_type: string;
+  file_url: string;
+  metadata?: Record<string, any>;
+  verification_status: 'pending' | 'verified' | 'rejected';
+  verified_by?: string;
+  verified_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -348,5 +418,24 @@ export interface CreateRatingRequest {
   agent_id: string;
   rating: number;
   review?: string;
+}
+
+export interface CityInsight {
+  id: string;
+  city_name: string;
+  city_slug: string;
+  image_url: string;
+  response_time_label: string;
+  metrics_label: string;
+  price_min: number;
+  price_max: number;
+  currency: string;
+  cta_label: string;
+  cta_url?: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
 }
 

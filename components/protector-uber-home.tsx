@@ -1,0 +1,42 @@
+"use client"
+
+import HomeGreetingCard from "@/components/home-greeting-card"
+import CityPromoCard from "@/components/city-promo-card"
+
+type ProtectorUberHomeProps = {
+  userLocation: string
+  clientName: string
+  timeLabel: string
+  onAgentClick: () => void
+  onBookVehicleClick: () => void
+  onContactCall: () => void
+  onContactMail: () => void
+  onPromoClick?: () => void
+}
+
+export default function ProtectorUberHome({
+  userLocation,
+  clientName,
+  timeLabel,
+  onAgentClick,
+  onBookVehicleClick,
+  onContactCall,
+  onContactMail,
+  onPromoClick,
+}: ProtectorUberHomeProps) {
+  return (
+    <div className="min-h-[calc(100vh-5rem)] bg-[#121212] px-4 pt-4 pb-6 space-y-5">
+      <HomeGreetingCard
+        clientName={clientName}
+        timeLabel={timeLabel}
+        userLocation={userLocation}
+        onAgentClick={onAgentClick}
+        onBookVehicleClick={onBookVehicleClick}
+        onContactCall={onContactCall}
+        onContactMail={onContactMail}
+      />
+
+      <CityPromoCard userLocation={userLocation} onClick={onPromoClick} />
+    </div>
+  )
+}

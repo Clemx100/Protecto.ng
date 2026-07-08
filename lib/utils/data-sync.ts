@@ -6,6 +6,7 @@
  */
 
 import { createClient } from '@/lib/supabase/client'
+import { BOOKING_RELATION_SELECT } from '@/lib/utils/booking-display'
 
 const CACHE_PREFIX = 'protector_ng_'
 const CACHE_TIMESTAMP_SUFFIX = '_timestamp'
@@ -189,35 +190,34 @@ export async function loadBookingsWithValidation(userId: string): Promise<{
     console.log('📥 [Bookings] Loading bookings for user:', userId)
 
     // Always fetch fresh data from database
-    const [activeResult, historyResult] = await Promise.all([
-      supabase
+    const fetchBookings = async (statuses: string[]) => {
+      const withRelations = await supabase
         .from('bookings')
-        .select('*')
+        .select(BOOKING_RELATION_SELECT)
         .eq('client_id', userId)
-        .in('status', ['pending', 'accepted', 'en_route', 'arrived', 'in_service'])
-        .order('created_at', { ascending: false }),
-      
-      supabase
-        .from('bookings')
-        .select('*')
-        .eq('client_id', userId)
-        .in('status', ['completed', 'cancelled'])
+        .in('status', statuses)
         .order('created_at', { ascending: false })
+
+      if (!withRelations.error) {
+        return withRelations.data || []
+      }
+
+      console.warn('⚠️ [Bookings] Relation join failed, falling back to base query:', withRelations.error.message)
+      const fallback = await supabase
+        .from('bookings')
+        .select('*')
+        .eq('client_id', userId)
+        .in('status', statuses)
+        .order('created_at', { ascending: false })
+
+      if (fallback.error) throw fallback.error
+      return fallback.data || []
+    }
+
+    const [active, history] = await Promise.all([
+      fetchBookings(['pending', 'accepted', 'en_route', 'arrived', 'in_service']),
+      fetchBookings(['completed', 'cancelled']),
     ])
-
-    // Check for errors
-    if (activeResult.error) {
-      console.error('❌ [Bookings] Error fetching active bookings:', activeResult.error)
-      throw new Error(`Failed to fetch active bookings: ${activeResult.error.message}`)
-    }
-
-    if (historyResult.error) {
-      console.error('❌ [Bookings] Error fetching booking history:', historyResult.error)
-      throw new Error(`Failed to fetch booking history: ${historyResult.error.message}`)
-    }
-
-    const active = activeResult.data || []
-    const history = historyResult.data || []
 
     console.log(`✅ [Bookings] Loaded ${active.length} active, ${history.length} history bookings from database`)
 

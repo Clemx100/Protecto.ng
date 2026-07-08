@@ -14,6 +14,11 @@ import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
 import { chatService, ChatMessage } from "@/lib/services/chatService"
+import {
+  ChatAttachmentContent,
+  getAttachmentPreviewLabel,
+  isChatAttachmentMessage,
+} from "@/components/chat-attachment-content"
 import LoadingLogo from "@/components/loading-logo"
 import {
   notifyRealtimeEvent,
@@ -22,6 +27,23 @@ import {
 
 interface OperatorDashboardProps {
   onLogout?: () => void
+}
+
+const OPERATOR_API_TIMEOUT_MS = 12000
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+    promise
+      .then((value) => {
+        clearTimeout(timer)
+        resolve(value)
+      })
+      .catch((error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+  })
 }
 
 export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) {
@@ -120,7 +142,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       'Booking'
 
     const messageText = truncateText(
-      String(message.message || 'You have a new chat message from a client.')
+      isChatAttachmentMessage(message)
+        ? getAttachmentPreviewLabel(message)
+        : String(message.message || 'You have a new chat message from a client.'),
     )
 
     notifyRealtimeEvent({
@@ -311,7 +335,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           )
 
           const isInvoice = newMessage.message_type === 'invoice'
-          const invoiceData = newMessage.metadata || newMessage.invoice_data || null
+          const invoiceData = isInvoice ? (newMessage.metadata || newMessage.invoice_data || null) : null
           const chatMessage: ChatMessage = {
             id: newMessage.id,
             booking_id: newMessage.booking_id,
@@ -323,8 +347,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             updated_at: newMessage.created_at,
             is_system_message: newMessage.message_type === 'system',
             has_invoice: isInvoice,
-            invoice_data: invoiceData,
+            invoice_data: invoiceData || undefined,
             message_type: newMessage.message_type,
+            metadata: newMessage.metadata || null,
             status: 'delivered'
           }
 
@@ -390,10 +415,18 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   const initializeDashboard = async () => {
     try {
       setIsLoading(true)
-      await loadBookings()
+      await withTimeout(
+        loadBookings(),
+        OPERATOR_API_TIMEOUT_MS,
+        'Loading operator dashboard timed out. Please refresh the page.'
+      )
     } catch (error) {
       console.error('Failed to initialize dashboard:', error)
-      setError('Failed to load dashboard data')
+      setError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to load dashboard data'
+      )
     } finally {
       setIsLoading(false)
     }
@@ -418,10 +451,18 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     try {
       let headers
       try {
-        headers = await getAuthHeaders()
+        headers = await withTimeout(
+          getAuthHeaders(),
+          OPERATOR_API_TIMEOUT_MS,
+          'Authentication check timed out.'
+        )
       } catch (authError) {
         console.error('❌ Authentication error, retrying...', authError)
-        const { data: { session } } = await supabase.auth.refreshSession()
+        const { data: { session } } = await withTimeout(
+          supabase.auth.refreshSession(),
+          OPERATOR_API_TIMEOUT_MS,
+          'Session refresh timed out.'
+        )
         if (session) {
           headers = {
             'Content-Type': 'application/json',
@@ -432,10 +473,18 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         }
       }
 
-      const response = await fetch('/api/operator/bookings', {
-        method: 'GET',
-        headers,
-      })
+      const controller = new AbortController()
+      const requestTimeout = setTimeout(() => controller.abort(), OPERATOR_API_TIMEOUT_MS)
+      let response: Response
+      try {
+        response = await fetch('/api/operator/bookings', {
+          method: 'GET',
+          headers,
+          signal: controller.signal,
+        })
+      } finally {
+        clearTimeout(requestTimeout)
+      }
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -484,7 +533,14 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           // Update selectedBooking if it exists to reflect current database status
           if (selectedBooking) {
             const updatedSelectedBooking = transformedBookings.find((b: any) => b.id === selectedBooking.id)
-            if (updatedSelectedBooking) {
+            if (
+              updatedSelectedBooking &&
+              (
+                updatedSelectedBooking.status !== selectedBooking.status ||
+                updatedSelectedBooking.booking_code !== selectedBooking.booking_code ||
+                updatedSelectedBooking.database_id !== selectedBooking.database_id
+              )
+            ) {
               console.log('Updating selected booking status from', selectedBooking.status, 'to', updatedSelectedBooking.status)
               setSelectedBooking(updatedSelectedBooking)
             }
@@ -503,6 +559,10 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       }
     } catch (error) {
       console.error('Failed to load bookings from API:', error)
+
+      if (error instanceof Error && error.name === 'AbortError') {
+        setError('Loading bookings timed out. Please check your network and refresh.')
+      }
       
       // Fallback to direct Supabase query
       try {
@@ -734,7 +794,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
 
       switch (action) {
         case "confirm":
-          message = "✅ Request confirmed! Your protection team is being assigned."
+          message = "Request confirmed. Your booking is now being prepared."
           systemMessage = "Booking confirmed by operator"
           newStatus = "accepted"
           break
@@ -755,28 +815,28 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           }
           
           console.log('✅ Payment confirmed, deploying team...')
-          message = "🚀 Protection team deployed! They are preparing for departure."
-          systemMessage = "Protection team deployed"
-          newStatus = "en_route"
+          message = "Your booking is ready for dispatch."
+          systemMessage = "Booking ready for dispatch"
+          newStatus = "ready_for_dispatch"
           break
         case "en_route":
-          message = "🚗 Protection team is en route to your location."
-          systemMessage = "Protection team en route"
+          message = "Your assigned team is en route to your location."
+          systemMessage = "Assigned team en route"
           newStatus = "en_route"
           break
         case "arrived":
-          message = "📍 Your protection team has arrived at the pickup location."
-          systemMessage = "Protection team arrived"
+          message = "Your assigned team has arrived at the pickup location."
+          systemMessage = "Assigned team arrived"
           newStatus = "arrived"
           break
         case "start_service":
-          message = "🛡️ Protection service has begun. Your team is now active."
-          systemMessage = "Protection service started"
+          message = "Your booking service has started."
+          systemMessage = "Booking service started"
           newStatus = "in_service"
           break
         case "complete":
-          message = "✅ Service completed successfully. Thank you for choosing Protector.Ng!"
-          systemMessage = "Service completed"
+          message = "Booking completed successfully. Thank you for choosing Protector.Ng."
+          systemMessage = "Booking completed"
           newStatus = "completed"
           break
       }
@@ -1059,6 +1119,8 @@ Please review and approve the payment to proceed with your service.`
         return 'bg-blue-500/20 text-blue-300'
       case 'en_route':
         return 'bg-purple-500/20 text-purple-300'
+      case 'ready_for_dispatch':
+        return 'bg-indigo-500/20 text-indigo-300'
       case 'arrived':
         return 'bg-green-500/20 text-green-300'
       case 'in_service':
@@ -1102,6 +1164,10 @@ Please review and approve the payment to proceed with your service.`
         // Payment confirmed - ready to deploy
         return [
           { action: 'deploy', label: 'Deploy Team', color: 'bg-purple-600 hover:bg-purple-700' }
+        ]
+      case 'ready_for_dispatch':
+        return [
+          { action: 'en_route', label: 'Mark En Route', color: 'bg-indigo-600 hover:bg-indigo-700' }
         ]
       case 'en_route':
         return [
@@ -1533,7 +1599,12 @@ Please review and approve the payment to proceed with your service.`
                                 : 'bg-gradient-to-br from-gray-700 to-gray-800 text-white rounded-bl-md'
                             } ${isConsecutive && !isSystem ? (isOperator ? 'rounded-tr-md' : 'rounded-tl-md') : ''}`}
                           >
-                            <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">{message.message}</div>
+                            <ChatAttachmentContent
+                              message={message}
+                              textClassName="text-sm leading-relaxed whitespace-pre-wrap break-words text-white"
+                              captionClassName="mt-1 text-xs text-gray-300"
+                              linkClassName="flex items-center gap-2 text-sm text-blue-200 underline-offset-2 hover:underline"
+                            />
                             <div className={`text-[10px] mt-1.5 flex items-center gap-1 ${
                               isOperator ? 'text-blue-100 justify-end' : isSystem ? 'text-yellow-100 justify-center' : 'text-gray-300'
                             }`}>

@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import LoadingLogo from "@/components/loading-logo"
+import { getMapShellClass, type MapShellVariant } from "@/lib/utils/map-shell"
 
 interface BookingDisplay {
   id: string
@@ -16,6 +17,17 @@ interface LiveTrackingMapProps {
   bookingLocationsMap: Map<string, { lat: number; lng: number }>
   locationHistory?: { lat: number; lng: number; timestamp: number }[]
   currentSpeed?: number // in km/h
+  variant?: MapShellVariant
+}
+
+function MapLoadingShell({ variant = "embedded" }: { variant?: MapShellVariant }) {
+  return (
+    <div className={getMapShellClass(variant)}>
+      <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-blue-900/20 to-green-900/20">
+        <LoadingLogo fullscreen={false} label="Loading map..." />
+      </div>
+    </div>
+  )
 }
 
 // Dynamically import the entire map component to avoid SSR issues with Leaflet
@@ -23,13 +35,7 @@ const LeafletMap = dynamic(
   () => import('./leaflet-map-internal'),
   { 
     ssr: false,
-    loading: () => (
-      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
-          <LoadingLogo fullscreen={false} label="Loading map..." />
-        </div>
-      </div>
-    )
+    loading: () => <MapLoadingShell />,
   }
 )
 
@@ -37,13 +43,7 @@ const GoogleMap = dynamic(
   () => import("./google-map-internal"),
   {
     ssr: false,
-    loading: () => (
-      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
-          <LoadingLogo fullscreen={false} label="Loading map..." />
-        </div>
-      </div>
-    ),
+    loading: () => <MapLoadingShell />,
   },
 )
 

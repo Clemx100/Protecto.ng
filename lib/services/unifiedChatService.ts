@@ -12,7 +12,14 @@ export interface UnifiedChatMessage {
   has_invoice?: boolean
   invoice_data?: any
   is_system_message?: boolean
-  message_type?: 'text' | 'system' | 'invoice'
+  message_type?: 'text' | 'system' | 'invoice' | 'image' | 'audio' | 'file'
+  metadata?: {
+    attachmentType?: 'image' | 'file' | 'audio'
+    fileName?: string
+    mimeType?: string
+    url?: string
+    durationSeconds?: number
+  }
   status?: 'sending' | 'sent' | 'delivered' | 'read'
 }
 
@@ -321,8 +328,9 @@ export class UnifiedChatService {
       message: msg.content || msg.message,
       created_at: msg.created_at,
       updated_at: msg.updated_at || msg.created_at,
-      has_invoice: msg.has_invoice || false,
-      invoice_data: msg.invoice_data || msg.metadata,
+      has_invoice: msg.has_invoice || msg.message_type === 'invoice',
+      invoice_data: msg.message_type === 'invoice' ? (msg.invoice_data || msg.metadata) : undefined,
+      metadata: msg.metadata || null,
       is_system_message: msg.is_system_message || msg.message_type === 'system',
       message_type: msg.message_type || 'text',
       status: 'delivered'

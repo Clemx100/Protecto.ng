@@ -1,18 +1,25 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare, Mail, Loader2 } from "lucide-react"
+import { Shield, Calendar, User, ArrowLeft, MapPin, Car, CheckCircle, Search, Phone, MessageSquare, Mail, Loader2, Home, FileText, Coins } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useJsApiLoader } from "@react-google-maps/api"
 import { createClient } from "@/lib/supabase/client"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { fallbackAuth } from "@/lib/services/fallbackAuth"
 import { unifiedChatService } from "@/lib/services/unifiedChatService"
-import ChatBookingSelector from "./chat-booking-selector"
+import ClientChatInterface from "@/components/client-chat-interface"
+import {
+  type OutgoingChatAttachment,
+  attachmentMessageLabel,
+  prepareAttachmentForUpload,
+} from "@/lib/utils/chat-media"
 import { loadUserProfile as loadProfileFromDB, syncUserProfile, clearProfileCache } from "@/lib/utils/profile-sync"
 import LiveTrackingMapComponent from "@/components/live-tracking-map"
+import ActivityPageLayout from "@/components/activity-page-layout"
+import ProtectorListingPicker, { type ProtectorListing } from "@/components/protector-listing-picker"
 import LoadingLogo from "@/components/loading-logo"
 import { GeocodingService } from "@/lib/services/geocoding"
 import {
@@ -20,6 +27,25 @@ import {
   requestNotificationPermissionIfNeeded,
 } from "@/lib/utils/realtime-notifications"
 import { registerPushSubscription } from "@/lib/utils/push-subscriptions"
+import ProtectorUberHome from "@/components/protector-uber-home"
+import {
+  getBookingRecommendations,
+  logSuggestionEvent,
+  type BookingSuggestion,
+} from "@/lib/services/booking-recommendations"
+import {
+  mergePendingWithActive,
+  removePendingBooking,
+  savePendingBooking,
+  type PendingBookingRecord,
+} from "@/lib/utils/pending-bookings"
+import {
+  resolveBookingAvatarImage,
+  resolveBookingDisplayName,
+  resolveBookingEtaLabel,
+  resolveVehicleDisplayName,
+} from "@/lib/utils/booking-display"
+import type { MapShellVariant } from "@/lib/utils/map-shell"
 
 const GOOGLE_PLACES_LIBRARIES: ("places")[] = ["places"]
 
@@ -46,6 +72,9 @@ interface BookingDisplay {
   scheduled_date?: string
   scheduled_time?: string
   total_price?: number
+  special_instructions?: unknown
+  booking_mode?: string
+  protector_count?: number
 }
 
 function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boolean }) {
@@ -135,6 +164,11 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   const [selectedVehicles, setSelectedVehicles] = useState<{ [key: string]: number }>({})
   const [customDuration, setCustomDuration] = useState("")
   const [vehicleSearchQuery, setVehicleSearchQuery] = useState("")
+  const [protectorListings, setProtectorListings] = useState<ProtectorListing[]>([])
+  const [isLoadingProtectorListings, setIsLoadingProtectorListings] = useState(false)
+  const [selectedProtectorListingId, setSelectedProtectorListingId] = useState<string | null>(null)
+  const [selectedProtectorListing, setSelectedProtectorListing] = useState<ProtectorListing | null>(null)
+  const [assignProtectorAutomatically, setAssignProtectorAutomatically] = useState(true)
   const [destinationLocation, setDestinationLocation] = useState("")
   const [destinationSuggestions, setDestinationSuggestions] = useState<string[]>([])
   const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false)
@@ -211,9 +245,12 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     address: "",
     emergencyContact: "",
     emergencyPhone: "",
+    avatarUrl: "",
   })
 
   const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
   const [editProfileForm, setEditProfileForm] = useState({
     firstName: "",
     lastName: "",
@@ -441,11 +478,18 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     const dataSync = await import('@/lib/utils/data-sync')
     const cachedActive = dataSync.getFromCache<any[]>('bookings_active', currentUserId)
     const cachedHistory = dataSync.getFromCache<any[]>('bookings_history', currentUserId)
-    if (cachedActive?.length !== undefined || cachedHistory?.length !== undefined) {
-      setActiveBookings(transformBookings(cachedActive || []))
-      setBookingHistory(transformBookings(cachedHistory || []))
+    if (cachedActive && cachedActive.length > 0) {
+      setActiveBookings((prev) =>
+        mergePendingWithActive(currentUserId, transformBookings(cachedActive), prev),
+      )
       setIsLoadingBookings(false)
+    } else if (cachedHistory && cachedHistory.length > 0) {
+      setBookingHistory(transformBookings(cachedHistory))
     } else {
+      const pendingOnly = mergePendingWithActive<BookingDisplay>(currentUserId, [], [])
+      if (pendingOnly.length > 0) {
+        setActiveBookings(pendingOnly)
+      }
       setIsLoadingBookings(true)
     }
 
@@ -486,7 +530,9 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       
       console.log('✅ Bookings loaded:', { active: transformedActive.length, history: transformedHistory.length })
       
-      setActiveBookings(transformedActive)
+      setActiveBookings((prev) =>
+        mergePendingWithActive(currentUserId, transformedActive, prev),
+      )
       setBookingHistory(transformedHistory)
       
       // Clear any previous errors if we succeeded
@@ -496,10 +542,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     } catch (error) {
       console.error('❌ Critical error loading bookings:', error)
       setAuthError('Failed to load bookings. Please refresh the page or contact support if the issue persists.')
-      
-      // Don't show stale data - clear bookings instead
-      setActiveBookings([])
-      setBookingHistory([])
+      setActiveBookings((prev) => mergePendingWithActive(currentUserId, [], prev))
     } finally {
       bookingsRequestInFlightRef.current = false
       if (requestId === latestBookingsRequestRef.current) {
@@ -510,100 +553,24 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
 
   // Transform bookings data
   const transformBookings = (bookings: any[]): BookingDisplay[] => {
-    const vehicleNameById: Record<string, string> = {
-      escalade: "Toyota Land Cruiser 300 Armored",
-      sedan: "Armored Lexus LX 570",
-      suv: "BMW X7",
-      van: "Mercedes Sprinter",
-      armoredSedan: "Armored Mercedes S-Class",
-      armoredSuv: "Armored BMW X7",
-    }
-    const dressCodeImageByKey: Record<string, string> = {
-      tactical_casual: "/images/tactical-casual-agent.png",
-      business_casual: "/images/business-casual-agent.png",
-      business_formal: "/images/business-formal-agent.png",
-      operator: "/images/tactical-operator.png",
-    }
-
-    const formatVehicleKey = (vehicleId: string): string =>
-      vehicleId
-        .replace(/([a-z])([A-Z])/g, "$1 $2")
-        .replace(/[_-]+/g, " ")
-        .replace(/\b\w/g, (char) => char.toUpperCase())
-
-    const normalizeDressCodeKey = (value: string): string =>
-      value.toLowerCase().trim().replace(/[\s-]+/g, "_")
-
-    const parseSpecialInstructions = (specialInstructions: unknown): any | null => {
-      if (!specialInstructions) return null
-      if (typeof specialInstructions === "object") return specialInstructions
-      if (typeof specialInstructions !== "string") return null
-
-      try {
-        return JSON.parse(specialInstructions)
-      } catch {
-        return null
-      }
-    }
-
-    const parseBookedVehicleSummary = (specialInstructions: unknown): string | null => {
-      const parsedInstructions = parseSpecialInstructions(specialInstructions)
-      if (!parsedInstructions) return null
-
-      const vehicles = parsedInstructions?.vehicles
-      if (!vehicles || typeof vehicles !== "object") return null
-
-      const selectedVehicles = Object.entries(vehicles as Record<string, unknown>)
-        .map(([vehicleId, count]) => ({
-          vehicleId,
-          count: Number(count),
-        }))
-        .filter((entry) => Number.isFinite(entry.count) && entry.count > 0)
-
-      if (selectedVehicles.length === 0) return null
-
-      return selectedVehicles
-        .map(({ vehicleId, count }) => {
-          const vehicleName = vehicleNameById[vehicleId] || formatVehicleKey(vehicleId)
-          return count > 1 ? `${vehicleName} x${count}` : vehicleName
-        })
-        .join(", ")
-    }
-
-    const resolveDressCodeImage = (booking: any): string => {
-      const parsedInstructions = parseSpecialInstructions(booking.special_instructions)
-      const dressCodeCandidates = [
-        booking.dress_code,
-        parsedInstructions?.personnel?.dressCode,
-        parsedInstructions?.dressCode,
-      ]
-
-      for (const candidate of dressCodeCandidates) {
-        if (typeof candidate !== "string" || !candidate.trim()) continue
-        const normalizedKey = normalizeDressCodeKey(candidate)
-        const image = dressCodeImageByKey[normalizedKey]
-        if (image) return image
-      }
-
-      return booking.assigned_agent?.profile_image || "/images/business-formal-agent.png"
-    }
-
     return bookings.map(booking => ({
       id: booking.id,
       booking_code: booking.booking_code,
       type: formatServiceType(booking.service_type),
-      protectorName: booking.assigned_agent?.name || 'TBD',
-      vehicleType:
-        booking.assigned_vehicle?.model ||
-        parseBookedVehicleSummary(booking.special_instructions) ||
-        'TBD',
+      protectorName: resolveBookingDisplayName(booking),
+      vehicleType: resolveVehicleDisplayName(booking) || "Vehicle pending assignment",
       status: formatStatus(booking.status),
-      estimatedArrival: calculateETA(booking.status),
-      pickupLocation: booking.pickup_address || 'TBD',
-      destination: booking.destination_address || 'TBD',
+      estimatedArrival: resolveBookingEtaLabel(
+        booking.status,
+        booking.scheduled_time,
+        formatTime,
+      ),
+      pickupLocation: booking.pickup_address || 'Not specified',
+      destination: booking.destination_address || 'Not specified',
       startTime: formatTime(booking.scheduled_time),
-      protectorImage: resolveDressCodeImage(booking),
+      protectorImage: resolveBookingAvatarImage(booking),
       dressCode: booking.dress_code,
+      special_instructions: booking.special_instructions,
       currentLocation: booking.pickup_coordinates ? {
         lat: booking.pickup_coordinates.lat || booking.pickup_coordinates.x,
         lng: booking.pickup_coordinates.lng || booking.pickup_coordinates.y
@@ -614,6 +581,8 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       rating: booking.assigned_agent?.rating || 5,
       // Include raw data for modals
       service_type: booking.service_type,
+      booking_mode: booking.booking_mode,
+      protector_count: booking.protector_count,
       scheduled_date: booking.scheduled_date,
       scheduled_time: booking.scheduled_time,
       total_price: booking.total_price
@@ -628,6 +597,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       'armed-protection': 'Armed Protection',
       'car-only': 'Car Only',
       'armed_protection': 'Armed Protection',
+      'armored_vehicle': 'Car Only',
       'car_only': 'Car Only'
     }
     
@@ -981,7 +951,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   }
 
   // Render live tracking map component (wrapper function)
-  const renderLiveTrackingMap = (booking: BookingDisplay) => {
+  const renderLiveTrackingMap = (booking: BookingDisplay, variant: MapShellVariant = "embedded") => {
     const bookingId = booking.id || booking.booking_code
     const history = locationHistory.get(bookingId || '') || []
     const currentSpeed = bookingSpeeds.get(bookingId || '')
@@ -992,6 +962,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
         bookingLocationsMap={bookingLocations}
         locationHistory={history}
         currentSpeed={currentSpeed}
+        variant={variant}
       />
     )
   }
@@ -999,6 +970,14 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   const getBookingTrackingId = (booking: BookingDisplay): string => {
     return booking.id || booking.booking_code || ""
   }
+
+  useEffect(() => {
+    if (activeTab !== "bookings" || activeBookings.length === 0 || selectedTrackingBookingId) return
+    const firstTrackingId = getBookingTrackingId(activeBookings[0])
+    if (firstTrackingId) {
+      setSelectedTrackingBookingId(firstTrackingId)
+    }
+  }, [activeTab, activeBookings, selectedTrackingBookingId])
 
   useEffect(() => {
     if (activeBookings.length === 0) {
@@ -1019,17 +998,8 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     }
   }, [activeBookings, selectedTrackingBookingId])
 
-  const calculateETA = (status: string): string => {
-    const statusMap: { [key: string]: string } = {
-      'en_route': '8 mins',
-      'arrived': 'Arrived',
-      'accepted': '15 mins',
-      'in_service': 'In Service',
-      'completed': 'Completed',
-      'cancelled': 'Cancelled'
-    }
-    return statusMap[status] || 'TBD'
-  }
+  const calculateETA = (status: string, scheduledTime?: string) =>
+    resolveBookingEtaLabel(status, scheduledTime, formatTime)
 
   const formatTime = (timeString: string): string => {
     try {
@@ -1085,6 +1055,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   useEffect(() => {
     if (user?.id) {
       console.log('👤 User authenticated, loading bookings and profile...')
+      setActiveBookings((prev) => mergePendingWithActive(user.id, [], prev))
       loadBookings()
       loadUserProfile(user.id)
     }
@@ -1764,9 +1735,10 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     // Store in localStorage
     if (typeof window !== 'undefined') {
       try {
-        const existingMessages = JSON.parse(localStorage.getItem('chat_messages') || '[]')
-        const updatedMessages = [...existingMessages, summaryMessage]
-        localStorage.setItem('chat_messages', JSON.stringify(updatedMessages))
+        localStorage.setItem(
+          `chat_messages_${booking.id}`,
+          JSON.stringify([summaryMessage]),
+        )
       } catch (error) {
         console.error('Failed to store in localStorage:', error)
       }
@@ -2120,6 +2092,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
             address: "",
             emergencyContact: "",
             emergencyPhone: "",
+            avatarUrl: "",
           })
           setAuthStep("login")
           authStepRef.current = "login"
@@ -2200,6 +2173,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
             address: "",
             emergencyContact: "",
             emergencyPhone: "",
+            avatarUrl: "",
           })
           setAuthStep("login")
           setShowLoginForm(true)
@@ -2251,6 +2225,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
               address: syncedProfile.address || "",
               emergencyContact: syncedProfile.emergency_contact || "",
               emergencyPhone: syncedProfile.emergency_phone || "",
+              avatarUrl: profile?.avatar_url || "",
             })
             return
           }
@@ -2267,6 +2242,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
           address: profile.address || "",
           emergencyContact: profile.emergency_contact || "",
           emergencyPhone: profile.emergency_phone || "",
+          avatarUrl: profile.avatar_url || "",
         })
         
         // Clear any previous errors
@@ -2287,6 +2263,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
             address: fallbackUser.user_metadata?.address || "",
             emergencyContact: fallbackUser.user_metadata?.emergency_contact || fallbackUser.user_metadata?.emergencyContact || "",
             emergencyPhone: fallbackUser.user_metadata?.emergency_phone || fallbackUser.user_metadata?.emergencyPhone || "",
+            avatarUrl: fallbackUser.user_metadata?.avatar_url || "",
           })
         }
       }
@@ -2303,6 +2280,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
           address: fallbackUser.user_metadata?.address || "",
           emergencyContact: fallbackUser.user_metadata?.emergency_contact || fallbackUser.user_metadata?.emergencyContact || "",
           emergencyPhone: fallbackUser.user_metadata?.emergency_phone || fallbackUser.user_metadata?.emergencyPhone || "",
+          avatarUrl: fallbackUser.user_metadata?.avatar_url || "",
         })
       }
     } finally {
@@ -2621,8 +2599,23 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
 
   const handleBookService = () => {
     setSelectedService("armed-protection")
+    setAssignProtectorAutomatically(true)
+    setSelectedProtectorListingId(null)
+    setSelectedProtectorListing(null)
     setActiveTab("booking")
     setBookingStep(1)
+  }
+
+  const handleBookVehicle = () => {
+    setSelectedService("car-only")
+    setActiveTab("booking")
+    setBookingStep(1)
+  }
+
+  const handleCallOperator = () => {
+    if (typeof window !== "undefined") {
+      window.location.href = "tel:+2347120005328"
+    }
   }
 
   const handleBookCarOnly = () => {
@@ -2636,6 +2629,262 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     setContactBooking(null)
     openBookViaMailClient()
   }
+
+  const homeSuggestions = useMemo(
+    () =>
+      getBookingRecommendations({
+        isLoggedIn: Boolean(user?.id),
+        userLocation,
+        activeBookings,
+        bookingHistory,
+      }),
+    [user?.id, userLocation, activeBookings, bookingHistory]
+  )
+
+  const accountStats = useMemo(() => {
+    const isCompleted = (status: string) => {
+      const normalized = status.toLowerCase()
+      return normalized.includes('completed') || normalized === 'done'
+    }
+    const completedTrips = bookingHistory.filter((booking) => isCompleted(booking.status)).length
+    const totalTrips = completedTrips + activeBookings.length
+    const coinsEarned = completedTrips * 100
+    return { totalTrips, coinsEarned }
+  }, [bookingHistory, activeBookings])
+
+  const userDisplayName = useMemo(() => {
+    const fullName = `${userProfile.firstName} ${userProfile.lastName}`.trim()
+    return fullName || userProfile.email?.split("@")[0] || "You"
+  }, [userProfile.firstName, userProfile.lastName, userProfile.email])
+
+  const applySuggestionPrefill = useCallback((prefill?: BookingSuggestion['prefill']) => {
+    if (!prefill) return
+    if (prefill.pickup) setPickupLocation(prefill.pickup)
+    if (prefill.destination) setDestinationLocation(prefill.destination)
+    if (prefill.duration) setDuration(prefill.duration)
+  }, [])
+
+  const handleSuggestionSelect = useCallback(
+    (suggestion: BookingSuggestion) => {
+      logSuggestionEvent('click', suggestion)
+
+      if (suggestion.actionType === 'track_booking') {
+        setActiveTab('bookings')
+        return
+      }
+
+      if (suggestion.actionType === 'book_mail') {
+        handleBookViaMail()
+        return
+      }
+
+      const serviceType =
+        suggestion.prefill?.serviceType ||
+        (suggestion.actionType === 'book_vehicle' ? 'car-only' : 'armed-protection')
+
+      setSelectedService(serviceType)
+      applySuggestionPrefill(suggestion.prefill)
+      setActiveTab('booking')
+      setBookingStep(1)
+    },
+    [applySuggestionPrefill]
+  )
+
+  useEffect(() => {
+    if (activeTab !== "booking" || selectedService !== "armed-protection") return
+
+    let cancelled = false
+    const loadProtectorListings = async () => {
+      setIsLoadingProtectorListings(true)
+      try {
+        const response = await fetch("/api/listings/protectors")
+        const result = await response.json()
+        if (!cancelled) {
+          setProtectorListings(result.data || [])
+        }
+      } catch (error) {
+        console.warn("Failed to load protector listings:", error)
+        if (!cancelled) setProtectorListings([])
+      } finally {
+        if (!cancelled) setIsLoadingProtectorListings(false)
+      }
+    }
+
+    void loadProtectorListings()
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, selectedService])
+
+  const estimateProtectorBookingTotal = () => {
+    const parsedDuration = parseInt(String(duration), 10)
+    const durationDays = Number.isNaN(parsedDuration)
+      ? 1
+      : String(duration).includes("day")
+        ? parsedDuration
+        : Math.max(1, Math.ceil(parsedDuration / 24))
+
+    if (selectedProtectorListing?.daily_rate) {
+      return Math.round(Number(selectedProtectorListing.daily_rate) * durationDays * protectorCount)
+    }
+    if (selectedProtectorListing?.hourly_rate) {
+      const hours = String(duration).includes("day") ? durationDays * 8 : Math.max(parsedDuration || 8, 4)
+      return Math.round(Number(selectedProtectorListing.hourly_rate) * hours * protectorCount)
+    }
+    return 450000 * protectorCount
+  }
+
+  const buildPendingBookingRecord = (payload: any): PendingBookingRecord => ({
+    id: payload.id,
+    booking_code: payload.id,
+    type: payload.serviceType,
+    status: "pending",
+    booking_mode: payload.booking_mode,
+    pickupLocation: payload.pickupDetails?.location || "N/A",
+    destination: payload.destinationDetails?.primary || "N/A",
+    date: payload.pickupDetails?.date || "N/A",
+    startTime: payload.pickupDetails?.time,
+    duration: payload.pickupDetails?.duration || "N/A",
+    cost: "Pending",
+    protectorName: resolveBookingDisplayName({
+      service_type: payload.serviceType === "car-only" ? "armored_vehicle" : "armed_protection",
+      booking_mode: payload.booking_mode,
+      pickup_address: payload.pickupDetails?.location,
+      destination_address: payload.destinationDetails?.primary,
+      special_instructions: {
+        mode: payload.booking_mode,
+        with_driver: payload.with_driver,
+        selectedProtectorName: payload.selectedProtectorName,
+        selectedProtectorPhoto: payload.selectedProtectorPhoto,
+        dressCodeId: payload.dressCodeId,
+        protector_listing_id: payload.protector_listing_id,
+        vehicles: payload.vehicles,
+        personnel: payload.personnel,
+      },
+    }),
+    service_type: payload.serviceType === "car-only" ? "armored_vehicle" : "armed_protection",
+    protector_count: payload.serviceType === "car-only" ? 0 : (payload.personnel?.protectors || 1),
+    protectorImage: resolveBookingAvatarImage({
+      service_type: payload.serviceType === "car-only" ? "armored_vehicle" : "armed_protection",
+      serviceType: payload.serviceType,
+      booking_mode: payload.booking_mode,
+      dress_code: payload.personnel?.dressCode,
+      protector_count: payload.serviceType === "car-only" ? 0 : (payload.personnel?.protectors || 1),
+      special_instructions: {
+        mode: payload.booking_mode,
+        with_driver: payload.with_driver,
+        selectedProtectorPhoto: payload.selectedProtectorPhoto,
+        dressCodeId: payload.dressCodeId,
+        vehicles: payload.vehicles,
+        personnel: payload.personnel,
+      },
+    }),
+    vehicleType:
+      payload.serviceType === "car-only"
+        ? resolveVehicleDisplayName({ special_instructions: { vehicles: payload.vehicles } }) ||
+          "Vehicle pending assignment"
+        : undefined,
+    dressCode: payload.personnel?.dressCode,
+    special_instructions: {
+      mode: payload.booking_mode,
+      with_driver: payload.with_driver,
+      selectedProtectorPhoto: payload.selectedProtectorPhoto,
+      dressCodeId: payload.dressCodeId,
+      vehicles: payload.vehicles,
+      personnel: payload.personnel,
+    },
+    isPendingSync: true,
+    savedAt: new Date().toISOString(),
+  })
+
+  const openBookingChatImmediately = (payload: any) => {
+    const bookingDisplay = {
+      id: payload.id,
+      booking_code: payload.id,
+      status: "pending",
+      pickupLocation: payload.pickupDetails?.location || "N/A",
+      destination: payload.destinationDetails?.primary || "N/A",
+      date: payload.pickupDetails?.date || "N/A",
+    }
+
+    if (user?.id) {
+      savePendingBooking(user.id, buildPendingBookingRecord(payload))
+    }
+
+    const immediateSummary = createBookingSummaryMessage(payload)
+    setCurrentBooking(payload)
+    setSelectedChatBooking(bookingDisplay)
+    setNewChatMessage("")
+    setChatInvoiceData(null)
+    setChatMessages([immediateSummary])
+    setIsCreatingBookingChat(true)
+    setIsLoadingChatMessages(true)
+    setShowChatThread(true)
+    setActiveTab("chat")
+    setActiveBookings((prev) =>
+      mergePendingWithActive(
+        user?.id || "",
+        [],
+        [...prev, buildPendingBookingRecord(payload) as unknown as BookingDisplay],
+      ),
+    )
+
+    return bookingDisplay
+  }
+
+  const finalizeCreatedBooking = async (payload: any, bookingDisplay: any, createdBooking: any) => {
+    if (!createdBooking?.id || String(createdBooking.id).startsWith("REQ")) {
+      throw new Error(
+        createdBooking?.details ||
+          createdBooking?.error ||
+          "Booking was not saved to the server",
+      )
+    }
+
+    if (user?.id) {
+      removePendingBooking(user.id, payload.id)
+    }
+
+    const updatedBookingDisplay = {
+      ...bookingDisplay,
+      id: createdBooking.id,
+      booking_code: createdBooking.booking_code || payload.id,
+      database_id: createdBooking.id,
+    }
+
+    const transformed = transformBookings([createdBooking])
+    setActiveBookings((prev) => mergePendingWithActive(user?.id || "", transformed, prev))
+    setSelectedChatBooking(updatedBookingDisplay)
+    setShowChatThread(true)
+
+    if (typeof window !== "undefined") {
+      const reqCache = localStorage.getItem(`chat_messages_${payload.id}`)
+      if (reqCache) {
+        localStorage.setItem(`chat_messages_${createdBooking.id}`, reqCache)
+      }
+    }
+
+    await loadMessagesForBooking(updatedBookingDisplay)
+    setIsCreatingBookingChat(false)
+    setIsLoadingChatMessages(false)
+  }
+
+  const handleSelectProtectorListing = (listing: ProtectorListing) => {
+    setAssignProtectorAutomatically(false)
+    setSelectedProtectorListingId(listing.id)
+    setSelectedProtectorListing(listing)
+  }
+
+  const handleAssignProtectorAutomatically = () => {
+    setAssignProtectorAutomatically(true)
+    setSelectedProtectorListingId(null)
+    setSelectedProtectorListing(null)
+  }
+
+  useEffect(() => {
+    if (activeTab !== 'protector' || homeSuggestions.length === 0) return
+    homeSuggestions.forEach((suggestion) => logSuggestionEvent('impression', suggestion))
+  }, [activeTab, homeSuggestions])
 
   const storeBookingInSupabase = async (payload: any) => {
     try {
@@ -2691,7 +2940,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
 
       if (!response.ok) {
         console.error('❌ API returned error:', result)
-        throw new Error(result.error || 'Failed to create booking')
+        throw new Error(result.details || result.error || 'Failed to create booking')
       }
 
       console.log('✅ Booking created successfully via API:', {
@@ -2742,6 +2991,10 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
 • Primary Destination: ${payload.destinationDetails?.primary || 'N/A'}
 ${payload.destinationDetails?.additional?.length > 0 ? `• Additional Stops: ${payload.destinationDetails.additional.join(', ')}` : ''}
 
+**Protector Assignment:**
+• ${payload.selectedProtectorName || (payload.protector_listing_id ? 'Selected Protector' : 'Best available Protector')}
+${payload.protector_listing_id ? `• Listing ID: ${payload.protector_listing_id}` : '• Operator will assign a verified Protector'}
+
 **Personnel Requirements:**
 • Protectors: ${payload.personnel?.protectors || 0}
 • Protectees: ${payload.personnel?.protectee || 0}
@@ -2779,56 +3032,31 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       const createdBooking = await storeBookingInSupabase(payload)
       console.log('✅ Booking stored in Supabase successfully:', createdBooking)
 
-      // Store system message in Supabase using the actual database ID
-      await unifiedChatService.sendMessage(
-        createdBooking.id, // Use the actual database UUID
-        bookingSummary,
-        'system',
-        userId,
-        { isSystemMessage: true }
-      )
-      console.log('System message stored in Supabase successfully')
-      
-      // IMPORTANT: Refresh bookings list to include the new booking
-      console.log('🔄 Refreshing bookings list...')
-      await loadBookings()
-      console.log('✅ Bookings list refreshed')
-
-      // FALLBACK: Store in localStorage as backup
-      if (typeof window !== 'undefined') {
-        const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
-        const updatedMessages = [...existingMessages, systemMessage]
-        localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
-        console.log('System message stored in localStorage as backup')
-
-        // Store booking in localStorage for operator dashboard fallback
-        const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-        const updatedBookings = [payload, ...existingBookings]
-        localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
-        console.log('Booking stored in localStorage as backup')
+      try {
+        await unifiedChatService.sendMessage(
+          createdBooking.id,
+          bookingSummary,
+          'system',
+          userId,
+          { isSystemMessage: true }
+        )
+        console.log('System message stored in Supabase successfully')
+      } catch (messageError) {
+        console.warn('⚠️ Booking saved but system message failed:', messageError)
       }
 
-      // Return the created booking so the caller can use the database ID
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(
+          `chat_messages_${createdBooking.id}`,
+          JSON.stringify([systemMessage]),
+        )
+      }
+
       return createdBooking
 
     } catch (error) {
-      console.error('❌ Failed to store in Supabase, falling back to localStorage:', error)
-      
-      // FALLBACK: Store in localStorage if Supabase fails
-      if (typeof window !== 'undefined') {
-        const existingMessages = JSON.parse(localStorage.getItem(`chat_${payload.id}`) || '[]')
-        const updatedMessages = [...existingMessages, systemMessage]
-        localStorage.setItem(`chat_${payload.id}`, JSON.stringify(updatedMessages))
-        console.log('System message stored in localStorage (fallback)')
-
-        const existingBookings = JSON.parse(localStorage.getItem('operator_bookings') || '[]')
-        const updatedBookings = [payload, ...existingBookings]
-        localStorage.setItem('operator_bookings', JSON.stringify(updatedBookings))
-        console.log('Booking stored in localStorage (fallback)')
-      }
-      
-      // Return the payload as fallback
-      return payload
+      console.error('❌ Failed to store in Supabase:', error)
+      throw error
     }
   }
 
@@ -2838,7 +3066,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     if (selectedService === "armed-protection") {
       if (bookingStep === 1) setBookingStep(2)
       else if (bookingStep === 2) setBookingStep(3)
-      else if (bookingStep === 3) setBookingStep(4)
+      else if (bookingStep === 3) {
+        if (!protectorArmed) setBookingStep(3.5)
+        else setBookingStep(4)
+      }
+      else if (bookingStep === 3.5) setBookingStep(4)
       else if (bookingStep === 4) setBookingStep(5)
       else if (bookingStep === 5) setBookingStep(6)
       else if (bookingStep === 6) setBookingStep(8)
@@ -2861,7 +3093,16 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           id: `REQ${Date.now()}`,
           timestamp: new Date().toISOString(),
           serviceType: selectedService,
+          booking_mode: 'protector_only',
+          protector_listing_id: selectedProtectorListingId,
+          vehicle_listing_id: null,
           protectionType: protectorArmed ? "Armed" : "Unarmed",
+          selectedProtectorName: selectedProtectorListing?.display_name || (assignProtectorAutomatically ? "Best available Protector" : null),
+          selectedProtectorPhoto: selectedProtectorListing?.photos?.[0] || null,
+          dressCodeId: selectedDressCode,
+          estimated_total: estimateProtectorBookingTotal(),
+          total_price: estimateProtectorBookingTotal(),
+          base_price: estimateProtectorBookingTotal(),
           pickupDetails: {
             location: pickupLocation,
             coordinates: resolvedCoordinates.pickupCoordinates,
@@ -2888,64 +3129,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         }
 
         setBookingPayload(payload)
-
-        // ⚡ IMMEDIATE UI UPDATE - Show chat summary instantly
-        setCurrentBooking(payload)
-        const bookingDisplay = {
-          id: payload.id,
-          status: payload.status || 'pending',
-          pickupLocation: payload.pickupDetails?.location || 'N/A',
-          destination: payload.destinationDetails?.primary || 'N/A',
-          date: payload.pickupDetails?.date || 'N/A'
-        }
-        
-        // Create immediate summary message for instant display
-        const immediateSummary = createBookingSummaryMessage(payload)
-        console.log('⚡ Setting immediate summary:', immediateSummary.id)
-        setSelectedChatBooking(bookingDisplay)
-        setNewChatMessage("")
-        setChatInvoiceData(null)
-        setChatMessages([immediateSummary])
-        
-        // Switch to chat tab immediately for instant feedback
-        console.log('⚡ Switching to chat tab')
-        setIsCreatingBookingChat(true)
-        setIsLoadingChatMessages(true)
-        setActiveTab("chat")
         setIsCreatingBooking(false)
-        console.log('✅ Immediate feedback complete - user can see chat summary now')
-        
-        // Background process - store in database (non-blocking)
+        const bookingDisplay = openBookingChatImmediately(payload)
+
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Booking creation timeout after 15 seconds')), 15000)
         })
-        
-        Promise.race([
-          createInitialBookingMessage(payload),
-          timeoutPromise
-        ]).then(async (createdBooking) => {
-          console.log('✅ Booking stored successfully in background')
-          // Update booking display with actual database ID
-          const updatedBookingDisplay = {
-            ...bookingDisplay,
-            id: createdBooking.id, // Use the actual database UUID
-            database_id: createdBooking.id
-          }
-          
-          // Wait a moment before reloading to ensure immediate summary is visible
-          console.log('⏳ Waiting 2 seconds before reloading messages from database...')
-          await new Promise(resolve => setTimeout(resolve, 2000))
-          
-          // Reload messages to get the full system message from database
-          console.log('🔄 Now reloading messages from database')
-          await loadMessagesForBooking(updatedBookingDisplay)
-          setIsCreatingBookingChat(false)
-        }).catch(error => {
-          console.error('⚠️ Background booking storage failed:', error)
-          // Keep the immediate summary message as fallback
-          setIsCreatingBookingChat(false)
-          setIsLoadingChatMessages(false)
-        })
+
+        Promise.race([createInitialBookingMessage(payload), timeoutPromise])
+          .then(async (createdBooking) => {
+            await finalizeCreatedBooking(payload, bookingDisplay, createdBooking)
+          })
+          .catch((error) => {
+            console.error('⚠️ Background booking storage failed:', error)
+            setIsCreatingBookingChat(false)
+            setIsLoadingChatMessages(false)
+            setShowChatThread(true)
+            const message =
+              error instanceof Error ? error.message : 'Unable to save booking right now.'
+            alert(
+              `We couldn't save your booking to the server (${message}). Your chat preview is still here — please try sending the request again.`,
+            )
+          })
         return
       }
     } else if (selectedService === "car-only") {
@@ -2970,6 +3175,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           id: `REQ${Date.now()}`,
           timestamp: new Date().toISOString(),
           serviceType: selectedService,
+          booking_mode: 'vehicle_only',
+          vehicle_listing_id: null,
+          protector_listing_id: null,
+          with_driver: true,
           pickupDetails: {
             location: pickupLocation,
             coordinates: resolvedCoordinates.pickupCoordinates,
@@ -2991,64 +3200,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         }
 
         setBookingPayload(payload)
-
-        // ⚡ IMMEDIATE UI UPDATE - Show chat summary instantly
-        setCurrentBooking(payload)
-        const bookingDisplay = {
-          id: payload.id,
-          status: payload.status || 'pending',
-          pickupLocation: payload.pickupDetails?.location || 'N/A',
-          destination: payload.destinationDetails?.primary || 'N/A',
-          date: payload.pickupDetails?.date || 'N/A'
-        }
-        
-        // Create immediate summary message for instant display
-        const immediateSummary = createBookingSummaryMessage(payload)
-        console.log('⚡ Setting immediate summary:', immediateSummary.id)
-        setSelectedChatBooking(bookingDisplay)
-        setNewChatMessage("")
-        setChatInvoiceData(null)
-        setChatMessages([immediateSummary])
-        
-        // Switch to chat tab immediately for instant feedback
-        console.log('⚡ Switching to chat tab')
-        setIsCreatingBookingChat(true)
-        setIsLoadingChatMessages(true)
-        setActiveTab("chat")
         setIsCreatingBooking(false)
-        console.log('✅ Immediate feedback complete - user can see chat summary now')
-        
-        // Background process - store in database (non-blocking)
+        const bookingDisplay = openBookingChatImmediately(payload)
+
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Booking creation timeout after 15 seconds')), 15000)
         })
-        
-        Promise.race([
-          createInitialBookingMessage(payload),
-          timeoutPromise
-        ]).then(async (createdBooking) => {
-          console.log('✅ Booking stored successfully in background')
-          // Update booking display with actual database ID
-          const updatedBookingDisplay = {
-            ...bookingDisplay,
-            id: createdBooking.id, // Use the actual database UUID
-            database_id: createdBooking.id
-          }
-          
-          // Wait a moment before reloading to ensure immediate summary is visible
-          console.log('⏳ Waiting 2 seconds before reloading messages from database...')
-          await new Promise(resolve => setTimeout(resolve, 2000))
-          
-          // Reload messages to get the full system message from database
-          console.log('🔄 Now reloading messages from database')
-          await loadMessagesForBooking(updatedBookingDisplay)
-          setIsCreatingBookingChat(false)
-        }).catch(error => {
-          console.error('⚠️ Background booking storage failed:', error)
-          // Keep the immediate summary message as fallback
-          setIsCreatingBookingChat(false)
-          setIsLoadingChatMessages(false)
-        })
+
+        Promise.race([createInitialBookingMessage(payload), timeoutPromise])
+          .then(async (createdBooking) => {
+            await finalizeCreatedBooking(payload, bookingDisplay, createdBooking)
+          })
+          .catch((error) => {
+            console.error('⚠️ Background booking storage failed:', error)
+            setIsCreatingBookingChat(false)
+            setIsLoadingChatMessages(false)
+            setShowChatThread(true)
+            const message =
+              error instanceof Error ? error.message : 'Unable to save booking right now.'
+            alert(
+              `We couldn't save your booking to the server (${message}). Your chat preview is still here — please try sending the request again.`,
+            )
+          })
         return
       }
     }
@@ -3060,7 +3233,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       else if (bookingStep === 8) setBookingStep(6)
       else if (bookingStep === 6) setBookingStep(5)
       else if (bookingStep === 5) setBookingStep(4)
-      else if (bookingStep === 4) setBookingStep(3)
+      else if (bookingStep === 4) setBookingStep(protectorArmed ? 3 : 3.5)
+      else if (bookingStep === 3.5) setBookingStep(3)
       else if (bookingStep === 3) setBookingStep(2)
       else if (bookingStep === 2) setBookingStep(1)
       else if (bookingStep === 1) {
@@ -3093,6 +3267,51 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
   const handleEditProfileChange = (field: string, value: string) => {
     setEditProfileForm((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleAvatarUpload = async (file: File) => {
+    if (!user?.id || !file.type.startsWith("image/")) return
+
+    setIsUploadingAvatar(true)
+    clearAuthMessages()
+
+    try {
+      const ext = file.name.split(".").pop() || "jpg"
+      const filePath = `${user.id}/avatar.${ext}`
+      let avatarUrl = ""
+
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(filePath, file, { upsert: true, contentType: file.type })
+
+      if (uploadError) {
+        avatarUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(String(reader.result || ""))
+          reader.onerror = () => reject(new Error("Failed to read image"))
+          reader.readAsDataURL(file)
+        })
+      } else {
+        const { data } = supabase.storage.from("avatars").getPublicUrl(filePath)
+        avatarUrl = `${data.publicUrl}?t=${Date.now()}`
+      }
+
+      const { error } = await supabase
+        .from("profiles")
+        .update({ avatar_url: avatarUrl, updated_at: new Date().toISOString() })
+        .eq("id", user.id)
+
+      if (error) throw new Error(error.message)
+
+      setUserProfile((prev) => ({ ...prev, avatarUrl }))
+      setAuthSuccess("Profile photo updated")
+    } catch (error) {
+      console.error("Avatar upload failed:", error)
+      setAuthError("Failed to update profile photo")
+    } finally {
+      setIsUploadingAvatar(false)
+      if (avatarInputRef.current) avatarInputRef.current.value = ""
+    }
   }
 
   const startEditingProfile = () => {
@@ -3287,6 +3506,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         address: "",
         emergencyContact: "",
         emergencyPhone: "",
+        avatarUrl: "",
       })
       
       setAuthForm({
@@ -3627,6 +3847,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             address: authForm.address.trim(),
             emergencyContact: authForm.emergencyContact.trim(),
             emergencyPhone: authForm.emergencyPhone.trim(),
+            avatarUrl: "",
           })
         }
 
@@ -3756,6 +3977,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         address: authForm.address.trim(),
         emergencyContact: authForm.emergencyContact.trim(),
         emergencyPhone: authForm.emergencyPhone.trim(),
+        avatarUrl: "",
       })
 
       // Check if email is verified
@@ -5204,12 +5426,18 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
   const handleChatNavigation = (booking: any) => {
     console.log('📱 Opening chat for booking:', booking.id)
-    
-    // Load messages for this specific booking
     loadMessagesForBooking(booking)
-    
-    // Switch to chat tab
+    setShowChatThread(true)
     setActiveTab('chat')
+  }
+
+  const handleSelectChatBooking = (booking: BookingDisplay) => {
+    loadMessagesForBooking(booking)
+    setShowChatThread(true)
+  }
+
+  const handleBackToChatList = () => {
+    setShowChatThread(false)
   }
 
   // Send chat message function
@@ -5307,6 +5535,83 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     }
   }
 
+  const sendChatAttachment = async (attachment: OutgoingChatAttachment) => {
+    if (!user || !selectedChatBooking) return
+
+    const bookingUUID = selectedChatBooking.database_id || selectedChatBooking.id
+    if (String(bookingUUID).startsWith("REQ")) {
+      alert("Please wait until your booking finishes syncing before sending photos or files.")
+      return
+    }
+
+    const tempId = `temp_${Date.now()}`
+    const previewUrl =
+      attachment.type === "image" ? URL.createObjectURL(attachment.file) : undefined
+
+    const optimisticMessage = {
+      id: tempId,
+      booking_id: bookingUUID,
+      sender_type: "client",
+      sender_id: user.id,
+      message: attachmentMessageLabel(attachment),
+      created_at: new Date().toISOString(),
+      status: "sending",
+      is_system_message: false,
+      message_type: attachment.type,
+      metadata: {
+        attachmentType: attachment.type,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        url: previewUrl,
+        durationSeconds: attachment.durationSeconds,
+      },
+    }
+
+    setChatMessages((prev) => [...prev, optimisticMessage])
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }, 100)
+
+    try {
+      const { file } = await prepareAttachmentForUpload(attachment)
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("bookingId", bookingUUID)
+      formData.append("attachmentType", attachment.type)
+      if (attachment.durationSeconds) {
+        formData.append("durationSeconds", String(attachment.durationSeconds))
+      }
+
+      const { data: { session } } = await supabase.auth.getSession()
+      const response = await fetch("/api/messages/attachments", {
+        method: "POST",
+        credentials: "include",
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : undefined,
+        body: formData,
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || result.details || "Failed to send attachment")
+      }
+
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+
+      setChatMessages((prev) =>
+        prev.map((msg) => (msg.id === tempId ? { ...result.data, status: "sent" } : msg)),
+      )
+    } catch (error) {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+      setChatMessages((prev) =>
+        prev.map((msg) => (msg.id === tempId ? { ...msg, status: "failed" } : msg)),
+      )
+      const errorMessage = error instanceof Error ? error.message : "Unknown error"
+      alert(`Failed to send attachment: ${errorMessage}`)
+    }
+  }
+
 
   // Remove loading screen - show app immediately
   // Show loading state while checking authentication to prevent login form flash
@@ -5377,8 +5682,9 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
   }
 
   return (
-    <div className="w-full max-w-md mx-auto bg-black min-h-screen flex flex-col text-white">
-      {/* Header */}
+    <div className={`w-full max-w-md mx-auto min-h-screen flex flex-col text-white ${activeTab === "protector" || activeTab === "bookings" || activeTab === "chat" ? "bg-[#12151d]" : "bg-black"}`}>
+      {/* Header — hidden on home, activity, and chat tabs for full-bleed layouts */}
+      {activeTab !== "protector" && activeTab !== "bookings" && activeTab !== "chat" && (
       <header className="fixed top-0 left-0 right-0 w-full max-w-md mx-auto bg-black text-white p-4 z-50 border-b border-gray-800">
         <div className="flex items-center justify-between">
           {activeTab === "booking" ? (
@@ -5387,7 +5693,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <span className="text-sm text-gray-400">
-                {selectedService === "car-only" ? "Call Instead" : "Book Protection"}
+                {selectedService === "car-only" ? "Call Instead" : "Book a Protector"}
               </span>
             </div>
           ) : (
@@ -5406,93 +5712,27 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           </div>
         </div>
       </header>
+      )}
 
-      <main className="flex-1 pt-20 pb-24">
+      <main className={`flex-1 pb-24 ${activeTab === "protector" || activeTab === "bookings" || activeTab === "chat" ? "pt-0" : "pt-20"}`}>
         {/* Home/Protector Tab */}
         {activeTab === "protector" && (
-          <div className="relative min-h-screen">
-            {/* Background Image */}
-            <div
-              className="absolute inset-0 bg-cover bg-center leading-4"
-              style={{
-                backgroundImage: `linear-gradient(rgba(0,0,0,0.6), rgba(0,0,0,0.6)), url('/images/executive-protection-background.png')`,
-              }}
-            />
-
-            {/* Content Overlay */}
-            <div className="relative z-10 p-4 pt-8 overflow-y-auto scroll-smooth max-h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)] leading-[3.75rem]">
-              {/* Hero Section */}
-              <div className="text-center mb-8">
-                <h1 className="text-2xl font-bold text-white mb-4">
-                  Book Armed Protectors
-                  <br />
-                  in {userLocation}
-                </h1>
-
-                {/* Pickup Location Display */}
-
-                <div className="space-y-3 mb-6">
-                  <Button
-                    onClick={handleBookService}
-                    className="w-full !bg-white !text-black hover:!bg-gray-100 hover:!text-black font-semibold px-6 py-3 rounded-full border border-gray-200"
-                    style={{ backgroundColor: "white", color: "black" }}
-                  >
-                    <Shield className="h-4 w-4 mr-2" />
-                    Book a Protector
-                  </Button>
-                  <Button
-                    onClick={handleBookCarOnly}
-                    className="w-full bg-transparent border-2 border-white !text-white hover:!bg-white hover:!text-black font-semibold px-6 py-3 rounded-full transition-colors"
-                  >
-                    <Phone className="h-4 w-4 mr-2" />
-                    Call Instead
-                  </Button>
-                  <Button
-                    onClick={handleBookViaMail}
-                    className="w-full bg-transparent border-2 border-blue-400 !text-blue-300 hover:!bg-blue-500 hover:!text-white font-semibold px-6 py-3 rounded-full transition-colors"
-                  >
-                    <Mail className="h-4 w-4 mr-2" />
-                    Book via Mail
-                  </Button>
-                  <p className="text-xs text-blue-200 text-center">
-                    Add your referral code in the email to get 30% discount.
-                  </p>
-                </div>
-              </div>
-
-              {/* Features */}
-              <div className="space-y-4 mb-8">
-                <div className="flex items-center gap-3 text-white">
-                  <Shield className="h-5 w-5" />
-                  <span className="text-sm">Don't negotiate with danger, travel in peace with our bulletproof vehicles.</span>
-                </div>
-
-                <div className="flex items-center gap-3 text-white">
-                  <CheckCircle className="h-5 w-5" />
-                  <span className="text-sm">
-                    Visiting Nigeria shouldn't come with fear.
-                    <br />
-                    <span className="text-xs text-gray-300">Book a bulletproof car and move around with peace of mind.</span>
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-3 text-white">
-                  <Car className="h-5 w-5" />
-                  <span className="text-sm">From airport pickup to meetings, stay secure with our armoured vehicles and trained drivers.</span>
-                </div>
-
-                <div className="flex items-center gap-3 text-white">
-                  <Car className="h-5 w-5" />
-                  <span className="text-sm">
-                    Black car transportation is included for safe and effortless city travel.
-                  </span>
-                </div>
-              </div>
-
-              {/* Meet the Protectors */}
-              <div className="text-center"></div>
-            </div>
-          </div>
+          <ProtectorUberHome
+            userLocation={userLocation}
+            clientName={
+              userProfile.firstName ||
+              user?.user_metadata?.first_name ||
+              user?.user_metadata?.firstName ||
+              user?.email?.split("@")[0] ||
+              ""
+            }
+            timeLabel={heroTimeLabel}
+            onAgentClick={handleBookService}
+            onBookVehicleClick={handleBookVehicle}
+            onContactCall={handleBookCarOnly}
+            onContactMail={handleBookViaMail}
+            onPromoClick={handleBookService}
+          />
         )}
 
         {/* Booking Flow */}
@@ -5514,9 +5754,36 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             {/* Step 1: Location and Time */}
             {bookingStep === 1 && (
               <div className="space-y-6">
-                <div className="text-center space-y-2">
-                  <h2 className="text-xl font-semibold text-white">Where should we have your motorcade meet you?</h2>
-                </div>
+                {selectedService === "armed-protection" ? (
+                  <div className="overflow-hidden rounded-lg border border-white/10 bg-[#1c2331] p-5">
+                    <div className="flex items-center gap-4">
+                      <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-white/15 ring-2 ring-white/25">
+                        <img
+                          src={
+                            dressCodeOptions.find((option) => option.id === selectedDressCode)?.image ||
+                            "/images/tactical-casual-agent.png"
+                          }
+                          alt="Professional Protector"
+                          className="h-full w-full object-cover object-top"
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <h2 className="text-lg font-semibold leading-snug text-white">
+                          Where do you need your Protector?
+                        </h2>
+                        <p className="mt-1.5 text-sm leading-relaxed text-gray-400">
+                          Tell us where to meet you. We deploy veteran and former law enforcement Protectors.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2 text-center">
+                    <h2 className="text-xl font-semibold text-white">
+                      Where should we have your motorcade meet you?
+                    </h2>
+                  </div>
+                )}
 
                 {/* City Selection Dropdown */}
                 <div className="space-y-2">
@@ -5891,6 +6158,34 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             {bookingStep === 2 && selectedService === "armed-protection" && (
               <div className="space-y-6">
                 <div className="text-center space-y-2">
+                  <h2 className="text-xl font-semibold text-white">Choose your Protector</h2>
+                  <p className="text-gray-400">
+                    Select a verified operator or let us assign the best available Protector.
+                  </p>
+                </div>
+
+                <ProtectorListingPicker
+                  listings={protectorListings}
+                  isLoading={isLoadingProtectorListings}
+                  selectedListingId={selectedProtectorListingId}
+                  assignAutomatically={assignProtectorAutomatically}
+                  onSelectListing={handleSelectProtectorListing}
+                  onAssignAutomatically={handleAssignProtectorAutomatically}
+                />
+
+                <Button
+                  onClick={handleNextStep}
+                  disabled={!assignProtectorAutomatically && !selectedProtectorListingId}
+                  className="w-full bg-white text-black hover:bg-gray-200 font-semibold py-3 disabled:bg-gray-600 disabled:text-gray-400"
+                >
+                  Next
+                </Button>
+              </div>
+            )}
+
+            {bookingStep === 3 && selectedService === "armed-protection" && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
                   <h2 className="text-xl font-semibold text-white">Protector Type</h2>
                   <p className="text-gray-400">Choose whether you need armed or unarmed protection.</p>
                 </div>
@@ -5909,7 +6204,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                       <div>
                         <h3 className="text-white font-semibold">Armed Protector</h3>
                         <p className="text-gray-400 text-sm">
-                          Professional armed security personnel for maximum protection
+                          Licensed armed veteran or ex-law enforcement operator for high-threat movement
                         </p>
                       </div>
                     </div>
@@ -5928,7 +6223,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                       <div>
                         <h3 className="text-white font-semibold">Unarmed Protector</h3>
                         <p className="text-gray-400 text-sm">
-                          Professional security personnel without weapons for basic protection
+                          Discreet veteran or former law enforcement security without visible weapons
                         </p>
                       </div>
                     </div>
@@ -5944,7 +6239,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               </div>
             )}
 
-            {bookingStep === 2.5 && selectedService === "armed-protection" && !protectorArmed && (
+            {bookingStep === 3.5 && selectedService === "armed-protection" && !protectorArmed && (
               <div className="space-y-6">
                 <div className="text-center space-y-2">
                   <h2 className="text-xl font-semibold text-white">Transportation Needed?</h2>
@@ -5996,7 +6291,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               </div>
             )}
 
-            {bookingStep === 3 && selectedService === "armed-protection" && (
+            {bookingStep === 4 && selectedService === "armed-protection" && (
               <div className="space-y-6">
                 <div className="text-center space-y-2">
                   <h2 className="text-xl font-semibold text-white">How many Protectee?</h2>
@@ -6061,7 +6356,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               </div>
             )}
 
-            {bookingStep === 4 && selectedService === "armed-protection" && (
+            {bookingStep === 5 && selectedService === "armed-protection" && (
               <div className="space-y-6">
                 <div className="text-center space-y-2">
                   <h2 className="text-xl font-semibold text-white">Pick Dress Code</h2>
@@ -6130,20 +6425,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               </div>
             )}
 
-            {((bookingStep === 5 && selectedService === "armed-protection") ||
-              (bookingStep === 4 && selectedService === "car-only")) && (
+            {bookingStep === 4 && selectedService === "car-only" && (
               <div className="space-y-6">
-                <div className="text-center space-y-2">
-                  <h2 className="text-xl font-semibold text-white">
-                    {selectedService === "car-only" ? "Customize Your Fleet" : "Customize Your Motorcade"}
-                  </h2>
-                  <p className="text-gray-400">
-                    {selectedService === "car-only"
-                      ? "Select your preferred vehicles and transportation options."
-                      : "Each car comes with a dedicated driver for the duration of your protection. Based on your booking detail, you will require 1 car."}
-                  </p>
-                </div>
-
                 {selectedService === "car-only" && (
                   <div className="space-y-4">
                     <div className="space-y-4">
@@ -6325,6 +6608,25 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 </div>
 
                 <div className="space-y-4">
+                  {selectedService === "armed-protection" && (
+                    <div className="bg-gray-800 rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-2">Protector Assignment</h3>
+                      <div className="space-y-1">
+                        <p className="text-gray-300">
+                          {selectedProtectorListing?.display_name ||
+                            (assignProtectorAutomatically
+                              ? "Best available Protector (assigned by operations)"
+                              : "Not selected")}
+                        </p>
+                        {selectedProtectorListing?.daily_rate ? (
+                          <p className="text-gray-400 text-sm">
+                            Est. ₦{estimateProtectorBookingTotal().toLocaleString()} for this mission
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Service Type */}
                   <div className="bg-gray-800 rounded-lg p-4">
                     <h3 className="text-white font-semibold mb-2">Service Type</h3>
@@ -6571,203 +6873,127 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         )}
 
 
-        {/* Bookings Tab */}
+        {/* Bookings / Activity Tab */}
         {activeTab === "bookings" && !showChatThread && (
-          <div className="flex flex-col h-full">
-        {/* Header */}
-        <div className="p-4 border-b border-gray-800">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold text-white">Active Bookings</h2>
-              <p className="text-gray-400 text-sm">Your current protection requests</p>
-            </div>
-            <Button
-              onClick={() => setActiveTab("history")}
-              variant="outline"
-              className="bg-gray-800 text-white border-gray-700 hover:bg-gray-700"
-            >
-              History
-            </Button>
-          </div>
-        </div>
+          <ActivityPageLayout
+            isLoadingBookings={isLoadingBookings}
+            mapContent={(() => {
+              const trackingBooking = selectedTrackingBookingId
+                ? activeBookings.find(
+                    (booking) => getBookingTrackingId(booking) === selectedTrackingBookingId,
+                  )
+                : activeBookings[0]
 
-              {/* Content */}
-              <div className="flex-1 overflow-y-auto">
-                {isLoadingBookings ? (
-                  // Loading State
-                  <div className="p-4">
-                    <div className="bg-gray-900 rounded-lg p-6">
-                      <LoadingLogo fullscreen={false} label="Loading bookings..." />
-                    </div>
+              if (trackingBooking) {
+                return renderLiveTrackingMap(trackingBooking, "hero")
+              }
+
+              return (
+                <div className="flex h-full w-full items-center justify-center bg-gray-900">
+                  <div className="space-y-2 px-4 text-center">
+                    <div className="mx-auto h-4 w-4 animate-pulse rounded-full bg-blue-500" />
+                    <p className="text-sm font-medium text-white">Trip tracking</p>
+                    <p className="text-xs text-gray-400">
+                      Book protection to see your live route map here.
+                    </p>
                   </div>
-                ) : (
-                  // Active Bookings with Map
-                  activeBookings.length > 0 ? (
-                  <div className="space-y-4">
-                    {/* Map Section - opens only after user chooses a booking to track */}
-                    {(() => {
-                      if (!selectedTrackingBookingId) {
-                        return (
-                          <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
-                            <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
-                              <div className="text-center space-y-2 px-4">
-                                <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
-                                <p className="text-white text-sm font-medium">Trip tracking is ready</p>
-                                <p className="text-gray-400 text-xs">
-                                  Tap "Track Trip on Map" on any active booking to open its live map.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      }
+                </div>
+              )
+            })()}
+          >
+            {activeBookings.length > 0 ? (
+              <div className="space-y-4 p-4 pt-1">
+                {activeBookings.map((booking) => {
+                  const bookingTrackingId = getBookingTrackingId(booking)
+                  const isTrackingSelected = selectedTrackingBookingId === bookingTrackingId
 
-                      const trackingBooking = activeBookings.find(
-                        (booking) => getBookingTrackingId(booking) === selectedTrackingBookingId,
-                      )
-
-                      return trackingBooking ? (
-                        <div className="space-y-2">
-                          <div className="mx-4 flex items-center justify-between rounded-lg border border-gray-700 bg-gray-900 px-3 py-2">
-                            <p className="text-xs text-gray-300 truncate pr-2">
-                              Tracking now:
-                              <span className="text-white font-medium"> {trackingBooking.destination || trackingBooking.pickupLocation}</span>
-                            </p>
-                            <Button
-                              onClick={() => setSelectedTrackingBookingId(null)}
-                              size="sm"
-                              variant="outline"
-                              className="border-gray-600 text-gray-200 hover:bg-gray-800 shrink-0"
-                            >
-                              Hide Map
-                            </Button>
-                          </div>
-                          {renderLiveTrackingMap(trackingBooking)}
+                  return (
+                    <div key={booking.id} className="space-y-4 rounded-lg bg-gray-900 p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />
+                          <span className="font-semibold capitalize text-green-400">
+                            {booking.status.replace("-", " ")}
+                          </span>
                         </div>
-                      ) : (
-                        <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
-                          <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
-                            <div className="text-center space-y-2 px-4">
-                              <div className="w-4 h-4 bg-blue-500 rounded-full mx-auto animate-pulse"></div>
-                              <p className="text-white text-sm">Tracking unavailable</p>
-                              <p className="text-gray-400 text-xs">This booking is no longer active. Select another booking to track.</p>
-                            </div>
+                        <span className="font-semibold text-white">ETA: {booking.estimatedArrival}</span>
+                      </div>
+
+                      <p className="text-sm font-medium text-white">
+                        {booking.protectorName}
+                      </p>
+
+                      <div className="space-y-2">
+                        <div className="flex items-start space-x-3">
+                          <div className="mt-1 h-3 w-3 rounded-full bg-green-500" />
+                          <div>
+                            <p className="text-sm text-white">{booking.pickupLocation}</p>
+                            <p className="text-xs text-gray-400">Pickup • {booking.startTime}</p>
                           </div>
                         </div>
-                      )
-                    })()}
-
-                    {/* Active Booking Cards */}
-                    {activeBookings.map((booking) => {
-                      const bookingTrackingId = getBookingTrackingId(booking)
-                      const isTrackingSelected = selectedTrackingBookingId === bookingTrackingId
-                      const normalizedServiceType = normalizeBookingStatus(booking.service_type || booking.type)
-                      const isArmedProtectionBooking = normalizedServiceType.startsWith("armed_protection")
-                      const bookedVehicleLabel =
-                        booking.vehicleType && booking.vehicleType !== "TBD"
-                          ? booking.vehicleType
-                          : "Booked vehicle pending assignment"
-                      const bookingTitle = isArmedProtectionBooking
-                        ? "Assigned Vehicle"
-                        : bookedVehicleLabel
-                      const bookingSubtitle = isArmedProtectionBooking ? bookedVehicleLabel : "Booked Vehicle(s)"
-
-                      return (
-                      <div key={booking.id} className="mx-4 bg-gray-900 rounded-lg p-4 space-y-4">
-                        {/* Status Header */}
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                            <span className="text-green-400 font-semibold capitalize">
-                              {booking.status.replace("-", " ")}
-                            </span>
+                        <div className="ml-1.5 h-4 w-0.5 bg-gray-600" />
+                        <div className="flex items-start space-x-3">
+                          <div className="mt-1 h-3 w-3 rounded-full bg-red-500" />
+                          <div>
+                            <p className="text-sm text-white">{booking.destination}</p>
+                            <p className="text-xs text-gray-400">Destination</p>
                           </div>
-                          <span className="text-white font-semibold">ETA: {booking.estimatedArrival}</span>
-                        </div>
-
-                        {/* Service Info */}
-                        <div className="flex items-center">
-                          <div className="flex-1">
-                            <h3 className="text-white font-semibold">{bookingTitle}</h3>
-                            <p className="text-gray-400 text-sm">{bookingSubtitle}</p>
-                          </div>
-                        </div>
-
-                        {/* Route Info */}
-                        <div className="space-y-2">
-                          <div className="flex items-start space-x-3">
-                            <div className="w-3 h-3 bg-green-500 rounded-full mt-1"></div>
-                            <div>
-                              <p className="text-white text-sm">{booking.pickupLocation}</p>
-                              <p className="text-gray-400 text-xs">Pickup • {booking.startTime}</p>
-                            </div>
-                          </div>
-                          <div className="ml-1.5 w-0.5 h-4 bg-gray-600"></div>
-                          <div className="flex items-start space-x-3">
-                            <div className="w-3 h-3 bg-red-500 rounded-full mt-1"></div>
-                            <div>
-                              <p className="text-white text-sm">{booking.destination}</p>
-                              <p className="text-gray-400 text-xs">Destination</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Action Buttons */}
-                        <div className="grid grid-cols-2 gap-2 pt-2">
-                          <Button
-                            onClick={() => setSelectedTrackingBookingId(bookingTrackingId || null)}
-                            disabled={!bookingTrackingId}
-                            className={`text-white ${
-                              isTrackingSelected
-                                ? "bg-blue-700 hover:bg-blue-800"
-                                : "bg-blue-600 hover:bg-blue-700"
-                            }`}
-                          >
-                            {isTrackingSelected ? "Tracking on Map" : "Track Trip on Map"}
-                          </Button>
-                          <Button 
-                            onClick={() => handleChatNavigation(booking)}
-                            className="bg-indigo-600 text-white hover:bg-indigo-700"
-                          >
-                            View Chat
-                          </Button>
-                          <Button 
-                            onClick={() => handleContact(booking)}
-                            className="bg-gray-700 text-white hover:bg-gray-600"
-                          >
-                            Contact
-                          </Button>
-                          <Button 
-                            onClick={() => handleCancelBooking(booking)}
-                            className="bg-red-600 text-white hover:bg-red-700"
-                          >
-                            Cancel
-                          </Button>
                         </div>
                       </div>
-                    )})}
-                  </div>
-                ) : (
-                  // No Active Bookings
-                  <div className="p-4">
-                    <div className="bg-gray-900 rounded-lg p-6 text-center space-y-4">
-                      <h3 className="text-xl font-semibold text-white">No active bookings</h3>
-                      <p className="text-gray-400">Easily book a Protector within minutes.</p>
-                      <p className="text-gray-400">Gain peace of mind and ensure your safety.</p>
 
-                      <Button
-                        onClick={handleBookService}
-                        className="!bg-gray-700 !text-white hover:!bg-gray-600 hover:!text-white font-semibold py-3 px-6"
-                        style={{ backgroundColor: "#374151", color: "white" }}
-                      >
-                        Book a Protector
-                      </Button>
+                      <div className="grid grid-cols-2 gap-2 pt-2">
+                        <Button
+                          onClick={() => setSelectedTrackingBookingId(bookingTrackingId || null)}
+                          disabled={!bookingTrackingId}
+                          className={`text-white ${
+                            isTrackingSelected
+                              ? "bg-blue-700 hover:bg-blue-800"
+                              : "bg-blue-600 hover:bg-blue-700"
+                          }`}
+                        >
+                          {isTrackingSelected ? "Tracking on Map" : "Track Trip on Map"}
+                        </Button>
+                        <Button
+                          onClick={() => handleChatNavigation(booking)}
+                          className="bg-indigo-600 text-white hover:bg-indigo-700"
+                        >
+                          View Chat
+                        </Button>
+                        <Button
+                          onClick={() => handleContact(booking)}
+                          className="bg-gray-700 text-white hover:bg-gray-600"
+                        >
+                          Contact
+                        </Button>
+                        <Button
+                          onClick={() => handleCancelBooking(booking)}
+                          className="bg-red-600 text-white hover:bg-red-700"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                )
-              )}
-            </div>
-          </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="p-4">
+                <div className="space-y-4 rounded-lg bg-gray-900 p-6 text-center">
+                  <h3 className="text-xl font-semibold text-white">No active bookings</h3>
+                  <p className="text-gray-400">Easily book a Protector within minutes.</p>
+                  <p className="text-gray-400">Gain peace of mind and ensure your safety.</p>
+
+                  <Button
+                    onClick={handleBookService}
+                    className="!bg-gray-700 !text-white hover:!bg-gray-600 hover:!text-white px-6 py-3 font-semibold"
+                    style={{ backgroundColor: "#374151", color: "white" }}
+                  >
+                    Book a Protector
+                  </Button>
+                </div>
+              </div>
+            )}
+          </ActivityPageLayout>
         )}
 
         {/* History Tab */}
@@ -6861,220 +7087,31 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           </div>
         )}
 
-        {/* Chat Tab - Enhanced Unified Chat */}
+        {/* Chat Tab — booking list → direct message thread */}
         {activeTab === "chat" && (
-          <div className="flex flex-col h-full bg-black">
-            {/* Header */}
-            <div className="p-3 border-b border-gray-800">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h2 className="text-xl font-semibold text-white">Chat</h2>
-                  {selectedChatBooking && (
-                    <p className="text-xs text-gray-400">#{selectedChatBooking.id}</p>
-                  )}
-                </div>
-                {selectedChatBooking && (
-                  <div
-                    className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      selectedChatBooking.status === "pending"
-                        ? "bg-yellow-600 text-yellow-100"
-                        : selectedChatBooking.status === "accepted"
-                        ? "bg-green-600 text-green-100"
-                        : selectedChatBooking.status === "deployed"
-                        ? "bg-blue-600 text-blue-100"
-                        : "bg-gray-600 text-gray-100"
-                    }`}
-                  >
-                    {selectedChatBooking.status?.toUpperCase() || 'N/A'}
-                  </div>
-                )}
-              </div>
-
-              {/* Booking Selector */}
-              <ChatBookingSelector
-                selectedBooking={selectedChatBooking}
-                activeBookings={activeBookings}
-                bookingHistory={bookingHistory}
-                onBookingSelect={loadMessagesForBooking}
-                className="w-full"
-              />
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-              {selectedChatBooking && isLoadingChatMessages && chatMessages.length > 0 && (
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-3">
-                  <LoadingLogo
-                    fullscreen={false}
-                    label={isCreatingBookingChat ? "Opening your new booking chat..." : "Refreshing chat..."}
-                  />
-                </div>
-              )}
-              {!selectedChatBooking ? (
-                <div className="text-center py-8">
-                  <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-white mb-2">No Booking Selected</h3>
-                  <p className="text-gray-400 mb-4">Select a booking above to view and send messages</p>
-                  <Button 
-                    onClick={() => setActiveTab("protector")}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Create Booking
-                  </Button>
-                </div>
-              ) : isLoadingChatMessages && chatMessages.length === 0 ? (
-                <div className="py-8">
-                  <LoadingLogo
-                    fullscreen={false}
-                    label={isCreatingBookingChat ? "Opening your new booking chat..." : "Loading chat..."}
-                  />
-                </div>
-              ) : chatMessages.length === 0 ? (
-                <div className="text-center py-8">
-                  <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-white mb-2">No Messages Yet</h3>
-                  <p className="text-gray-400 mb-4">Start a conversation about this booking</p>
-                </div>
-              ) : (
-                chatMessages.map((msg, index) => {
-                  const isClient = msg.sender_type === "client"
-                  const isSystem = msg.sender_type === "system"
-                  const isOperator = msg.sender_type === "operator"
-                  const prevMessage = index > 0 ? chatMessages[index - 1] : null
-                  const showAvatar = !prevMessage || prevMessage.sender_type !== msg.sender_type
-                  const isConsecutive = prevMessage && prevMessage.sender_type === msg.sender_type
-                  
-                  return (
-                    <div key={msg.id} className={`flex ${isClient ? "justify-end" : "justify-start"} ${showAvatar ? "mt-4" : "mt-1"}`}>
-                      <div className={`flex items-end space-x-2 max-w-[85%] ${isClient ? "flex-row-reverse space-x-reverse" : ""}`}>
-                        {/* Avatar */}
-                        {!isClient && !isSystem && showAvatar && (
-                          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg">
-                            <span className="text-white text-xs font-bold">OP</span>
-                          </div>
-                        )}
-                        
-                        {/* Message Bubble */}
-                        <div
-                          className={`rounded-2xl p-3 shadow-lg ${
-                            isClient
-                              ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-br-md"
-                              : isSystem
-                                ? "bg-gradient-to-r from-yellow-600 to-orange-600 text-white rounded-lg text-center mx-auto"
-                                : "bg-gradient-to-br from-gray-700 to-gray-800 text-white rounded-bl-md"
-                          } ${isConsecutive && !isSystem ? (isClient ? "rounded-tr-md" : "rounded-tl-md") : ""}`}
-                        >
-                      {msg.is_system_message ? (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Shield className="h-4 w-4 text-blue-400" />
-                            <span className="font-semibold text-sm">Protection Request</span>
-                          </div>
-                          <div className="bg-gray-900 p-3 rounded-lg">
-                            <div className="text-sm text-gray-300 whitespace-pre-line leading-relaxed">
-                              {msg.message}
-                            </div>
-                          </div>
-                          <div className="text-xs text-gray-400 text-center">
-                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                        </div>
-                      ) : (
-                        <div>
-                          <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</div>
-                          <div className={`text-xs mt-2 ${
-                            isClient ? "text-blue-100" : isSystem ? "text-yellow-100" : "text-gray-300"
-                          }`}>
-                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                          {msg.has_invoice && msg.invoice_data && (
-                            <div className="mt-2 p-3 bg-gray-800 rounded-lg border border-gray-700">
-                              <div className="text-xs text-gray-400 mb-2 font-semibold">Invoice Details</div>
-                              <div className="space-y-1 text-xs">
-                                <div className="flex justify-between">
-                                  <span>Base Price:</span>
-                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.basePrice?.toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Hourly Rate ({msg.invoice_data.duration}h):</span>
-                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{((msg.invoice_data.hourlyRate || 0) * (msg.invoice_data.duration || 0)).toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Vehicle Fee:</span>
-                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.vehicleFee?.toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span>Personnel Fee:</span>
-                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.personnelFee?.toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between font-semibold border-t border-gray-600 pt-1 mt-2">
-                                  <span>Total Amount:</span>
-                                  <span>{msg.invoice_data.currency === 'USD' ? '$' : '₦'}{msg.invoice_data.totalAmount?.toLocaleString()}</span>
-                                </div>
-                              </div>
-                              <Button
-                                onClick={() => handleApprovePayment(msg.invoice_data)}
-                                size="sm"
-                                className="mt-3 bg-green-600 hover:bg-green-700 text-white text-xs px-4 py-2 w-full"
-                                disabled={isSendingMessage}
-                              >
-                                {isSendingMessage ? 'Processing...' : 'Approve & Pay'}
-                              </Button>
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between mt-1">
-                            <div className="text-xs text-gray-400">
-                              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </div>
-                            {msg.sender_type === 'client' && (
-                              <div className="text-xs">
-                                {msg.status === 'sending' && <span className="text-gray-400">⏳</span>}
-                                {msg.status === 'sent' && <span className="text-green-400">✓</span>}
-                                {msg.status === 'delivered' && <span className="text-green-400">✓✓</span>}
-                                {msg.status === 'read' && <span className="text-blue-400">✓✓</span>}
-                                {msg.status === 'failed' && <span className="text-red-400">✗ Failed</span>}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                        </div>
-                        
-                        {/* Client Avatar */}
-                        {isClient && !isSystem && showAvatar && (
-                          <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-full flex items-center justify-center flex-shrink-0 shadow-lg">
-                            <span className="text-white text-xs font-bold">ME</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Message Input */}
-            <div className="p-3 border-t border-gray-800 bg-black">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newChatMessage}
-                  onChange={(e) => setNewChatMessage(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && sendChatMessage()}
-                  placeholder={selectedChatBooking ? "Type your message..." : "Select a booking first..."}
-                  disabled={!selectedChatBooking}
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 text-sm disabled:opacity-50"
-                />
-                <Button 
-                  onClick={sendChatMessage} 
-                  disabled={!newChatMessage.trim() || !selectedChatBooking}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl disabled:opacity-50"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+          <div className="flex h-full min-h-[calc(100vh-6rem)] flex-col">
+            <ClientChatInterface
+              activeBookings={activeBookings}
+              selectedBooking={selectedChatBooking}
+              chatMessages={chatMessages}
+              isLoadingChatMessages={isLoadingChatMessages}
+              isCreatingBookingChat={isCreatingBookingChat}
+              newChatMessage={newChatMessage}
+              onNewChatMessageChange={setNewChatMessage}
+              onSendMessage={sendChatMessage}
+              onSendAttachment={sendChatAttachment}
+              onSelectBooking={handleSelectChatBooking}
+              onBackToList={handleBackToChatList}
+              onBookProtector={handleBookService}
+              onCallOperator={handleCallOperator}
+              onApprovePayment={handleApprovePayment}
+              isSendingMessage={isSendingMessage}
+              messagesEndRef={messagesEndRef}
+              showThread={showChatThread}
+              userInitials={userDisplayName}
+              userAvatarUrl={userProfile.avatarUrl}
+              onAccountClick={() => setActiveTab("account")}
+            />
           </div>
         )}
 
@@ -7226,25 +7263,70 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             </div>
 
             {/* User Welcome Card */}
-            <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-lg p-6">
+            <div className="rounded-lg border border-white/10 bg-[#1c2331] p-6">
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void handleAvatarUpload(file)
+                }}
+              />
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
-                  <span className="text-white text-2xl font-bold">
-                    {userProfile.firstName?.charAt(0)?.toUpperCase() || userProfile.email?.charAt(0)?.toUpperCase() || 'U'}
-                    {userProfile.lastName?.charAt(0)?.toUpperCase() || ''}
-                  </span>
-                </div>
-                <div className="flex-1">
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  disabled={isUploadingAvatar}
+                  className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/20 backdrop-blur transition-opacity hover:opacity-90 disabled:cursor-wait"
+                  aria-label="Change profile photo"
+                >
+                  {userProfile.avatarUrl ? (
+                    <img
+                      src={userProfile.avatarUrl}
+                      alt={userDisplayName}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-2xl font-bold text-white">
+                      {userProfile.firstName?.charAt(0)?.toUpperCase() || userProfile.email?.charAt(0)?.toUpperCase() || 'U'}
+                      {userProfile.lastName?.charAt(0)?.toUpperCase() || ''}
+                    </span>
+                  )}
+                  {isUploadingAvatar && (
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/40">
+                      <Loader2 className="h-5 w-5 animate-spin text-white" />
+                    </span>
+                  )}
+                </button>
+                <div className="min-w-0 flex-1">
                   <h3 className="text-xl font-semibold text-white">
                     Welcome, {userProfile.firstName || userProfile.email?.split('@')[0] || 'User'}!
                   </h3>
-                  <p className="text-blue-100 text-sm">{userProfile.email || 'No email'}</p>
+                  <p className="truncate text-sm text-gray-400">{userProfile.email || 'No email'}</p>
                   {user && user.email_confirmed_at && (
-                    <div className="flex items-center gap-1 mt-1 text-green-200 text-xs">
-                      <CheckCircle className="w-3 h-3" />
+                    <div className="mt-1 flex items-center gap-1 text-xs text-white/90">
+                      <CheckCircle className="h-3 w-3" />
                       <span>Verified Account</span>
                     </div>
                   )}
+                </div>
+              </div>
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-white/15 px-4 py-3">
+                  <div className="flex items-center gap-2 text-gray-400">
+                    <Car className="h-4 w-4 shrink-0" />
+                    <span className="text-xs font-medium">Trips</span>
+                  </div>
+                  <p className="mt-1 text-2xl font-bold tabular-nums text-white">{accountStats.totalTrips}</p>
+                </div>
+                <div className="rounded-lg bg-white/15 px-4 py-3">
+                  <div className="flex items-center gap-2 text-gray-400">
+                    <Coins className="h-4 w-4 shrink-0" />
+                    <span className="text-xs font-medium">Coins Earned</span>
+                  </div>
+                  <p className="mt-1 text-2xl font-bold tabular-nums text-white">{accountStats.coinsEarned.toLocaleString()}</p>
                 </div>
               </div>
             </div>
@@ -7479,62 +7561,63 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       </main>
 
 
-      {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 w-full max-w-md mx-auto bg-black text-white p-4 z-50 border-t border-gray-800">
+      {/* Footer — Uber-style bottom nav */}
+      <footer className="fixed bottom-0 left-0 right-0 w-full max-w-md mx-auto bg-[#121212] text-white px-4 py-3 z-50 border-t border-[#2a2a2a]">
         <div className="flex items-center justify-between">
           <button
             onClick={() => setActiveTab("protector")}
-            className={`flex flex-col items-center justify-center gap-1 ${
-              activeTab === "protector" ? "text-blue-500" : "text-gray-400"
+            className={`flex flex-col items-center justify-center gap-1 min-w-[4rem] ${
+              activeTab === "protector" ? "text-white" : "text-gray-500"
             }`}
           >
-            <Shield className="h-5 w-5" />
-            <span className="text-xs">Protector</span>
+            <Home className="h-5 w-5" strokeWidth={activeTab === "protector" ? 2.5 : 2} />
+            <span className="text-[11px] font-medium">Home</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setShowChatThread(false)
+              setActiveTab("chat")
+            }}
+            className={`flex flex-col items-center justify-center gap-1 min-w-[4rem] ${
+              activeTab === "chat" ? "text-white" : "text-gray-500"
+            }`}
+          >
+            <MessageSquare className="h-5 w-5" strokeWidth={activeTab === "chat" ? 2.5 : 2} />
+            <span className="text-[11px] font-medium">Chat</span>
           </button>
 
           <button
             onClick={() => setActiveTab("bookings")}
-            className={`flex flex-col items-center justify-center gap-1 ${
-              activeTab === "bookings" ? "text-blue-500" : "text-gray-400"
+            className={`flex flex-col items-center justify-center gap-1 min-w-[4rem] ${
+              activeTab === "bookings" ? "text-white" : "text-gray-500"
             }`}
           >
-            <Calendar className="h-5 w-5" />
-            <span className="text-xs">Bookings</span>
+            <FileText className="h-5 w-5" strokeWidth={activeTab === "bookings" ? 2.5 : 2} />
+            <span className="text-[11px] font-medium">Activity</span>
           </button>
-
-
-          <button
-            onClick={() => setActiveTab("chat")}
-            className={`flex flex-col items-center justify-center gap-1 ${
-              activeTab === "chat" ? "text-blue-500" : "text-gray-400"
-            }`}
-          >
-            <MessageSquare className="h-5 w-5" />
-            <span className="text-xs">Chat</span>
-          </button>
-
-          {/* Operator Dashboard Tab - Only visible to operators */}
-          {userRole === "agent" && (
-            <button
-              onClick={() => setActiveTab("operator")}
-              className={`flex flex-col items-center justify-center gap-1 ${
-                activeTab === "operator" ? "text-blue-500" : "text-gray-400"
-              }`}
-            >
-              <User className="h-5 w-5" />
-              <span className="text-xs">Operator</span>
-            </button>
-          )}
 
           <button
             onClick={() => setActiveTab('account')}
-            className={`flex flex-col items-center justify-center gap-1 ${
-              activeTab === "account" ? "text-blue-500" : "text-gray-400"
+            className={`flex flex-col items-center justify-center gap-1 min-w-[4rem] ${
+              activeTab === "account" ? "text-white" : "text-gray-500"
             }`}
           >
-            <User className="h-5 w-5" />
-            <span className="text-xs">Account</span>
+            <User className="h-5 w-5" strokeWidth={activeTab === "account" ? 2.5 : 2} />
+            <span className="text-[11px] font-medium">Account</span>
           </button>
+
+          {userRole === "agent" && (
+            <button
+              onClick={() => setActiveTab("operator")}
+              className={`flex flex-col items-center justify-center gap-1 min-w-[4rem] ${
+                activeTab === "operator" ? "text-white" : "text-gray-500"
+              }`}
+            >
+              <Shield className="h-5 w-5" strokeWidth={activeTab === "operator" ? 2.5 : 2} />
+              <span className="text-[11px] font-medium">Operator</span>
+            </button>
+          )}
         </div>
       </footer>
 

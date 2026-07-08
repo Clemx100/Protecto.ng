@@ -141,7 +141,82 @@ CREATE TABLE bookings (
     special_instructions TEXT,
     emergency_contact TEXT,
     emergency_phone TEXT,
+
+    -- Marketplace composition (additive for compatibility)
+    booking_mode TEXT DEFAULT 'protector_only',
+    vehicle_listing_id UUID,
+    protector_listing_id UUID,
+    with_driver BOOLEAN DEFAULT FALSE,
+    rental_days INTEGER,
+    hourly_rate DECIMAL(10,2),
+    daily_rate DECIMAL(10,2),
+    kyc_status TEXT DEFAULT 'pending',
+    approval_status TEXT DEFAULT 'pending',
     
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 6b. VEHICLE_LISTINGS TABLE
+CREATE TABLE vehicle_listings (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    owner_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    make TEXT NOT NULL,
+    model TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    type vehicle_type NOT NULL DEFAULT 'suv',
+    seats INTEGER DEFAULT 4,
+    with_driver BOOLEAN DEFAULT FALSE,
+    price_per_day DECIMAL(10,2) NOT NULL,
+    currency TEXT DEFAULT 'NGN',
+    photos TEXT[] DEFAULT ARRAY[]::TEXT[],
+    availability JSONB DEFAULT '{}'::JSONB,
+    kyc_status TEXT DEFAULT 'pending',
+    approval_status TEXT DEFAULT 'pending',
+    moderation_notes TEXT,
+    approved_by UUID REFERENCES profiles(id),
+    approved_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 6c. PROTECTOR_LISTINGS TABLE
+CREATE TABLE protector_listings (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    provider_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+    display_name TEXT NOT NULL,
+    category_label TEXT DEFAULT 'Protector',
+    bio TEXT,
+    qualifications TEXT[] DEFAULT ARRAY[]::TEXT[],
+    years_experience INTEGER DEFAULT 0,
+    hourly_rate DECIMAL(10,2),
+    daily_rate DECIMAL(10,2),
+    currency TEXT DEFAULT 'NGN',
+    photos TEXT[] DEFAULT ARRAY[]::TEXT[],
+    availability JSONB DEFAULT '{}'::JSONB,
+    kyc_status TEXT DEFAULT 'pending',
+    approval_status TEXT DEFAULT 'pending',
+    moderation_notes TEXT,
+    approved_by UUID REFERENCES profiles(id),
+    approved_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 6d. LISTING_DOCUMENTS TABLE
+CREATE TABLE listing_documents (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    listing_type TEXT NOT NULL CHECK (listing_type IN ('vehicle', 'protector')),
+    listing_id UUID NOT NULL,
+    provider_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
+    document_type TEXT NOT NULL,
+    file_url TEXT NOT NULL,
+    metadata JSONB DEFAULT '{}'::JSONB,
+    verification_status TEXT DEFAULT 'pending',
+    verified_by UUID REFERENCES profiles(id),
+    verified_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -264,6 +339,16 @@ CREATE INDEX idx_bookings_client ON bookings(client_id);
 CREATE INDEX idx_bookings_status ON bookings(status);
 CREATE INDEX idx_bookings_date ON bookings(scheduled_date);
 CREATE INDEX idx_bookings_location ON bookings USING GIST(pickup_coordinates);
+CREATE INDEX idx_bookings_mode ON bookings(booking_mode);
+CREATE INDEX idx_bookings_vehicle_listing_id ON bookings(vehicle_listing_id);
+CREATE INDEX idx_bookings_protector_listing_id ON bookings(protector_listing_id);
+CREATE INDEX idx_vehicle_listings_owner ON vehicle_listings(owner_id);
+CREATE INDEX idx_vehicle_listings_approval_status ON vehicle_listings(approval_status);
+CREATE INDEX idx_vehicle_listings_kyc_status ON vehicle_listings(kyc_status);
+CREATE INDEX idx_protector_listings_provider ON protector_listings(provider_id);
+CREATE INDEX idx_protector_listings_approval_status ON protector_listings(approval_status);
+CREATE INDEX idx_protector_listings_kyc_status ON protector_listings(kyc_status);
+CREATE INDEX idx_listing_documents_listing ON listing_documents(listing_type, listing_id);
 CREATE INDEX idx_payments_booking ON payments(booking_id);
 CREATE INDEX idx_emergency_alerts_status ON emergency_alerts(status);
 CREATE INDEX idx_emergency_alerts_location ON emergency_alerts USING GIST(location);
@@ -289,6 +374,9 @@ CREATE TRIGGER update_vehicles_updated_at BEFORE UPDATE ON vehicles FOR EACH ROW
 CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON services FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_locations_updated_at BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_bookings_updated_at BEFORE UPDATE ON bookings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_vehicle_listings_updated_at BEFORE UPDATE ON vehicle_listings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_protector_listings_updated_at BEFORE UPDATE ON protector_listings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_listing_documents_updated_at BEFORE UPDATE ON listing_documents FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON payments FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_emergency_alerts_updated_at BEFORE UPDATE ON emergency_alerts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_messages_updated_at BEFORE UPDATE ON messages FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

@@ -7,7 +7,14 @@ export interface ChatMessage {
   sender_type: 'client' | 'operator' | 'system'
   sender_id: string
   message: string
-  message_type?: 'text' | 'system' | 'invoice' | 'status_update' // Message type
+  message_type?: 'text' | 'system' | 'invoice' | 'status_update' | 'image' | 'audio' | 'file'
+  metadata?: {
+    attachmentType?: 'image' | 'file' | 'audio'
+    fileName?: string
+    mimeType?: string
+    url?: string
+    durationSeconds?: number
+  }
   created_at: string
   updated_at: string
   has_invoice?: boolean
@@ -182,10 +189,13 @@ export class ChatService {
             sender_type: msg.sender_type,
             sender_id: msg.sender_id,
             message: msg.content || msg.message,
+            message_type: msg.message_type || 'text',
+            metadata: msg.metadata || null,
             created_at: msg.created_at,
             updated_at: msg.created_at,
-            has_invoice: msg.has_invoice || false,
-            is_system_message: msg.message_type === 'system'
+            has_invoice: msg.has_invoice || msg.message_type === 'invoice',
+            invoice_data: msg.message_type === 'invoice' ? (msg.invoice_data || msg.metadata) : undefined,
+            is_system_message: msg.message_type === 'system',
           })) as ChatMessage[]
 
           // Store in localStorage for offline access
@@ -241,12 +251,14 @@ export class ChatService {
                   booking_id: msg.booking_id,
                   sender_type: msg.sender_type,
                   sender_id: msg.sender_id,
-                  message: msg.message,
+                  message: msg.message || msg.content,
+                  message_type: msg.message_type || 'text',
+                  metadata: msg.metadata || null,
                   created_at: msg.created_at,
                   updated_at: msg.created_at,
-                  has_invoice: msg.has_invoice || false,
-                  is_system_message: msg.is_system_message || false,
-                  invoiceData: msg.invoice_data || msg.invoiceData
+                  has_invoice: msg.has_invoice || msg.message_type === 'invoice',
+                  is_system_message: msg.is_system_message || msg.message_type === 'system',
+                  invoice_data: msg.message_type === 'invoice' ? (msg.invoice_data || msg.invoiceData || msg.metadata) : undefined,
                 }
                 callback(chatMessage)
               })
@@ -292,12 +304,15 @@ export class ChatService {
           const chatMessage: ChatMessage = {
             id: msg.id,
             booking_id: msg.booking_id,
-            sender_type: msg.sender?.role === 'operator' || msg.sender?.role === 'admin' ? 'operator' : 'client',
+            sender_type: msg.sender?.role === 'operator' || msg.sender?.role === 'admin' ? 'operator' : (msg.sender_type || 'client'),
             sender_id: msg.sender_id,
-            message: msg.content,
+            message: msg.content || msg.message,
+            message_type: msg.message_type || 'text',
+            metadata: msg.metadata || null,
             created_at: msg.created_at,
             updated_at: msg.created_at,
-            has_invoice: false,
+            has_invoice: msg.message_type === 'invoice',
+            invoice_data: msg.message_type === 'invoice' ? msg.metadata : undefined,
             is_system_message: msg.message_type === 'system'
           }
           

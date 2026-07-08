@@ -16,6 +16,11 @@ import { Button } from "@/components/ui/button"
 import { createClient } from "@/lib/supabase/client"
 import { AdminAPI } from "@/lib/api"
 import { unifiedChatService, UnifiedChatMessage } from "@/lib/services/unifiedChatService"
+import {
+  ChatAttachmentContent,
+  getAttachmentPreviewLabel,
+  isChatAttachmentMessage,
+} from "../../components/chat-attachment-content"
 import LoadingLogo from "@/components/loading-logo"
 import {
   notifyRealtimeEvent,
@@ -134,7 +139,9 @@ export default function OperatorDashboard() {
                 const latest = Array.from(notifiedMessageIdsRef.current).slice(-300)
                 notifiedMessageIdsRef.current = new Set(latest)
               }
-              const body = (newMessage.message || 'New message').slice(0, 120)
+              const body = isChatAttachmentMessage(newMessage)
+                ? getAttachmentPreviewLabel(newMessage)
+                : (newMessage.message || 'New message').slice(0, 120)
               notifyRealtimeEvent({
                 title: `New client message (${selectedBooking.id})`,
                 description: body.length === (newMessage.message?.length || 0) ? body : `${body}...`,
@@ -272,154 +279,57 @@ export default function OperatorDashboard() {
 
   const loadBookingsDirectly = async () => {
     try {
-      console.log('🔄 Loading bookings directly from database...')
-      
-      // Check session but don't block if missing (service role will bypass RLS anyway)
-      const { data: { session } } = await supabase.auth.getSession()
-      console.log('📋 Session status:', session ? '✅ Active' : '⚠️ No session (will use service role)')
+      console.log('🔄 Loading bookings from operator API...')
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-      // Create a direct Supabase client with service role to bypass RLS
-      console.log('🔑 Creating service role client...')
-      const { createServiceRoleClient } = await import('@/lib/config/database')
-      const serviceSupabase = createServiceRoleClient()
-      console.log('✅ Service role client created')
-
-      // Get all bookings with client details
-      console.log('📥 Fetching bookings from database...')
-      const { data: bookings, error } = await serviceSupabase
-        .from('bookings')
-        .select(`
-          *,
-          client:profiles!bookings_client_id_fkey(
-            id,
-            first_name,
-            last_name,
-            email,
-            phone
-          ),
-          service:services(
-            id,
-            name,
-            description,
-            base_price,
-            price_per_hour
-          )
-        `)
-        .order('created_at', { ascending: false })
-
-      if (error) {
-        console.error('❌ Error fetching bookings:', error)
-        console.error('❌ Error details:', JSON.stringify(error, null, 2))
-        setError(`Failed to load bookings: ${error.message}`)
+      if (!session?.access_token) {
+        console.error('❌ Missing operator session:', sessionError)
+        setError('Please log in to access operator dashboard')
+        setBookings([])
         return
       }
 
-      console.log('✅ Loaded', bookings?.length || 0, 'bookings from database')
-      console.log('📊 Booking IDs:', bookings?.slice(0, 3).map(b => b.id.substring(0, 8)))
+      const response = await fetch('/api/operator/bookings', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      })
 
-      if (bookings && bookings.length > 0) {
-        // Transform bookings to match operator dashboard format
-        const transformedBookings = bookings.map(booking => {
-          let clientInfo = {
-            first_name: booking.client?.first_name || 'Unknown',
-            last_name: booking.client?.last_name || 'User',
-            phone: booking.client?.phone || 'N/A',
-            email: booking.client?.email || 'N/A'
-          }
-          
-          // Extract additional info from special_instructions
-          let vehicles = {}
-          let protectionType = 'N/A'
-          let destinationDetails = {}
-          let contact = null
-          
-          try {
-            if (booking.special_instructions) {
-              const specialInstructions = JSON.parse(booking.special_instructions)
-              
-              if (specialInstructions.contact) {
-                contact = specialInstructions.contact
-                if (specialInstructions.contact.user) {
-                  clientInfo = {
-                    first_name: specialInstructions.contact.user.firstName || clientInfo.first_name,
-                    last_name: specialInstructions.contact.user.lastName || clientInfo.last_name,
-                    phone: specialInstructions.contact.phone || clientInfo.phone,
-                    email: specialInstructions.contact.user.email || clientInfo.email
-                  }
-                }
-              }
-              
-              if (specialInstructions.vehicles) {
-                vehicles = specialInstructions.vehicles
-              }
-              if (specialInstructions.protectionType) {
-                protectionType = specialInstructions.protectionType
-              }
-              if (specialInstructions.destinationDetails) {
-                destinationDetails = specialInstructions.destinationDetails
-              }
-            }
-          } catch (error) {
-            console.log('Could not parse special_instructions for booking:', booking.booking_code)
-          }
-          
-          return {
-            id: booking.booking_code || booking.id,
-            booking_code: booking.booking_code,
-            database_id: booking.id,
-            client: clientInfo,
-            contact: contact,
-            pickup_address: booking.pickup_address || 'N/A',
-            destination_address: booking.destination_address || 'N/A',
-            status: booking.status || 'pending',
-            created_at: booking.created_at,
-            scheduled_date: booking.scheduled_date,
-            scheduled_time: booking.scheduled_time,
-            service: {
-              name: booking.service?.name || 'Unknown Service',
-              type: booking.service_type,
-              description: booking.service?.description || ''
-            },
-            serviceType: booking.service_type === 'armed_protection' ? 'armed-protection' : 'vehicle-only',
-            duration: `${booking.duration_hours || 1} hour(s)`,
-            total_price: booking.total_price || 0,
-            personnel: {
-              protectors: booking.protector_count || 0,
-              protectee: booking.protectee_count || 1,
-              dressCode: booking.dress_code?.replace(/_/g, ' ') || 'N/A'
-            },
-            dress_code: booking.dress_code || 'N/A',
-            vehicles: vehicles,
-            protectionType: protectionType,
-            destinationDetails: destinationDetails,
-            special_instructions: booking.special_instructions || 'N/A',
-            emergency_contact: booking.emergency_contact || 'N/A',
-            emergency_phone: booking.emergency_phone || 'N/A',
-            pickupDetails: {
-              location: booking.pickup_address,
-              date: booking.scheduled_date,
-              time: booking.scheduled_time
-            },
-            timestamp: booking.created_at
-          }
-        })
+      const result = await response.json().catch(() => null)
+      if (!response.ok || !result?.success) {
+        const reason = result?.message || result?.error || `HTTP ${response.status}`
+        console.error('❌ Failed to load operator bookings:', reason)
+        setError(`Failed to load bookings: ${reason}`)
+        return
+      }
 
-        console.log('💾 Setting bookings state with', transformedBookings.length, 'bookings')
-        setBookings(transformedBookings)
-        console.log('✅ Bookings state updated successfully')
-        
-        // Auto-select first pending booking if none selected
-        if (!selectedBooking && transformedBookings.length > 0) {
-          const pendingBooking = transformedBookings.find(b => b.status === 'pending')
-          if (pendingBooking) {
-            setSelectedBooking(pendingBooking)
-            console.log('✅ Auto-selected pending booking:', pendingBooking.id)
-          }
+      const transformedBookings = Array.isArray(result.data) ? result.data : []
+      setBookings(transformedBookings)
+      setError("")
+      console.log('✅ Loaded', transformedBookings.length, 'bookings')
+
+      if (selectedBooking) {
+        const refreshed = transformedBookings.find((booking: any) =>
+          booking.database_id === selectedBooking.database_id ||
+          booking.id === selectedBooking.id
+        )
+        if (refreshed) {
+          setSelectedBooking(refreshed)
         }
       }
-      
+
+      if (!selectedBooking && transformedBookings.length > 0) {
+        const pendingBooking = transformedBookings.find((booking: any) => booking.status === 'pending')
+        if (pendingBooking) {
+          setSelectedBooking(pendingBooking)
+          console.log('✅ Auto-selected pending booking:', pendingBooking.id)
+        }
+      }
     } catch (error) {
       console.error('❌ Error loading bookings directly:', error)
+      setError('Failed to load bookings')
     }
   }
 
@@ -793,7 +703,7 @@ export default function OperatorDashboard() {
     speed?: number
   ) => {
     try {
-      const { RealtimeAPI } = await import('@/operator-app/lib/api/realtime')
+      const { RealtimeAPI } = await import('@/lib/api/realtime')
       
       // Use database_id if available, otherwise use booking_id
       const booking = bookings.find(b => b.id === bookingId || b.booking_code === bookingId)
@@ -1238,7 +1148,12 @@ export default function OperatorDashboard() {
                             : 'bg-gray-700 text-white'
                         }`}
                       >
-                        <div className="text-sm">{message.message}</div>
+                        <ChatAttachmentContent
+                          message={message}
+                          textClassName="text-sm text-white"
+                          captionClassName="mt-1 text-xs text-gray-300"
+                          linkClassName="flex items-center gap-2 text-sm text-blue-200 underline-offset-2 hover:underline"
+                        />
                         
                         {/* Invoice Details */}
                         {message.has_invoice && message.invoice_data && (

@@ -51,7 +51,7 @@ export default function AdminAnalyticsDashboard() {
         dateRange.end
       )
       if (data && !error) {
-        setAnalytics(prev => ({ ...prev, bookingAnalytics: data }))
+        setAnalytics((prev: any) => ({ ...prev, bookingAnalytics: data }))
       }
     } catch (error) {
       console.error('Failed to load booking analytics:', error)
@@ -68,7 +68,7 @@ export default function AdminAnalyticsDashboard() {
         dateRange.end
       )
       if (data && !error) {
-        setAnalytics(prev => ({ ...prev, financialAnalytics: data }))
+        setAnalytics((prev: any) => ({ ...prev, financialAnalytics: data }))
       }
     } catch (error) {
       console.error('Failed to load financial analytics:', error)
@@ -220,11 +220,11 @@ export default function AdminAnalyticsDashboard() {
             <div className="bg-white/10 rounded-xl p-6 border border-white/20">
               <h3 className="text-lg font-semibold text-white mb-4">Bookings Trend</h3>
               <div className="h-64 flex items-end space-x-2">
-                {analytics.trends?.bookings_trend?.slice(-7).map((item, index) => (
+                {analytics.trends?.bookings_trend?.slice(-7).map((item: any, index: number) => (
                   <div key={index} className="flex-1 flex flex-col items-center">
                     <div
                       className="bg-blue-500 rounded-t w-full"
-                      style={{ height: `${(item.count / Math.max(...analytics.trends.bookings_trend.map(t => t.count))) * 200}px` }}
+                      style={{ height: `${(item.count / Math.max(...analytics.trends.bookings_trend.map((t: any) => t.count))) * 200}px` }}
                     ></div>
                     <span className="text-white text-xs mt-2">{item.count}</span>
                     <span className="text-gray-300 text-xs">{new Date(item.date).toLocaleDateString()}</span>
@@ -237,11 +237,11 @@ export default function AdminAnalyticsDashboard() {
             <div className="bg-white/10 rounded-xl p-6 border border-white/20">
               <h3 className="text-lg font-semibold text-white mb-4">Revenue Trend</h3>
               <div className="h-64 flex items-end space-x-2">
-                {analytics.trends?.revenue_trend?.slice(-7).map((item, index) => (
+                {analytics.trends?.revenue_trend?.slice(-7).map((item: any, index: number) => (
                   <div key={index} className="flex-1 flex flex-col items-center">
                     <div
                       className="bg-green-500 rounded-t w-full"
-                      style={{ height: `${(item.amount / Math.max(...analytics.trends.revenue_trend.map(t => t.amount))) * 200}px` }}
+                      style={{ height: `${(item.amount / Math.max(...analytics.trends.revenue_trend.map((t: any) => t.amount))) * 200}px` }}
                     ></div>
                     <span className="text-white text-xs mt-2">₦{item.amount.toLocaleString()}</span>
                     <span className="text-gray-300 text-xs">{new Date(item.date).toLocaleDateString()}</span>
@@ -255,7 +255,7 @@ export default function AdminAnalyticsDashboard() {
           <div className="bg-white/10 rounded-xl p-6 border border-white/20">
             <h3 className="text-lg font-semibold text-white mb-4">Top Performing Agents</h3>
             <div className="space-y-4">
-              {analytics.trends?.agent_performance?.slice(0, 5).map((agent, index) => (
+              {analytics.trends?.agent_performance?.slice(0, 5).map((agent: any, index: number) => (
                 <div key={agent.agent_id} className="flex items-center justify-between p-4 bg-white/5 rounded-lg">
                   <div className="flex items-center space-x-4">
                     <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold">
@@ -272,7 +272,7 @@ export default function AdminAnalyticsDashboard() {
                       <p className="text-gray-300 text-sm">Rating</p>
                     </div>
                     <div className="flex">
-                      {[...Array(5)].map((_, i) => (
+                      {[...Array(5)].map((_: unknown, i: number) => (
                         <span
                           key={i}
                           className={`text-sm ${
@@ -293,7 +293,7 @@ export default function AdminAnalyticsDashboard() {
           <div className="bg-white/10 rounded-xl p-6 border border-white/20">
             <h3 className="text-lg font-semibold text-white mb-4">Recent Emergency Alerts</h3>
             <div className="space-y-3">
-              {analytics.alerts?.recent_emergencies?.map((alert) => (
+              {analytics.alerts?.recent_emergencies?.map((alert: any) => (
                 <div key={alert.id} className="flex items-center justify-between p-4 bg-red-900/20 border border-red-500/50 rounded-lg">
                   <div className="flex items-center space-x-4">
                     <AlertTriangle className="h-6 w-6 text-red-400" />
@@ -369,7 +369,7 @@ export default function AdminAnalyticsDashboard() {
               <div className="bg-white/10 rounded-xl p-6 border border-white/20">
                 <h3 className="text-lg font-semibold text-white mb-4">Service Types</h3>
                 <div className="space-y-3">
-                  {analytics.bookingAnalytics.by_service_type?.map((service, index) => (
+                  {analytics.bookingAnalytics.by_service_type?.map((service: any, index: number) => (
                     <div key={index} className="flex justify-between items-center">
                       <span className="text-gray-300 capitalize">{service.service_type.replace('_', ' ')}</span>
                       <div className="flex items-center space-x-4">
@@ -435,7 +435,7 @@ export default function AdminAnalyticsDashboard() {
               <div className="bg-white/10 rounded-xl p-6 border border-white/20">
                 <h3 className="text-lg font-semibold text-white mb-4">Payment Methods</h3>
                 <div className="space-y-3">
-                  {analytics.financialAnalytics.payment_methods?.map((method, index) => (
+                  {analytics.financialAnalytics.payment_methods?.map((method: any, index: number) => (
                     <div key={index} className="flex justify-between items-center">
                       <span className="text-gray-300 capitalize">{method.method.replace('_', ' ')}</span>
                       <div className="flex items-center space-x-4">

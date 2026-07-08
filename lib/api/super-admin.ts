@@ -272,5 +272,53 @@ export const SuperAdminAPI = {
       throw new Error(err.error || res.statusText)
     }
     return res.json()
+  },
+
+  async getCityInsights() {
+    const res = await fetch(`${getBase()}/city-insights`, { headers: await getHeaders() })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || res.statusText)
+    }
+    const json = await res.json()
+    return json.data || []
+  },
+
+  async createCityInsight(body: Record<string, unknown>) {
+    const res = await fetch(`${getBase()}/city-insights`, {
+      method: 'POST',
+      headers: await getHeaders(),
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || res.statusText)
+    }
+    return res.json()
+  },
+
+  async updateCityInsight(body: Record<string, unknown>) {
+    const res = await fetch(`${getBase()}/city-insights`, {
+      method: 'PATCH',
+      headers: await getHeaders(),
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || res.statusText)
+    }
+    return res.json()
+  },
+
+  async deleteCityInsight(id: string) {
+    const res = await fetch(`${getBase()}/city-insights?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: await getHeaders(),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error || res.statusText)
+    }
+    return res.json()
   }
 }

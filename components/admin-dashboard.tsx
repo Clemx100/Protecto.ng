@@ -41,6 +41,7 @@ export default function AdminDashboard() {
   const [vehicles, setVehicles] = useState<any[]>([])
   const [emergencyAlerts, setEmergencyAlerts] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([])
+  const [listingModeration, setListingModeration] = useState<{ vehicles: any[]; protectors: any[] }>({ vehicles: [], protectors: [] })
   
   // Filters and pagination
   const [filters, setFilters] = useState({
@@ -75,7 +76,8 @@ export default function AdminDashboard() {
         loadAgents(),
         loadVehicles(),
         loadEmergencyAlerts(),
-        loadUsers()
+        loadUsers(),
+        loadListingModeration()
       ])
     } catch (error) {
       console.error('Failed to initialize dashboard:', error)
@@ -169,6 +171,18 @@ export default function AdminDashboard() {
       }
     } catch (error) {
       console.error('Failed to load users:', error)
+    }
+  }
+
+  const loadListingModeration = async () => {
+    try {
+      const response = await fetch('/api/admin/listings/moderation')
+      const result = await response.json()
+      if (result.success) {
+        setListingModeration(result.data)
+      }
+    } catch (error) {
+      console.error('Failed to load listing moderation queue:', error)
     }
   }
 
@@ -302,6 +316,7 @@ export default function AdminDashboard() {
             { id: "vehicles", label: "Vehicles", icon: Car },
             { id: "emergency", label: "Emergency", icon: AlertTriangle },
             { id: "users", label: "Users", icon: Users },
+            { id: "moderation", label: "Moderation", icon: CheckCircle },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -1001,6 +1016,36 @@ export default function AdminDashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "moderation" && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-white">KYC & Listing Moderation</h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white/10 rounded-xl border border-white/20 p-6">
+                <h3 className="text-lg text-white font-semibold mb-3">Vehicle Listings</h3>
+                <div className="space-y-3">
+                  {listingModeration.vehicles.map((item) => (
+                    <div key={item.id} className="p-3 bg-white/5 rounded-lg">
+                      <p className="text-white font-medium">{item.title}</p>
+                      <p className="text-xs text-gray-300">KYC: {item.kyc_status} | Approval: {item.approval_status}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="bg-white/10 rounded-xl border border-white/20 p-6">
+                <h3 className="text-lg text-white font-semibold mb-3">Protector Listings</h3>
+                <div className="space-y-3">
+                  {listingModeration.protectors.map((item) => (
+                    <div key={item.id} className="p-3 bg-white/5 rounded-lg">
+                      <p className="text-white font-medium">{item.display_name}</p>
+                      <p className="text-xs text-gray-300">KYC: {item.kyc_status} | Approval: {item.approval_status}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

@@ -89,12 +89,16 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { count: number; amount: number }>) || {}
 
-      const bookingsTrendArray = Object.entries(bookingsByDate).map(([date, data]) => ({
+      const bookingsTrendArray = Object.entries(
+        bookingsByDate as Record<string, { count: number; amount: number }>
+      ).map(([date, data]) => ({
         date,
         count: data.count
       }))
 
-      const revenueTrendArray = Object.entries(bookingsByDate).map(([date, data]) => ({
+      const revenueTrendArray = Object.entries(
+        bookingsByDate as Record<string, { count: number; amount: number }>
+      ).map(([date, data]) => ({
         date,
         amount: data.amount
       }))
@@ -237,7 +241,7 @@ export class AdminAnalyticsAPI {
         acc[serviceType].count++
         acc[serviceType].revenue += booking.total_price
         if (booking.ratings?.length > 0) {
-          acc[serviceType].ratings.push(...booking.ratings.map(r => r.rating))
+          acc[serviceType].ratings.push(...booking.ratings.map((r: any) => r.rating))
         }
         return acc
       }, {} as Record<string, any>) || {}
@@ -260,10 +264,10 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, number>) || {}
 
-      const byStatusArray = Object.entries(byStatus).map(([status, count]: [string, number]) => ({
+      const byStatusArray = Object.entries(byStatus as Record<string, number>).map(([status, count]) => ({
         status,
-        count,
-        percentage: totalBookings > 0 ? (count / totalBookings) * 100 : 0
+        count: Number(count),
+        percentage: totalBookings > 0 ? (Number(count) / totalBookings) * 100 : 0
       }))
 
       // Daily breakdown
@@ -277,7 +281,9 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { bookings: number; revenue: number }>) || {}
 
-      const dailyBreakdownArray = Object.entries(dailyBreakdown).map(([date, data]: [string, { bookings: number; revenue: number }]) => ({
+      const dailyBreakdownArray = Object.entries(
+        dailyBreakdown as Record<string, { bookings: number; revenue: number }>
+      ).map(([date, data]) => ({
         date,
         bookings: data.bookings,
         revenue: data.revenue
@@ -469,7 +475,9 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { count: number; amount: number }>) || {}
 
-      const paymentMethodsArray = Object.entries(paymentMethods).map(([method, data]: [string, { count: number; amount: number }]) => ({
+      const paymentMethodsArray = Object.entries(
+        paymentMethods as Record<string, { count: number; amount: number }>
+      ).map(([method, data]) => ({
         method,
         count: data.count,
         amount: data.amount,
@@ -487,7 +495,9 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { revenue: number; transactions: number }>) || {}
 
-      const dailyRevenueArray = Object.entries(dailyRevenue).map(([date, data]: [string, { revenue: number; transactions: number }]) => ({
+      const dailyRevenueArray = Object.entries(
+        dailyRevenue as Record<string, { revenue: number; transactions: number }>
+      ).map(([date, data]) => ({
         date,
         revenue: data.revenue,
         transactions: data.transactions
@@ -504,7 +514,9 @@ export class AdminAnalyticsAPI {
         return acc
       }, {} as Record<string, { revenue: number; bookings: number }>) || {}
 
-      const monthlyBreakdownArray = Object.entries(monthlyBreakdown).map(([month, data]: [string, { revenue: number; bookings: number }]) => ({
+      const monthlyBreakdownArray = Object.entries(
+        monthlyBreakdown as Record<string, { revenue: number; bookings: number }>
+      ).map(([month, data]) => ({
         month,
         revenue: data.revenue,
         bookings: data.bookings

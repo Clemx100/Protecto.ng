@@ -87,21 +87,21 @@ export async function GET(request: NextRequest) {
     // Transform messages to match expected format
     const transformedMessages = (messages || []).map(message => {
       const isInvoice = message.message_type === 'invoice'
-      const hasMetadata = message.metadata || message.invoice_data
+      const metadata = message.metadata || null
       
       return {
         id: message.id,
         booking_id: message.booking_id,
         sender_type: message.sender_type || (message.message_type === 'system' ? 'system' : 'client'),
         sender_id: message.sender_id,
-        message: message.content || message.message, // ✅ Use 'content' column, fallback to 'message'
+        message: message.content || message.message,
         created_at: message.created_at,
         is_system_message: message.message_type === 'system',
         has_invoice: isInvoice,
-        hasInvoice: isInvoice, // Alternative naming
-        invoice_data: hasMetadata,
-        invoiceData: hasMetadata, // Alternative naming
-        metadata: message.metadata,
+        hasInvoice: isInvoice,
+        invoice_data: isInvoice ? (message.invoice_data || metadata) : undefined,
+        invoiceData: isInvoice ? (message.invoice_data || metadata) : undefined,
+        metadata,
         // Add fields for client compatibility
         is_encrypted: message.is_encrypted || false,
         message_type: message.message_type || 'text',

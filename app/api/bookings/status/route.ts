@@ -24,7 +24,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Valid status values
-    const validStatuses = ['pending', 'accepted', 'paid', 'deployed', 'en_route', 'arrived', 'in_service', 'completed', 'cancelled']
+    const validStatuses = ['pending', 'accepted', 'paid', 'ready_for_dispatch', 'en_route', 'arrived', 'in_service', 'completed', 'cancelled']
     if (!validStatuses.includes(status)) {
       return NextResponse.json({ error: 'Invalid status value' }, { status: 400 })
     }
@@ -94,15 +94,15 @@ export async function PATCH(request: NextRequest) {
 
     // Create a new system message about the status change
     const statusMessages = {
-      'pending': '⏳ Your booking request has been received and is pending review.',
-      'accepted': '✅ Your booking has been accepted by our team. We will contact you shortly.',
-      'paid': '💰 Payment received and confirmed! Your service will now be processed.',
-      'en_route': '🚗 Your security team is now en route to your location.',
-      'arrived': '📍 Your security team has arrived at your location.',
-      'in_service': '🛡️ Security service is now active. Your protection team is on duty.',
-      'completed': '✅ Security service completed successfully. Thank you for choosing Protector.Ng!',
-      'cancelled': '❌ Your booking has been cancelled. Please contact support if you have any questions.',
-      'deployed': '🚀 Security team has been deployed and is preparing for departure.'
+      'pending': 'Your booking request has been received and is pending review.',
+      'accepted': 'Your booking has been accepted by our team.',
+      'paid': 'Payment received and confirmed.',
+      'ready_for_dispatch': 'Your booking is confirmed and ready for dispatch.',
+      'en_route': 'Your assigned team is en route to your pickup location.',
+      'arrived': 'Your assigned team has arrived at your pickup location.',
+      'in_service': 'Your booking is currently in progress.',
+      'completed': 'Your booking has been completed successfully. Thank you for choosing Protector.Ng.',
+      'cancelled': 'Your booking has been cancelled. Please contact support if needed.'
     }
 
     const messageContent = statusMessages[status as keyof typeof statusMessages] || `Status updated to: ${status}`
@@ -194,15 +194,15 @@ export async function POST(request: NextRequest) {
 
     // ALWAYS create a system message about the status update
     const statusMessages = {
-      'pending': '⏳ Your booking request has been received and is pending review.',
-      'accepted': '✅ Your booking has been accepted by our team. We will contact you shortly.',
-      'paid': '💰 Payment received and confirmed! Your service will now be processed.',
-      'en_route': '🚗 Your security team is now en route to your location.',
-      'arrived': '📍 Your security team has arrived at your location.',
-      'in_service': '🛡️ Security service is now active. Your protection team is on duty.',
-      'completed': '✅ Security service completed successfully. Thank you for choosing Protector.Ng!',
-      'cancelled': '❌ Your booking has been cancelled. Please contact support if you have any questions.',
-      'deployed': '🚀 Security team has been deployed and is preparing for departure.'
+      'pending': 'Your booking request has been received and is pending review.',
+      'accepted': 'Your booking has been accepted by our team.',
+      'paid': 'Payment received and confirmed.',
+      'ready_for_dispatch': 'Your booking is confirmed and ready for dispatch.',
+      'en_route': 'Your assigned team is en route to your pickup location.',
+      'arrived': 'Your assigned team has arrived at your pickup location.',
+      'in_service': 'Your booking is currently in progress.',
+      'completed': 'Your booking has been completed successfully. Thank you for choosing Protector.Ng.',
+      'cancelled': 'Your booking has been cancelled. Please contact support if needed.'
     }
 
     const systemMessageContent = statusMessages[status as keyof typeof statusMessages] || `Status updated to: ${status}`

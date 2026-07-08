@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { CircleF, DirectionsRenderer, GoogleMap, MarkerF, PolylineF, useJsApiLoader } from "@react-google-maps/api"
 import { RouteCalculationService, RoutePoint } from "@/lib/services/route-calculation"
 import LoadingLogo from "@/components/loading-logo"
+import { getMapShellClass, type MapShellVariant } from "@/lib/utils/map-shell"
 
 interface BookingDisplay {
   id: string
@@ -19,6 +20,7 @@ interface GoogleMapInternalProps {
   bookingLocationsMap: Map<string, { lat: number; lng: number }>
   locationHistory?: { lat: number; lng: number; timestamp: number }[]
   currentSpeed?: number
+  variant?: MapShellVariant
 }
 
 const mapContainerStyle = { height: "100%", width: "100%" }
@@ -48,6 +50,7 @@ export default function GoogleMapInternal({
   bookingLocationsMap,
   locationHistory = [],
   currentSpeed,
+  variant = "embedded",
 }: GoogleMapInternalProps) {
   const [pickupCoords, setPickupCoords] = useState<RoutePoint | null>(null)
   const [destinationCoords, setDestinationCoords] = useState<RoutePoint | null>(null)
@@ -325,9 +328,11 @@ export default function GoogleMapInternal({
       RouteCalculationService.calculateDistance(pickupCoords, currentLocation) > 60,
   )
 
+  const mapShellClass = getMapShellClass(variant)
+
   if (loadError) {
     return (
-      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+      <div className={mapShellClass}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
           <div className="text-center space-y-2 px-4">
             <p className="text-white text-sm font-medium">Map failed to load</p>
@@ -340,7 +345,7 @@ export default function GoogleMapInternal({
 
   if (!isLoaded || isLoading) {
     return (
-      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+      <div className={mapShellClass}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
           <LoadingLogo fullscreen={false} label="Loading map..." />
         </div>
@@ -350,7 +355,7 @@ export default function GoogleMapInternal({
 
   if (!pickupCoords && !currentLocation && !destinationCoords) {
     return (
-      <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+      <div className={mapShellClass}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
           <div className="text-center space-y-2 px-4">
             <p className="text-white text-sm font-medium">Location unavailable</p>
@@ -362,7 +367,7 @@ export default function GoogleMapInternal({
   }
 
   return (
-    <div className="relative h-64 bg-gray-800 rounded-lg m-4 overflow-hidden">
+    <div className={mapShellClass}>
       <div className="absolute top-2 left-2 z-10 bg-black/70 text-white text-xs px-2 py-1 rounded space-y-1">
         {routeDistance > 0 && <div>Distance: {RouteCalculationService.formatDistance(routeDistance)}</div>}
         <div>ETA: {eta}</div>
