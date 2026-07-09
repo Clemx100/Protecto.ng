@@ -50,6 +50,10 @@ import {
   resolveBookingEtaLabel,
   resolveVehicleDisplayName,
 } from "@/lib/utils/booking-display"
+import {
+  getActivityMapMode,
+  getQuickServiceFromBooking,
+} from "@/lib/utils/activity-map"
 import type { MapShellVariant } from "@/lib/utils/map-shell"
 
 const GOOGLE_PLACES_LIBRARIES: ("places")[] = ["places"]
@@ -559,11 +563,21 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
 
   // Transform bookings data
   const transformBookings = (bookings: any[]): BookingDisplay[] => {
-    return bookings.map(booking => ({
+    return bookings.map(booking => {
+      let specialInstructions = booking.special_instructions
+      if (typeof specialInstructions === 'string') {
+        try {
+          specialInstructions = JSON.parse(specialInstructions)
+        } catch {
+          // keep raw string
+        }
+      }
+
+      return {
       id: booking.id,
       booking_code: booking.booking_code,
       type: formatServiceType(booking.service_type),
-      protectorName: resolveBookingDisplayName(booking),
+      protectorName: resolveBookingDisplayName({ ...booking, special_instructions: specialInstructions }),
       vehicleType: resolveVehicleDisplayName(booking) || "Vehicle pending assignment",
       status: formatStatus(booking.status),
       estimatedArrival: resolveBookingEtaLabel(
@@ -576,7 +590,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       startTime: formatTime(booking.scheduled_time),
       protectorImage: resolveBookingAvatarImage(booking),
       dressCode: booking.dress_code,
-      special_instructions: booking.special_instructions,
+      special_instructions: specialInstructions,
       currentLocation: booking.pickup_coordinates ? {
         lat: booking.pickup_coordinates.lat || booking.pickup_coordinates.x,
         lng: booking.pickup_coordinates.lng || booking.pickup_coordinates.y
@@ -592,7 +606,8 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       scheduled_date: booking.scheduled_date,
       scheduled_time: booking.scheduled_time,
       total_price: booking.total_price
-    }))
+    }
+    })
   }
 
   // Helper functions
@@ -7009,6 +7024,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                 {activeBookings.map((booking) => {
                   const bookingTrackingId = getBookingTrackingId(booking)
                   const isTrackingSelected = selectedTrackingBookingId === bookingTrackingId
+                  const quick = getQuickServiceFromBooking(booking)
+                  const mapMode = getActivityMapMode(booking)
+                  const isHomeSecurity = quick?.quick_service_type === "private_home_security"
+                  const isItinerary = quick?.quick_service_type === "itinerary_planning"
 
                   return (
                     <div key={booking.id} className="space-y-4 rounded-lg bg-gray-900 p-4">
@@ -7019,43 +7038,119 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                             {booking.status.replace("-", " ")}
                           </span>
                         </div>
-                        <span className="font-semibold text-white">ETA: {booking.estimatedArrival}</span>
+                        {!isItinerary ? (
+                          <span className="font-semibold text-white">
+                            {isHomeSecurity ? "Awaiting review" : `ETA: ${booking.estimatedArrival}`}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-amber-300">Under review</span>
+                        )}
                       </div>
 
                       <p className="text-sm font-medium text-white">
                         {booking.protectorName}
                       </p>
 
-                      <div className="space-y-2">
-                        <div className="flex items-start space-x-3">
-                          <div className="mt-1 h-3 w-3 rounded-full bg-green-500" />
+                      {isHomeSecurity ? (
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between gap-4">
+                            <span className="text-gray-400">Type</span>
+                            <span className="text-white capitalize">{quick?.security_type || "armed"}</span>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <span className="text-gray-400">Location</span>
+                            <span className="text-right text-white">{quick?.address || booking.pickupLocation}</span>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <span className="text-gray-400">Team</span>
+                            <span className="text-white">
+                              {quick?.protector_count || booking.protector_count || 1} guard
+                              {(quick?.protector_count || booking.protector_count || 1) > 1 ? "s" : ""} ·{" "}
+                              {quick?.protectee_count || 1} protectee
+                              {(quick?.protectee_count || 1) > 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          {quick?.protectee_names && quick.protectee_names.length > 0 ? (
+                            <div className="flex justify-between gap-4">
+                              <span className="text-gray-400">Protectees</span>
+                              <span className="text-right text-white">{quick.protectee_names.join(", ")}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : isItinerary ? (
+                        <div className="space-y-2 text-sm">
                           <div>
-                            <p className="text-sm text-white">{booking.pickupLocation}</p>
-                            <p className="text-xs text-gray-400">Pickup • {booking.startTime}</p>
+                            <p className="text-gray-400">Your request</p>
+                            <p className="mt-1 text-white">{quick?.description || booking.destination}</p>
+                          </div>
+                          {quick?.itinerary_file_name ? (
+                            <div className="flex justify-between gap-4">
+                              <span className="text-gray-400">File</span>
+                              <span className="text-right text-white">{quick.itinerary_file_name}</span>
+                            </div>
+                          ) : null}
+                          <p className="text-xs text-gray-400">
+                            Operator is reviewing your itinerary before confirming stops.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-start space-x-3">
+                            <div className="mt-1 h-3 w-3 rounded-full bg-green-500" />
+                            <div>
+                              <p className="text-sm text-white">{booking.pickupLocation}</p>
+                              <p className="text-xs text-gray-400">Pickup • {booking.startTime}</p>
+                            </div>
+                          </div>
+                          <div className="ml-1.5 h-4 w-0.5 bg-gray-600" />
+                          <div className="flex items-start space-x-3">
+                            <div className="mt-1 h-3 w-3 rounded-full bg-red-500" />
+                            <div>
+                              <p className="text-sm text-white">{booking.destination}</p>
+                              <p className="text-xs text-gray-400">Destination</p>
+                            </div>
                           </div>
                         </div>
-                        <div className="ml-1.5 h-4 w-0.5 bg-gray-600" />
-                        <div className="flex items-start space-x-3">
-                          <div className="mt-1 h-3 w-3 rounded-full bg-red-500" />
-                          <div>
-                            <p className="text-sm text-white">{booking.destination}</p>
-                            <p className="text-xs text-gray-400">Destination</p>
-                          </div>
-                        </div>
-                      </div>
+                      )}
 
                       <div className="grid grid-cols-2 gap-2 pt-2">
-                        <Button
-                          onClick={() => setSelectedTrackingBookingId(bookingTrackingId || null)}
-                          disabled={!bookingTrackingId}
-                          className={`text-white ${
-                            isTrackingSelected
-                              ? "bg-blue-700 hover:bg-blue-800"
-                              : "bg-blue-600 hover:bg-blue-700"
-                          }`}
-                        >
-                          {isTrackingSelected ? "Tracking on Map" : "Track Trip on Map"}
-                        </Button>
+                        {mapMode === "trip" ? (
+                          <Button
+                            onClick={() => setSelectedTrackingBookingId(bookingTrackingId || null)}
+                            disabled={!bookingTrackingId}
+                            className={`text-white ${
+                              isTrackingSelected
+                                ? "bg-blue-700 hover:bg-blue-800"
+                                : "bg-blue-600 hover:bg-blue-700"
+                            }`}
+                          >
+                            {isTrackingSelected ? "Tracking on Map" : "Track Trip on Map"}
+                          </Button>
+                        ) : isHomeSecurity ? (
+                          <Button
+                            onClick={() => setSelectedTrackingBookingId(bookingTrackingId || null)}
+                            disabled={!bookingTrackingId}
+                            className={`text-white ${
+                              isTrackingSelected
+                                ? "bg-emerald-700 hover:bg-emerald-800"
+                                : "bg-emerald-600 hover:bg-emerald-700"
+                            }`}
+                          >
+                            {isTrackingSelected ? "Viewing Location" : "View Location"}
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => setSelectedTrackingBookingId(bookingTrackingId || null)}
+                            disabled={!bookingTrackingId}
+                            className={`text-white ${
+                              isTrackingSelected
+                                ? "bg-blue-700 hover:bg-blue-800"
+                                : "bg-blue-600 hover:bg-blue-700"
+                            }`}
+                          >
+                            {isTrackingSelected ? "Viewing Request" : "View Request"}
+                          </Button>
+                        )}
                         <Button
                           onClick={() => handleChatNavigation(booking)}
                           className="bg-indigo-600 text-white hover:bg-indigo-700"

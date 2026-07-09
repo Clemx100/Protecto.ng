@@ -298,14 +298,14 @@ function buildContextualTip(card: CityInsight, ctx: PromoUserContext): string {
 function buildSubline(card: CityInsight, ctx: PromoUserContext): string {
   const tip = buildContextualTip(card, ctx)
   const adminDesc = card.description?.trim()
-  const responseLabel = card.response_time_label?.trim()
 
-  if (adminDesc && adminDesc.length > 12 && !adminDesc.toLowerCase().includes('avg mission')) {
+  // Keep tip-only here. Response time / price metrics render on the next line.
+  if (
+    adminDesc &&
+    adminDesc.length > 12 &&
+    !/avg\s+(mission|response)/i.test(adminDesc)
+  ) {
     return `${tip} • ${adminDesc}`
-  }
-
-  if (responseLabel) {
-    return `${tip} • Avg response ${responseLabel}`
   }
 
   return tip

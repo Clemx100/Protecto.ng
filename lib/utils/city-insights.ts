@@ -94,11 +94,28 @@ export function formatCityPriceRange(insight: Pick<CityInsight, 'price_min' | 'p
   return `${symbol}${min}–${symbol}${max}`
 }
 
+function cleanMetricsLabel(metricsLabel: string): string {
+  return metricsLabel
+    .replace(/avg\s+response(?:\s+\d[\d–\-]*\s*min)?/gi, '')
+    .replace(/\s*[•|]\s*/g, ' • ')
+    .replace(/(?:\s*•\s*)+/g, ' • ')
+    .replace(/^\s*•\s*|\s*•\s*$/g, '')
+    .trim()
+}
+
 export function buildCityMetricsLabel(insight: Pick<CityInsight, 'response_time_label' | 'metrics_label'>): string {
+  const response = insight.response_time_label?.trim()
+  const metrics = cleanMetricsLabel(insight.metrics_label || '')
+
   if (insight.metrics_label.includes('{response}')) {
-    return insight.metrics_label.replace('{response}', insight.response_time_label)
+    return insight.metrics_label.replace('{response}', response || '')
   }
-  return `Avg response ${insight.response_time_label} • ${insight.metrics_label}`
+
+  if (response && metrics) {
+    return `Avg response ${response} • ${metrics}`
+  }
+  if (response) return `Avg response ${response}`
+  return metrics || 'Avg mission price'
 }
 
 export const DEFAULT_CITY_INSIGHT: CityInsight = {

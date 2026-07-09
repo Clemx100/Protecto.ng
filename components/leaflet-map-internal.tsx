@@ -9,6 +9,12 @@ import 'leaflet/dist/leaflet.css'
 import { RouteCalculationService, RoutePoint } from '@/lib/services/route-calculation'
 import LoadingLogo from "@/components/loading-logo"
 import { getMapShellClass, type MapShellVariant } from "@/lib/utils/map-shell"
+import {
+  getActivityMapMode,
+  resolveSiteMapAddress,
+  shouldGeocodeDestination,
+} from "@/lib/utils/activity-map"
+import ActivityMapPlaceholder from "@/components/activity-map-placeholder"
 
 // Fix for default marker icons in Next.js
 if (typeof window !== 'undefined') {
@@ -26,6 +32,7 @@ interface BookingDisplay {
   pickupLocation: string
   destination?: string
   currentLocation?: { lat: number; lng: number }
+  special_instructions?: unknown
 }
 
 interface LeafletMapInternalProps {
@@ -35,6 +42,18 @@ interface LeafletMapInternalProps {
   currentSpeed?: number // in km/h
   variant?: MapShellVariant
 }
+
+const PROTECTOR_MAP_LOGO = "/images/PRADO/slideshow/logo.PNG"
+
+const siteMarkerIcon =
+  typeof window !== "undefined"
+    ? L.icon({
+        iconUrl: PROTECTOR_MAP_LOGO,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
+        popupAnchor: [0, -18],
+      })
+    : undefined
 
 const toFiniteNumber = (value: unknown): number | null => {
   const numeric = typeof value === "number" ? value : Number(value)
@@ -68,6 +87,9 @@ export default function LeafletMapInternal({
   const [isLoading, setIsLoading] = useState(true)
   
   const bookingId = booking.id || booking.booking_code
+  const mapMode = getActivityMapMode(booking)
+  const isSiteMode = mapMode === "site"
+  const isReviewMode = mapMode === "review"
   const rawCurrentLocation = bookingLocationsMap.get(bookingId || '') || booking.currentLocation
   const currentLocation = normalizeLatLng(rawCurrentLocation)
   
@@ -81,21 +103,26 @@ export default function LeafletMapInternal({
       setRouteDistance(0)
       setEta('Calculating...')
 
+      if (isReviewMode) {
+        setIsLoading(false)
+        return
+      }
+
       try {
         const { GeocodingService } = await import('@/lib/services/geocoding')
-        
-        // Geocode pickup
-        if (booking.pickupLocation && booking.pickupLocation !== 'TBD') {
-          const pickup = await GeocodingService.geocode(booking.pickupLocation)
+        const siteAddress = isSiteMode ? resolveSiteMapAddress(booking) : null
+        const pickupAddress = siteAddress || booking.pickupLocation
+
+        if (pickupAddress && pickupAddress !== 'TBD') {
+          const pickup = await GeocodingService.geocode(pickupAddress)
           const normalizedPickup = normalizeLatLng(pickup)
           if (normalizedPickup) {
             setPickupCoords(normalizedPickup)
           }
         }
-        
-        // Geocode destination
-        if (booking.destination && booking.destination !== 'TBD') {
-          const dest = await GeocodingService.geocode(booking.destination)
+
+        if (!isSiteMode && shouldGeocodeDestination(booking)) {
+          const dest = await GeocodingService.geocode(booking.destination!)
           const normalizedDestination = normalizeLatLng(dest)
           if (normalizedDestination) {
             setDestinationCoords(normalizedDestination)
@@ -109,10 +136,17 @@ export default function LeafletMapInternal({
     }
     
     loadMapData()
-  }, [booking.pickupLocation, booking.destination])
+  }, [booking.pickupLocation, booking.destination, booking.special_instructions, isReviewMode, isSiteMode])
   
   // Calculate route when we have all coordinates
   useEffect(() => {
+    if (mapMode !== 'trip') {
+      setRouteGeometry(null)
+      setRouteDistance(0)
+      setEta(isSiteMode ? 'Awaiting confirmation' : 'Under review')
+      return
+    }
+
     const calculateRoute = async () => {
       if (!pickupCoords || !destinationCoords) return
       
@@ -153,7 +187,7 @@ export default function LeafletMapInternal({
     }
     
     calculateRoute()
-  }, [pickupCoords, destinationCoords, currentLocation, currentSpeed])
+  }, [pickupCoords, destinationCoords, currentLocation, currentSpeed, mapMode, isSiteMode])
   
   // Determine map center and bounds
   const getMapCenter = (): [number, number] => {
@@ -196,6 +230,10 @@ export default function LeafletMapInternal({
   }
 
   const mapShellClass = getMapShellClass(variant)
+
+  if (isReviewMode) {
+    return <ActivityMapPlaceholder mode="review" variant={variant} />
+  }
   
   if (isLoading) {
     return (
@@ -207,7 +245,7 @@ export default function LeafletMapInternal({
     )
   }
 
-  if (!pickupCoords && !currentLocation) {
+  if (!pickupCoords && !currentLocation && !isSiteMode) {
     return (
       <div className={mapShellClass}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-green-900/20 flex items-center justify-center">
@@ -219,29 +257,40 @@ export default function LeafletMapInternal({
       </div>
     )
   }
+
+  if (isSiteMode && !pickupCoords) {
+    return <ActivityMapPlaceholder mode="site" variant={variant} />
+  }
   
   return (
     <div className={mapShellClass}>
-      {/* Map Info Overlay */}
-      <div className="absolute top-2 left-2 z-[1000] bg-black/70 text-white text-xs px-2 py-1 rounded space-y-1">
-        {routeDistance > 0 && (
-          <div>Distance: {RouteCalculationService.formatDistance(routeDistance)}</div>
+      <div className="absolute top-2 left-2 z-[1000] rounded bg-black/70 px-2 py-1 text-xs text-white">
+        {isSiteMode ? (
+          <div>Awaiting operator confirmation</div>
+        ) : (
+          <div className="space-y-1">
+            {routeDistance > 0 && (
+              <div>Distance: {RouteCalculationService.formatDistance(routeDistance)}</div>
+            )}
+            <div>ETA: {eta}</div>
+          </div>
         )}
-        <div>ETA: {eta}</div>
       </div>
 
-      <button
-        type="button"
-        onClick={openGoogleNavigation}
-        className="absolute top-2 right-2 z-[1000] bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded-md transition-colors"
-      >
-        Navigate
-      </button>
+      {!isSiteMode ? (
+        <button
+          type="button"
+          onClick={openGoogleNavigation}
+          className="absolute top-2 right-2 z-[1000] rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white transition-colors hover:bg-blue-700"
+        >
+          Navigate
+        </button>
+      ) : null}
       
       {/* Leaflet Map */}
       <MapContainer
         center={getMapCenter()}
-        zoom={13}
+        zoom={isSiteMode ? 15 : 13}
         style={{ height: '100%', width: '100%' }}
         className={variant === "hero" ? "" : "rounded-lg"}
       >
@@ -252,19 +301,21 @@ export default function LeafletMapInternal({
         
         {/* Pickup Marker */}
         {pickupCoords && (
-          <Marker position={[pickupCoords.lat, pickupCoords.lng]}>
+          <Marker
+            position={[pickupCoords.lat, pickupCoords.lng]}
+            icon={isSiteMode ? siteMarkerIcon : undefined}
+          >
             <Popup>
               <div className="text-sm">
-                <strong>Pickup</strong>
+                <strong>{isSiteMode ? "Service location" : "Pickup"}</strong>
                 <br />
-                {booking.pickupLocation}
+                {isSiteMode ? resolveSiteMapAddress(booking) || booking.pickupLocation : booking.pickupLocation}
               </div>
             </Popup>
           </Marker>
         )}
         
-        {/* Current Location Marker */}
-        {currentLocation && (
+        {!isSiteMode && currentLocation && (
           <Marker 
             position={[currentLocation.lat, currentLocation.lng]}
             icon={L.icon({
@@ -289,8 +340,7 @@ export default function LeafletMapInternal({
           </Marker>
         )}
         
-        {/* Destination Marker */}
-        {destinationCoords && (
+        {!isSiteMode && destinationCoords && (
           <Marker position={[destinationCoords.lat, destinationCoords.lng]}>
             <Popup>
               <div className="text-sm">
@@ -302,8 +352,7 @@ export default function LeafletMapInternal({
           </Marker>
         )}
         
-        {/* Route Polyline */}
-        {validRoutePath.length > 1 && (
+        {!isSiteMode && validRoutePath.length > 1 && (
           <Polyline
             positions={validRoutePath}
             color="#3B82F6"
@@ -312,8 +361,7 @@ export default function LeafletMapInternal({
           />
         )}
         
-        {/* Location History Path */}
-        {validLocationHistoryPath.length > 1 && (
+        {!isSiteMode && validLocationHistoryPath.length > 1 && (
           <Polyline
             positions={validLocationHistoryPath}
             color="#10B981"

@@ -10,6 +10,8 @@ interface BookingDisplay {
   pickupLocation: string
   destination?: string
   currentLocation?: { lat: number; lng: number }
+  status?: string
+  special_instructions?: unknown
 }
 
 interface LiveTrackingMapProps {

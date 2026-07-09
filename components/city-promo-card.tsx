@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
-  buildCityMetricsLabel,
   DEFAULT_CITY_INSIGHT,
   formatCityPriceRange,
   normalizeCardCategory,
@@ -227,8 +226,16 @@ export default function CityPromoCard({
       <div className={`space-y-1 p-4 transition-opacity duration-300 ${visible ? "opacity-100" : "opacity-0"}`}>
         <h2 className="text-lg font-bold text-white">{headline}</h2>
         <p className="text-sm text-gray-400 line-clamp-3">{subline}</p>
-        <p className="text-xs text-gray-500">{buildCityMetricsLabel(insight)}</p>
-        <p className="text-xl font-bold text-white">{formatCityPriceRange(insight)}</p>
+        {insight.response_time_label ? (
+          <p className="text-xs text-gray-500">Avg response {insight.response_time_label}</p>
+        ) : null}
+        <div className="pt-1">
+          <p className="text-sm font-semibold text-white">
+            {insight.metrics_label?.replace(/avg\s+response(?:\s+\d[\d–\-]*\s*min)?/gi, "").replace(/^\s*•\s*|\s*•\s*$/g, "").trim() ||
+              "Avg mission price"}
+          </p>
+          <p className="text-xl font-bold text-white">{formatCityPriceRange(insight)}</p>
+        </div>
         <p className="pt-1 text-sm font-medium text-white">{insight.cta_label}</p>
       </div>
     </button>

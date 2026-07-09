@@ -337,7 +337,7 @@ CREATE TABLE city_insights (
     description TEXT NOT NULL DEFAULT '',
     image_url TEXT NOT NULL,
     response_time_label TEXT NOT NULL DEFAULT '15–45 min',
-    metrics_label TEXT NOT NULL DEFAULT 'Avg response • Avg mission price',
+    metrics_label TEXT NOT NULL DEFAULT 'Avg mission price',
     price_min DECIMAL(12,2) NOT NULL DEFAULT 250000,
     price_max DECIMAL(12,2) NOT NULL DEFAULT 700000,
     currency TEXT NOT NULL DEFAULT 'NGN',
