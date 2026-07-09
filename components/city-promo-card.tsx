@@ -71,6 +71,23 @@ function preloadImage(url: string): Promise<void> {
   })
 }
 
+function bookingSignalKey(list: PromoBookingSignal[] = []): string {
+  return list
+    .map(
+      (booking) =>
+        [
+          booking.id || "",
+          booking.status || "",
+          booking.service_type || booking.type || "",
+          booking.booking_mode || "",
+          booking.scheduled_date || booking.date || "",
+          booking.pickupLocation || "",
+          booking.destination || "",
+        ].join("|"),
+    )
+    .join(";")
+}
+
 export default function CityPromoCard({
   userLocation,
   clientName,
@@ -85,21 +102,42 @@ export default function CityPromoCard({
   const [cardIndex, setCardIndex] = useState(0)
   const [visible, setVisible] = useState(true)
   const rotateTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const isAdvancingRef = useRef(false)
+  const cardIndexRef = useRef(0)
+  const scoredCardsRef = useRef<ScoredPromoCard[]>([])
+  const activeBookingsRef = useRef(activeBookings)
+  const bookingHistoryRef = useRef(bookingHistory)
+
+  activeBookingsRef.current = activeBookings
+  bookingHistoryRef.current = bookingHistory
+
+  const bookingsKey = useMemo(
+    () => `${bookingSignalKey(activeBookings)}::${bookingSignalKey(bookingHistory)}`,
+    [activeBookings, bookingHistory],
+  )
 
   const promoContext = useMemo(
     () => ({
       userLocation: userLocation || "Lagos",
       clientName,
-      activeBookings,
-      bookingHistory,
+      activeBookings: activeBookingsRef.current,
+      bookingHistory: bookingHistoryRef.current,
     }),
-    [userLocation, clientName, activeBookings, bookingHistory],
+    [userLocation, clientName, bookingsKey],
   )
 
   const scoredCards = useMemo(
     () => rankPromoCards(insights, promoContext),
     [insights, promoContext],
   )
+
+  useEffect(() => {
+    scoredCardsRef.current = scoredCards
+  }, [scoredCards])
+
+  useEffect(() => {
+    cardIndexRef.current = cardIndex
+  }, [cardIndex])
 
   const current: ScoredPromoCard = useMemo(() => {
     const entry = getPromoCardAtIndex(scoredCards, cardIndex)
@@ -120,19 +158,30 @@ export default function CityPromoCard({
   }, [scoredCards, cardIndex, userLocation])
 
   const advanceCard = useCallback(async () => {
-    if (scoredCards.length <= 1) return
+    const cards = scoredCardsRef.current
+    if (cards.length <= 1 || isAdvancingRef.current) return
 
-    const nextIndex = (cardIndex + 1) % scoredCards.length
-    const next = getPromoCardAtIndex(scoredCards, nextIndex)
-    if (!next) return
+    isAdvancingRef.current = true
+    try {
+      const nextIndex = (cardIndexRef.current + 1) % cards.length
+      const next = getPromoCardAtIndex(cards, nextIndex)
+      if (!next) {
+        isAdvancingRef.current = false
+        return
+      }
 
-    await preloadImage(next.card.image_url)
-    setVisible(false)
-    window.setTimeout(() => {
-      setCardIndex(nextIndex)
-      setVisible(true)
-    }, 220)
-  }, [cardIndex, scoredCards])
+      await preloadImage(next.card.image_url)
+      setVisible(false)
+      window.setTimeout(() => {
+        cardIndexRef.current = nextIndex
+        setCardIndex(nextIndex)
+        setVisible(true)
+        isAdvancingRef.current = false
+      }, 220)
+    } catch {
+      isAdvancingRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     const city = userLocation || "Lagos"
@@ -149,6 +198,7 @@ export default function CityPromoCard({
             : []
         if (!cancelled && rows.length) {
           setInsights(rows)
+          cardIndexRef.current = 0
           setCardIndex(0)
         }
       } catch {
@@ -162,12 +212,22 @@ export default function CityPromoCard({
     }
   }, [userLocation])
 
-  useEffect(() => {
-    setCardIndex(0)
-  }, [scoredCards.length, userLocation])
+  const rotationKey = useMemo(
+    () => scoredCards.map((entry) => entry.card.id).join(","),
+    [scoredCards],
+  )
 
   useEffect(() => {
-    if (rotateTimerRef.current) clearInterval(rotateTimerRef.current)
+    cardIndexRef.current = 0
+    setCardIndex(0)
+  }, [rotationKey, userLocation])
+
+  useEffect(() => {
+    if (rotateTimerRef.current) {
+      clearInterval(rotateTimerRef.current)
+      rotateTimerRef.current = null
+    }
+
     if (scoredCards.length <= 1) return
 
     rotateTimerRef.current = setInterval(() => {
@@ -175,9 +235,12 @@ export default function CityPromoCard({
     }, PROMO_CARD_ROTATE_MS)
 
     return () => {
-      if (rotateTimerRef.current) clearInterval(rotateTimerRef.current)
+      if (rotateTimerRef.current) {
+        clearInterval(rotateTimerRef.current)
+        rotateTimerRef.current = null
+      }
     }
-  }, [advanceCard, scoredCards.length])
+  }, [advanceCard, scoredCards.length, rotationKey])
 
   const { card: insight, headline, subline } = current
 

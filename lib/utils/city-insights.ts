@@ -60,26 +60,84 @@ export function normalizeCitySlug(city: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
+/** Map neighborhoods / LGAs to the metro city used for promo cards. */
+const CITY_PARENT_ALIASES: Record<string, string> = {
+  ikeja: 'lagos',
+  lekki: 'lagos',
+  ikoyi: 'lagos',
+  vi: 'lagos',
+  'victoria-island': 'lagos',
+  yaba: 'lagos',
+  surulere: 'lagos',
+  ajah: 'lagos',
+  magodo: 'lagos',
+  maryland: 'lagos',
+  gbagada: 'lagos',
+  'banana-island': 'lagos',
+  'lekki-phase-1': 'lagos',
+  'lekki-phase-2': 'lagos',
+  'lagos-island': 'lagos',
+  'lagos-mainland': 'lagos',
+  'lagos-state': 'lagos',
+  'port-harcourt': 'port-harcourt',
+  ph: 'port-harcourt',
+  'abuja-fct': 'abuja',
+  'federal-capital-territory': 'abuja',
+  garki: 'abuja',
+  wuse: 'abuja',
+  maitama: 'abuja',
+  asokoro: 'abuja',
+}
+
+export function resolvePromoCitySlug(city: string): string {
+  const slug = normalizeCitySlug(city)
+  return CITY_PARENT_ALIASES[slug] || slug
+}
+
 export function filterInsightsForCity(insights: CityInsight[], city: string): CityInsight[] {
   if (!insights.length) return []
 
-  const slug = normalizeCitySlug(city)
-  const exact = insights.filter(
-    (row) =>
-      row.city_slug === slug ||
-      normalizeCitySlug(row.city_name) === slug ||
-      row.city_name.toLowerCase() === city.trim().toLowerCase(),
-  )
+  const slug = resolvePromoCitySlug(city)
+  const rawSlug = normalizeCitySlug(city)
+
+  const matchRow = (row: CityInsight, target: string) => {
+    const rowNameSlug = normalizeCitySlug(row.city_name)
+    const rowSlug = normalizeCitySlug(row.city_slug || row.city_name)
+    return (
+      rowSlug === target ||
+      rowNameSlug === target ||
+      resolvePromoCitySlug(row.city_name) === target ||
+      resolvePromoCitySlug(row.city_slug || '') === target
+    )
+  }
+
+  const exact = insights.filter((row) => matchRow(row, slug) || matchRow(row, rawSlug))
   if (exact.length) return exact
 
   const partial = insights.filter((row) => {
     const rowSlug = normalizeCitySlug(row.city_name)
-    return rowSlug.includes(slug) || slug.includes(rowSlug)
+    const rowParent = resolvePromoCitySlug(row.city_name)
+    return (
+      rowSlug.includes(slug) ||
+      slug.includes(rowSlug) ||
+      rowParent === slug ||
+      rowSlug.includes(rawSlug) ||
+      rawSlug.includes(rowSlug)
+    )
   })
   if (partial.length) return partial
 
   const defaults = insights.filter((row) => row.is_default)
-  return defaults.length ? defaults : insights
+  // Prefer a full metro pool over a single default so rotation can work.
+  if (defaults.length > 1) return defaults
+  if (defaults.length === 1) {
+    const defaultParent = resolvePromoCitySlug(defaults[0].city_name)
+    const metroPool = insights.filter((row) => resolvePromoCitySlug(row.city_name) === defaultParent)
+    if (metroPool.length > 1) return metroPool
+    return defaults
+  }
+
+  return insights
 }
 
 export function findMatchingCityInsight(insights: CityInsight[], city: string): CityInsight | null {
