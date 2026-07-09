@@ -100,7 +100,7 @@ export class AuthAPI {
 
       try {
         const { data: profile, error: profileError } = await withTimeout(
-          supabase.from('profiles').select('*').eq('id', authData.user.id).single(),
+          Promise.resolve(supabase.from('profiles').select('*').eq('id', authData.user.id).single()),
           AUTH_TIMEOUT_MS,
           'Profile fetch timed out',
         )
@@ -153,7 +153,7 @@ export class AuthAPI {
 
       try {
         const { data: profile, error } = await withTimeout(
-          supabase.from('profiles').select('*').eq('id', user.id).single(),
+          Promise.resolve(supabase.from('profiles').select('*').eq('id', user.id).single()),
           AUTH_TIMEOUT_MS,
           'Profile fetch timed out',
         )

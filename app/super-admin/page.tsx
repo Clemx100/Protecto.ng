@@ -39,7 +39,7 @@ export default function SuperAdminPage() {
           return
         }
 
-        if (profile && profile.role !== "admin") {
+        if (profile) {
           setUser(profile)
           setStatus("denied")
           return
