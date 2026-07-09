@@ -1,8 +1,28 @@
 // Authentication API functions for Protector.Ng
 import { createClient } from '@/lib/supabase/client'
 import { Profile, UserRole, ApiResponse } from '@/lib/types/database'
+import { withTimeout } from '@/lib/utils/async-timeout'
 
 const supabase = createClient()
+const AUTH_TIMEOUT_MS = 15000
+
+function profileFromAuthUser(user: {
+  id: string
+  email?: string | null
+  user_metadata?: Record<string, unknown>
+}): Profile {
+  return {
+    id: user.id,
+    email: user.email || '',
+    first_name: String(user.user_metadata?.first_name || user.user_metadata?.firstName || 'User'),
+    last_name: String(user.user_metadata?.last_name || user.user_metadata?.lastName || ''),
+    role: (user.user_metadata?.role as UserRole) || 'client',
+    is_verified: true,
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+}
 
 export class AuthAPI {
   // Sign up new user
@@ -64,13 +84,12 @@ export class AuthAPI {
   // Sign in user
   static async signIn(email: string, password: string): Promise<ApiResponse<Profile>> {
     try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      })
-      // #region agent log
-      fetch('http://127.0.0.1:7379/ingest/0c0b09ec-0795-419f-8cb5-0e4e2d4cba59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b732d'},body:JSON.stringify({sessionId:'0b732d',hypothesisId:'H1_H5',location:'auth.ts:signIn',message:'signInWithPassword result',data:{hasUser:!!authData?.user,authError:authError?.message||null},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      const { data: authData, error: authError } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        AUTH_TIMEOUT_MS,
+        'Sign in timed out. Check your connection and try again.',
+      )
+
       if (authError) {
         return { data: null as any, error: authError.message }
       }
@@ -79,22 +98,26 @@ export class AuthAPI {
         return { data: null as any, error: 'Failed to sign in' }
       }
 
-      // Get user profile
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single()
-      // #region agent log
-      fetch('http://127.0.0.1:7379/ingest/0c0b09ec-0795-419f-8cb5-0e4e2d4cba59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b732d'},body:JSON.stringify({sessionId:'0b732d',hypothesisId:'H5',location:'auth.ts:signIn profile',message:'profile fetch result',data:{hasProfile:!!profile,profileError:profileError?.message||null,profileRole:profile?.role},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-      if (profileError) {
-        return { data: null as any, error: profileError.message }
-      }
+      try {
+        const { data: profile, error: profileError } = await withTimeout(
+          supabase.from('profiles').select('*').eq('id', authData.user.id).single(),
+          AUTH_TIMEOUT_MS,
+          'Profile fetch timed out',
+        )
 
-      return { data: profile, message: 'Signed in successfully' }
+        if (profileError) {
+          return { data: profileFromAuthUser(authData.user), message: 'Signed in successfully' }
+        }
+
+        return { data: profile, message: 'Signed in successfully' }
+      } catch {
+        return { data: profileFromAuthUser(authData.user), message: 'Signed in successfully' }
+      }
     } catch (error) {
-      return { data: null as any, error: 'Failed to sign in' }
+      return {
+        data: null as any,
+        error: error instanceof Error ? error.message : 'Failed to sign in',
+      }
     }
   }
 
@@ -116,25 +139,38 @@ export class AuthAPI {
   // Get current user profile
   static async getCurrentUser(): Promise<ApiResponse<Profile>> {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
+      const {
+        data: { user },
+      } = await withTimeout(
+        supabase.auth.getUser(),
+        AUTH_TIMEOUT_MS,
+        'Authentication check timed out',
+      )
+
       if (!user) {
         return { data: null as any, error: 'User not authenticated' }
       }
 
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
+      try {
+        const { data: profile, error } = await withTimeout(
+          supabase.from('profiles').select('*').eq('id', user.id).single(),
+          AUTH_TIMEOUT_MS,
+          'Profile fetch timed out',
+        )
 
-      if (error) {
-        return { data: null as any, error: error.message }
+        if (error) {
+          return { data: profileFromAuthUser(user), message: 'User profile retrieved successfully' }
+        }
+
+        return { data: profile, message: 'User profile retrieved successfully' }
+      } catch {
+        return { data: profileFromAuthUser(user), message: 'User profile retrieved successfully' }
       }
-
-      return { data: profile, message: 'User profile retrieved successfully' }
     } catch (error) {
-      return { data: null as any, error: 'Failed to get user profile' }
+      return {
+        data: null as any,
+        error: error instanceof Error ? error.message : 'Failed to get user profile',
+      }
     }
   }
 

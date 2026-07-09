@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import dynamic from "next/dynamic"
 import { AuthAPI } from "@/lib/api"
 import { AlertTriangle, Shield, Lock, Mail, Loader2 } from "lucide-react"
@@ -18,21 +18,53 @@ const SuperAdminDashboard = dynamic(
 )
 
 export default function SuperAdminPage() {
-  // Start with login form so the page never sticks on loading
-  const [status, setStatus] = useState<"login" | "denied" | "dashboard">("login")
+  const [status, setStatus] = useState<"checking" | "login" | "denied" | "dashboard">("checking")
   const [user, setUser] = useState<any>(null)
   const [loginEmail, setLoginEmail] = useState("clemxbanking@gmail.com")
   const [loginPassword, setLoginPassword] = useState("")
   const [loginError, setLoginError] = useState("")
   const [loginLoading, setLoginLoading] = useState(false)
 
-  // Always show login form first. Only go to dashboard after successful sign-in
-  // (removed background getCurrentUser so we never jump to "Loading dashboard..." on mount)
+  useEffect(() => {
+    let cancelled = false
+
+    async function restoreSession() {
+      try {
+        const { data: profile, error } = await AuthAPI.getCurrentUser()
+        if (cancelled) return
+
+        if (profile?.role === "admin") {
+          setUser(profile)
+          setStatus("dashboard")
+          return
+        }
+
+        if (profile && profile.role !== "admin") {
+          setUser(profile)
+          setStatus("denied")
+          return
+        }
+
+        if (error && error !== "User not authenticated") {
+          setLoginError(error)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLoginError(err instanceof Error ? err.message : "Could not verify session.")
+        }
+      } finally {
+        if (!cancelled) setStatus((current) => (current === "checking" ? "login" : current))
+      }
+    }
+
+    void restoreSession()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    // #region agent log
-    fetch('http://127.0.0.1:7379/ingest/0c0b09ec-0795-419f-8cb5-0e4e2d4cba59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b732d'},body:JSON.stringify({sessionId:'0b732d',hypothesisId:'H3',location:'super-admin/page.tsx:handleLogin',message:'handleLogin called',data:{hasEmail:!!loginEmail?.trim(),hasPassword:!!loginPassword},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     setLoginError("")
     if (!loginEmail.trim() || !loginPassword) {
       setLoginError("Email and password are required.")
@@ -41,9 +73,6 @@ export default function SuperAdminPage() {
     setLoginLoading(true)
     try {
       const { data: profile, error } = await AuthAPI.signIn(loginEmail.trim(), loginPassword)
-      // #region agent log
-      fetch('http://127.0.0.1:7379/ingest/0c0b09ec-0795-419f-8cb5-0e4e2d4cba59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'0b732d'},body:JSON.stringify({sessionId:'0b732d',hypothesisId:'H1_H2_H5',location:'super-admin/page.tsx:after signIn',message:'signIn result',data:{hasProfile:!!profile,hasError:!!error,errorText:error||null,profileRole:profile?.role},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (error) {
         setLoginError(error || "Invalid email or password.")
         return
@@ -73,6 +102,10 @@ export default function SuperAdminPage() {
     setUser(null)
     setLoginError("")
     setStatus("login")
+  }
+
+  if (status === "checking") {
+    return <LoadingLogo label="Checking session..." />
   }
 
   if (status === "login") {

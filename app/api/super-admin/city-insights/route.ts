@@ -6,11 +6,69 @@ import { normalizeCitySlug } from '@/lib/utils/city-insights'
 const getSupabaseAdmin = () =>
   createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
 
+const MISSING_TABLE_MESSAGE =
+  'City cards table not set up. Run scripts/03_city_insights.sql in Supabase SQL Editor.'
+
+function isMissingCityInsightsTable(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false
+  if (error.code === '42P01') return true
+  const message = (error.message || '').toLowerCase()
+  return message.includes('city_insights') && message.includes('does not exist')
+}
+
+function missingTableResponse() {
+  return NextResponse.json({ error: MISSING_TABLE_MESSAGE }, { status: 503 })
+}
+
+function isDuplicateSlugError(error: { code?: string; message?: string } | null | undefined) {
+  if (!error) return false
+  if (error.code === '23505') return true
+  const message = (error.message || '').toLowerCase()
+  return (
+    message.includes('city_insights_city_slug_key') ||
+    message.includes('idx_city_insights_slug_category') ||
+    message.includes('city_slug')
+  )
+}
+
+function duplicateSlugResponse(cityName: string, category: string, existingId?: string) {
+  return NextResponse.json(
+    {
+      error: `A ${category} card for "${cityName}" already exists. Edit the existing card instead of creating a duplicate.`,
+      existing_id: existingId,
+    },
+    { status: 409 },
+  )
+}
+
+async function findCityInsightBySlugAndCategory(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  citySlug: string,
+  cardCategory: string,
+  excludeId?: string,
+) {
+  let query = supabase
+    .from('city_insights')
+    .select('id, city_name, card_category')
+    .eq('city_slug', citySlug)
+    .eq('card_category', cardCategory)
+  if (excludeId) {
+    query = query.neq('id', excludeId)
+  }
+  const { data } = await query.maybeSingle()
+  return data
+}
+
 function mapCityInsightBody(body: Record<string, unknown>) {
   const cityName = String(body.city_name || '').trim()
+  const cardCategory = body.card_category === 'vehicle' ? 'vehicle' : 'protector'
   return {
     city_name: cityName,
     city_slug: normalizeCitySlug(String(body.city_slug || cityName)),
+    card_category: cardCategory,
+    headline: String(body.headline || '').trim() ||
+      (cardCategory === 'vehicle' ? `Book a Vehicle in ${cityName}` : `Protector in ${cityName}`),
+    description: String(body.description || body.metrics_label || '').trim(),
     image_url: String(body.image_url || '').trim(),
     response_time_label: String(body.response_time_label || '15–45 min').trim(),
     metrics_label: String(body.metrics_label || 'Avg mission price').trim(),
@@ -38,6 +96,7 @@ export async function GET(request: NextRequest) {
       .order('city_name', { ascending: true })
 
     if (error) {
+      if (isMissingCityInsightsTable(error)) return missingTableResponse()
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -62,12 +121,25 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin()
 
+    const existing = await findCityInsightBySlugAndCategory(
+      supabase,
+      payload.city_slug,
+      payload.card_category,
+    )
+    if (existing) {
+      return duplicateSlugResponse(existing.city_name, payload.card_category, existing.id)
+    }
+
     if (payload.is_default) {
       await supabase.from('city_insights').update({ is_default: false }).eq('is_default', true)
     }
 
     const { data, error } = await supabase.from('city_insights').insert(payload).select('*').single()
     if (error) {
+      if (isMissingCityInsightsTable(error)) return missingTableResponse()
+      if (isDuplicateSlugError(error)) {
+        return duplicateSlugResponse(payload.city_name, payload.card_category)
+      }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -92,6 +164,16 @@ export async function PATCH(request: NextRequest) {
     const payload = mapCityInsightBody(body)
     const supabase = getSupabaseAdmin()
 
+    const existing = await findCityInsightBySlugAndCategory(
+      supabase,
+      payload.city_slug,
+      payload.card_category,
+      id,
+    )
+    if (existing) {
+      return duplicateSlugResponse(existing.city_name, payload.card_category, existing.id)
+    }
+
     if (payload.is_default) {
       await supabase.from('city_insights').update({ is_default: false }).neq('id', id)
     }
@@ -104,6 +186,10 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     if (error) {
+      if (isMissingCityInsightsTable(error)) return missingTableResponse()
+      if (isDuplicateSlugError(error)) {
+        return duplicateSlugResponse(payload.city_name, payload.card_category, id)
+      }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -128,6 +214,7 @@ export async function DELETE(request: NextRequest) {
     const { error } = await supabase.from('city_insights').delete().eq('id', id)
 
     if (error) {
+      if (isMissingCityInsightsTable(error)) return missingTableResponse()
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 

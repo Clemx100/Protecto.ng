@@ -1,7 +1,12 @@
+export type PromoCardCategory = 'protector' | 'vehicle'
+
 export type CityInsight = {
   id: string
   city_name: string
   city_slug: string
+  card_category: PromoCardCategory
+  headline: string
+  description: string
   image_url: string
   response_time_label: string
   metrics_label: string
@@ -26,6 +31,36 @@ export function normalizeCitySlug(city: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
+export function filterInsightsForCity(insights: CityInsight[], city: string): CityInsight[] {
+  if (!insights.length) return []
+
+  const slug = normalizeCitySlug(city)
+  const exact = insights.filter(
+    (row) =>
+      row.city_slug === slug ||
+      normalizeCitySlug(row.city_name) === slug ||
+      row.city_name.toLowerCase() === city.trim().toLowerCase(),
+  )
+  if (exact.length) return exact
+
+  const partial = insights.filter((row) => {
+    const rowSlug = normalizeCitySlug(row.city_name)
+    return rowSlug.includes(slug) || slug.includes(rowSlug)
+  })
+  if (partial.length) return partial
+
+  const matched = findMatchingCityInsight(insights, city)
+  if (matched) return [matched]
+
+  const defaults = insights.filter((row) => row.is_default)
+  return defaults.length ? defaults : insights
+}
+
+export function findMatchingCityInsight(insights: CityInsight[], city: string): CityInsight | null {
+  const matches = filterInsightsForCity(insights, city)
+  return matches[0] || null
+}
+
 export function formatCityPriceRange(insight: Pick<CityInsight, 'price_min' | 'price_max' | 'currency'>): string {
   const symbol = insight.currency === 'NGN' ? '₦' : `${insight.currency} `
   const min = Number(insight.price_min).toLocaleString()
@@ -44,6 +79,9 @@ export const DEFAULT_CITY_INSIGHT: CityInsight = {
   id: 'default',
   city_name: 'Lagos',
   city_slug: 'lagos',
+  card_category: 'protector',
+  headline: 'Protector in Lagos',
+  description: 'Avg mission price',
   image_url: '/images/PRADO/slideshow/lexus-lx570-gallery-1.webp',
   response_time_label: '15–45 min',
   metrics_label: 'Avg mission price',

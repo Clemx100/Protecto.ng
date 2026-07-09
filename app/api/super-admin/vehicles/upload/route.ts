@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { requireSuperAdminAuth } from '@/lib/auth/superAdminAuth'
-
-const BUCKET = 'vehicle-images'
+import { ADMIN_IMAGE_BUCKET, uploadAdminImage } from '@/lib/utils/admin-image-upload'
 
 const getSupabaseAdmin = () =>
   createClient(
@@ -11,7 +10,7 @@ const getSupabaseAdmin = () =>
   )
 
 /**
- * POST: Upload one or more vehicle images. Returns array of public URLs.
+ * POST: Upload one or more admin images (vehicles, city cards, etc.). Returns public URLs.
  * Body: multipart/form-data with field "files" or "file" (single/multiple).
  */
 export async function POST(request: NextRequest) {
@@ -38,31 +37,20 @@ export async function POST(request: NextRequest) {
 
     const supabase = getSupabaseAdmin()
     const urls: string[] = []
-    const prefix = `vehicles/${Date.now()}`
+    const prefix = `uploads/${Date.now()}`
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
-      const ext = file.name.split('.').pop() || 'jpg'
-      const path = `${prefix}/${i}-${Math.random().toString(36).slice(2)}.${ext}`
-      const { data, error } = await supabase.storage
-        .from(BUCKET)
-        .upload(path, await file.arrayBuffer(), {
-          contentType: file.type || 'image/jpeg',
-          upsert: false
-        })
-      if (error) {
-        return NextResponse.json(
-          { error: `Upload failed: ${error.message}. Ensure bucket "${BUCKET}" exists and is public.` },
-          { status: 500 }
-        )
-      }
-      const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(data.path)
-      urls.push(urlData.publicUrl)
+      const url = await uploadAdminImage(supabase, file, `${prefix}/${i}`, ADMIN_IMAGE_BUCKET)
+      urls.push(url)
     }
 
     return NextResponse.json({ urls })
-  } catch (e) {
-    console.error('Super admin vehicle upload error:', e)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  } catch (e: any) {
+    console.error('Super admin image upload error:', e)
+    return NextResponse.json(
+      { error: e?.message || 'Upload failed. Try a smaller image or create the storage bucket in Supabase.' },
+      { status: 500 }
+    )
   }
 }

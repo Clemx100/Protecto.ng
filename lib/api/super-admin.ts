@@ -16,6 +16,12 @@ async function getHeaders(): Promise<HeadersInit> {
   }
 }
 
+function throwApiError(err: { error?: string; existing_id?: string }, fallback: string): never {
+  const error = new Error(err.error || fallback) as Error & { existingId?: string }
+  if (err.existing_id) error.existingId = err.existing_id
+  throw error
+}
+
 export interface SuperAdminStats {
   total_users: number
   total_vehicles: number
@@ -292,7 +298,7 @@ export const SuperAdminAPI = {
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || res.statusText)
+      throwApiError(err, res.statusText)
     }
     return res.json()
   },
@@ -305,7 +311,7 @@ export const SuperAdminAPI = {
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({}))
-      throw new Error(err.error || res.statusText)
+      throwApiError(err, res.statusText)
     }
     return res.json()
   },

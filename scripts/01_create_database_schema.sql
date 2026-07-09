@@ -327,6 +327,29 @@ CREATE TABLE notifications (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- 15. CITY_INSIGHTS TABLE (home promo cards per city)
+CREATE TABLE city_insights (
+    id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    city_name TEXT NOT NULL,
+    city_slug TEXT NOT NULL,
+    card_category TEXT NOT NULL DEFAULT 'protector',
+    headline TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    image_url TEXT NOT NULL,
+    response_time_label TEXT NOT NULL DEFAULT '15–45 min',
+    metrics_label TEXT NOT NULL DEFAULT 'Avg response • Avg mission price',
+    price_min DECIMAL(12,2) NOT NULL DEFAULT 250000,
+    price_max DECIMAL(12,2) NOT NULL DEFAULT 700000,
+    currency TEXT NOT NULL DEFAULT 'NGN',
+    cta_label TEXT NOT NULL DEFAULT 'Get city insights →',
+    cta_url TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Create indexes for better performance
 CREATE INDEX idx_profiles_email ON profiles(email);
 CREATE INDEX idx_profiles_role ON profiles(role);
@@ -357,6 +380,9 @@ CREATE INDEX idx_location_tracking_booking ON location_tracking(booking_id);
 CREATE INDEX idx_location_tracking_timestamp ON location_tracking(timestamp);
 CREATE INDEX idx_notifications_user ON notifications(user_id);
 CREATE INDEX idx_notifications_read ON notifications(is_read);
+CREATE UNIQUE INDEX idx_city_insights_city_category ON city_insights (LOWER(city_name), card_category);
+CREATE UNIQUE INDEX idx_city_insights_slug_category ON city_insights (city_slug, card_category);
+CREATE INDEX idx_city_insights_active ON city_insights (is_active);
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -382,4 +408,5 @@ CREATE TRIGGER update_emergency_alerts_updated_at BEFORE UPDATE ON emergency_ale
 CREATE TRIGGER update_messages_updated_at BEFORE UPDATE ON messages FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_ratings_reviews_updated_at BEFORE UPDATE ON ratings_reviews FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_promo_codes_updated_at BEFORE UPDATE ON promo_codes FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_city_insights_updated_at BEFORE UPDATE ON city_insights FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

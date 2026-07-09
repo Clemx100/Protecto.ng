@@ -1755,8 +1755,9 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   
   const cities = [
     { id: "lagos", name: "Lagos", coordinates: { lat: 6.5244, lng: 3.3792 } },
+    { id: "ikeja", name: "Ikeja", coordinates: { lat: 6.6018, lng: 3.3515 } },
     { id: "abuja", name: "Abuja", coordinates: { lat: 9.0765, lng: 7.3986 } },
-    { id: "port-harcourt", name: "Port Harcourt", coordinates: { lat: 4.8156, lng: 7.0498 } }
+    { id: "port-harcourt", name: "Port Harcourt", coordinates: { lat: 4.8156, lng: 7.0498 } },
   ]
 
   const vehicleTypes = [
@@ -4860,6 +4861,9 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     if (normalizedAddress.includes("abuja")) {
       return "Abuja"
     }
+    if (normalizedAddress.includes("ikeja")) {
+      return "Ikeja"
+    }
     if (normalizedAddress.includes("lagos")) {
       return "Lagos"
     }
@@ -4872,10 +4876,17 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
     if (!normalizedCandidate) return
 
     const matchedCity = cities.find((city) => city.name.toLowerCase() === normalizedCandidate)
-    if (!matchedCity) return
+    if (matchedCity) {
+      setUserLocation((prev) => (prev === matchedCity.name ? prev : matchedCity.name))
+      setSelectedCity((prev) => (prev === matchedCity.name ? prev : matchedCity.name))
+      return
+    }
 
-    setUserLocation((prev) => (prev === matchedCity.name ? prev : matchedCity.name))
-    setSelectedCity((prev) => (prev === matchedCity.name ? prev : matchedCity.name))
+    const displayName = candidateCity?.trim()
+    if (displayName) {
+      setUserLocation((prev) => (prev === displayName ? prev : displayName))
+      setSelectedCity((prev) => (prev === displayName ? prev : displayName))
+    }
   }
 
   const maybeNotifyCityEntry = async ({
@@ -5727,11 +5738,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               ""
             }
             timeLabel={heroTimeLabel}
+            activeBookings={activeBookings}
+            bookingHistory={bookingHistory}
             onAgentClick={handleBookService}
             onBookVehicleClick={handleBookVehicle}
             onContactCall={handleBookCarOnly}
             onContactMail={handleBookViaMail}
-            onPromoClick={handleBookService}
+            onProtectorClick={handleBookService}
+            onVehicleClick={handleBookVehicle}
           />
         )}
 

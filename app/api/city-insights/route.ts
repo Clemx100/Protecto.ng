@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceRoleClient } from '@/lib/config/database'
-import { DEFAULT_CITY_INSIGHT, normalizeCitySlug } from '@/lib/utils/city-insights'
+import { DEFAULT_CITY_INSIGHT, findMatchingCityInsight } from '@/lib/utils/city-insights'
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,12 +25,17 @@ export async function GET(request: NextRequest) {
     }
 
     const insights = rows || []
-    const slug = normalizeCitySlug(city)
+
+    if (!city) {
+      return NextResponse.json({
+        success: true,
+        data: insights,
+        list: true,
+      })
+    }
 
     const matched =
-      insights.find((row) => normalizeCitySlug(row.city_name) === slug) ||
-      insights.find((row) => row.city_slug === slug) ||
-      insights.find((row) => row.city_name.toLowerCase() === city.toLowerCase()) ||
+      findMatchingCityInsight(insights, city) ||
       insights.find((row) => row.is_default) ||
       insights[0]
 
