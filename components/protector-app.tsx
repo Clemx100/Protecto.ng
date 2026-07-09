@@ -27,6 +27,11 @@ import {
   requestNotificationPermissionIfNeeded,
 } from "@/lib/utils/realtime-notifications"
 import { registerPushSubscription } from "@/lib/utils/push-subscriptions"
+import {
+  parseQuickServiceFromBooking,
+  buildQuickServiceChatSummaryFromSpecial,
+  buildQuickServiceMessageMetadataFromSpecial,
+} from "@/lib/services/quick-service-bookings"
 import ProtectorUberHome from "@/components/protector-uber-home"
 import {
   getBookingRecommendations,
@@ -106,6 +111,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [isCreatingBooking, setIsCreatingBooking] = useState(false)
   const [selectedService, setSelectedService] = useState("")
+  const [vehicleBookingFocus, setVehicleBookingFocus] = useState<"standard" | "bulletproof">("standard")
   const [protectorArmed, setProtectorArmed] = useState(true)
   const [unarmedNeedsCar, setUnarmedNeedsCar] = useState(true)
   const [bookingStep, setBookingStep] = useState(1)
@@ -1434,7 +1440,10 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
         }
       }
     }
-    if (!hadCache) setIsLoadingChatMessages(true)
+    if (!hadCache) {
+      setChatMessages([])
+      setIsLoadingChatMessages(true)
+    }
 
     try {
       console.log('📥 Loading messages for booking:', booking.id)
@@ -1759,6 +1768,8 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     { id: "abuja", name: "Abuja", coordinates: { lat: 9.0765, lng: 7.3986 } },
     { id: "port-harcourt", name: "Port Harcourt", coordinates: { lat: 4.8156, lng: 7.0498 } },
   ]
+
+  const bulletproofVehicleIds = new Set(["armoredSedan", "armoredSuv", "escalade", "sedan"])
 
   const vehicleTypes = [
     {
@@ -2608,6 +2619,14 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   }
 
   const handleBookVehicle = () => {
+    setVehicleBookingFocus("standard")
+    setSelectedService("car-only")
+    setActiveTab("booking")
+    setBookingStep(1)
+  }
+
+  const handleBookBulletproofVehicle = () => {
+    setVehicleBookingFocus("bulletproof")
     setSelectedService("car-only")
     setActiveTab("booking")
     setBookingStep(1)
@@ -2629,6 +2648,61 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   const handleBookViaMail = () => {
     setContactBooking(null)
     openBookViaMailClient()
+  }
+
+  const handleQuickServiceSubmitted = async (booking: {
+    booking_code: string
+    id?: string
+    special_instructions?: string | null
+    pickup_address?: string | null
+    destination_address?: string | null
+  }) => {
+    const bookingCode = booking.booking_code
+    const quick = parseQuickServiceFromBooking(booking)
+    const chatKey = bookingCode
+
+    const bookingDisplay = {
+      id: chatKey,
+      booking_code: bookingCode,
+      database_id: booking.id,
+      status: "pending",
+      type: quick?.quick_service_type === "itinerary_planning" ? "itinerary_planning" : "home_security",
+      service_type: quick?.quick_service_type || "quick_service",
+      pickupLocation: booking.pickup_address || quick?.address || "Quick Service",
+      destination: booking.destination_address || quick?.description || "Pending operator review",
+      date: new Date().toLocaleDateString(),
+      special_instructions: quick,
+      protectorName: quick?.quick_service_label || "Quick Service",
+    }
+
+    if (quick) {
+      const metadata = buildQuickServiceMessageMetadataFromSpecial(quick, bookingCode)
+      const summaryMessage = {
+        id: `summary_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        sender_type: "system",
+        sender_id: "system",
+        message: buildQuickServiceChatSummaryFromSpecial(quick, bookingCode),
+        created_at: new Date().toISOString(),
+        booking_id: chatKey,
+        has_invoice: false,
+        is_system_message: true,
+        message_type: "system",
+        metadata,
+      }
+
+      setChatMessages([summaryMessage])
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`chat_messages_${chatKey}`, JSON.stringify([summaryMessage]))
+      }
+    } else {
+      setChatMessages([])
+    }
+
+    setShowChatThread(true)
+    setActiveTab("chat")
+    setSelectedChatBooking(bookingDisplay)
+    await loadBookings()
+    await loadMessagesForBooking(bookingDisplay)
   }
 
   const homeSuggestions = useMemo(
@@ -5393,7 +5467,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
   }
 
   const getFilteredVehicles = () => {
-    return vehicleTypes.filter((vehicle) => vehicle.name.toLowerCase().includes(vehicleSearchQuery.toLowerCase()))
+    return vehicleTypes.filter((vehicle) => {
+      const matchesSearch = vehicle.name.toLowerCase().includes(vehicleSearchQuery.toLowerCase())
+      if (!matchesSearch) return false
+      const isBulletproof = bulletproofVehicleIds.has(vehicle.id)
+      if (selectedService === "car-only" && vehicleBookingFocus === "bulletproof") return isBulletproof
+      if (selectedService === "car-only" && vehicleBookingFocus === "standard") return !isBulletproof
+      return true
+    })
   }
 
   const updateVehicleCount = (vehicleId: string, change: number) => {
@@ -5740,12 +5821,20 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             timeLabel={heroTimeLabel}
             activeBookings={activeBookings}
             bookingHistory={bookingHistory}
+            isLoggedIn={Boolean(user?.id)}
+            onRequireLogin={() => {
+              setAuthStep("login")
+              setShowLoginForm(true)
+              clearAuthMessages()
+            }}
+            onQuickServiceSubmitted={handleQuickServiceSubmitted}
             onAgentClick={handleBookService}
             onBookVehicleClick={handleBookVehicle}
             onContactCall={handleBookCarOnly}
             onContactMail={handleBookViaMail}
             onProtectorClick={handleBookService}
             onVehicleClick={handleBookVehicle}
+            onBulletproofVehicleClick={handleBookBulletproofVehicle}
           />
         )}
 

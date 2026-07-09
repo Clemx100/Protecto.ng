@@ -25,13 +25,15 @@ CREATE TABLE IF NOT EXISTS city_insights (
 
 ALTER TABLE city_insights DROP CONSTRAINT IF EXISTS city_insights_city_slug_key;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_city_insights_slug_category
-  ON city_insights (city_slug, card_category);
-
+DROP INDEX IF EXISTS idx_city_insights_slug_category;
+DROP INDEX IF EXISTS idx_city_insights_city_category;
 DROP INDEX IF EXISTS idx_city_insights_city_name_lower;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_city_insights_city_category
-  ON city_insights (LOWER(city_name), card_category);
+CREATE INDEX IF NOT EXISTS idx_city_insights_slug ON city_insights (city_slug);
+CREATE INDEX IF NOT EXISTS idx_city_insights_city_name ON city_insights (LOWER(city_name));
+CREATE INDEX IF NOT EXISTS idx_city_insights_category ON city_insights (card_category);
+CREATE INDEX IF NOT EXISTS idx_city_insights_slug_category_lookup
+  ON city_insights (city_slug, card_category);
 
 CREATE INDEX IF NOT EXISTS idx_city_insights_active ON city_insights (is_active);
 

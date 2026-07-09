@@ -97,11 +97,16 @@ export async function GET(request: NextRequest) {
       let protectionType = 'N/A'
       let destinationDetails = {}
       let contact = null
+      let quickService: Record<string, unknown> | null = null
       
       // Try to extract all data from special_instructions JSON
       try {
         if (booking.special_instructions) {
           const specialInstructions = JSON.parse(booking.special_instructions)
+
+          if (specialInstructions.quick_service_type) {
+            quickService = specialInstructions
+          }
           
           // Extract contact info
           if (specialInstructions.contact) {
@@ -169,6 +174,7 @@ export async function GET(request: NextRequest) {
         protector_listing: includesListingJoins ? booking.protector_listing || null : null,
         with_driver: booking.with_driver || false,
         special_instructions: booking.special_instructions || 'N/A',
+        quickService,
         emergency_contact: booking.emergency_contact || 'N/A',
         emergency_phone: booking.emergency_phone || 'N/A',
         // Additional fields for compatibility

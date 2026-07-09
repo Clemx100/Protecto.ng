@@ -287,7 +287,11 @@ export const SuperAdminAPI = {
       throw new Error(err.error || res.statusText)
     }
     const json = await res.json()
-    return json.data || []
+    return {
+      data: json.data || [],
+      migrationRequired: Boolean(json.migration_required),
+      migrationMessage: (json.migration_message as string | undefined) || undefined,
+    }
   },
 
   async createCityInsight(body: Record<string, unknown>) {

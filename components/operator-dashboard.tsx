@@ -25,6 +25,18 @@ import {
   requestNotificationPermissionIfNeeded,
 } from "@/lib/utils/realtime-notifications"
 
+function getQuickService(booking: any) {
+  if (booking?.quickService?.quick_service_type) return booking.quickService
+  if (!booking?.special_instructions || booking.special_instructions === "N/A") return null
+  try {
+    const parsed = JSON.parse(booking.special_instructions)
+    if (parsed?.quick_service_type) return parsed
+  } catch {
+    return null
+  }
+  return null
+}
+
 interface OperatorDashboardProps {
   onLogout?: () => void
 }
@@ -603,6 +615,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           dress_code: booking.dress_code || 'N/A',
           vehicle_type: 'N/A',
           special_requirements: 'N/A',
+          special_instructions: booking.special_instructions || 'N/A',
           emergency_contact: booking.emergency_contact || 'N/A',
           payment_approved: booking.status === 'paid', // Check status
           vehicles: {},
@@ -1332,9 +1345,15 @@ Please review and approve the payment to proceed with your service.`
                         })()}
                       </p>
                       <p className="text-xs">
-                        {booking.pickupDetails?.location || 
-                         booking.pickup_address || 
-                         'Location not specified'}
+                        {(() => {
+                          const quick = getQuickService(booking)
+                          if (quick?.quick_service_label) return String(quick.quick_service_label)
+                          return (
+                            booking.pickupDetails?.location ||
+                            booking.pickup_address ||
+                            "Location not specified"
+                          )
+                        })()}
                       </p>
                       <p className="text-xs">
                         {booking.timestamp ? 
@@ -1387,6 +1406,99 @@ Please review and approve the payment to proceed with your service.`
 
                 {/* Request Summary - Detailed View */}
                 <div className="p-6 border-b border-white/10 bg-white/5">
+                  {(() => {
+                    const quick = getQuickService(selectedBooking)
+                    if (quick) {
+                      const isItinerary = quick.quick_service_type === "itinerary_planning"
+                      return (
+                        <>
+                          <h3 className="text-lg font-semibold text-white mb-4">
+                            {String(quick.quick_service_label || "Quick Service")} - #{selectedBooking.id}
+                          </h3>
+                          <div className="space-y-3 text-sm">
+                            {isItinerary ? (
+                              <>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-gray-300 shrink-0">Request:</span>
+                                  <span className="text-white font-medium text-right">
+                                    {String(quick.description || "N/A")}
+                                  </span>
+                                </div>
+                                {quick.itinerary_file_url ? (
+                                  <div className="flex justify-between gap-4">
+                                    <span className="text-gray-300 shrink-0">Itinerary:</span>
+                                    <a
+                                      href={String(quick.itinerary_file_url)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-300 underline text-right truncate max-w-[60%]"
+                                    >
+                                      {String(quick.itinerary_file_name || "View file")}
+                                    </a>
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-300">Type:</span>
+                                  <span className="text-white font-medium capitalize">
+                                    {String(quick.security_type || "armed")}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-gray-300 shrink-0">Address:</span>
+                                  <span className="text-white font-medium text-right">
+                                    {String(quick.address || selectedBooking.pickup_address || "N/A")}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-300">Personnel:</span>
+                                  <span className="text-white font-medium">
+                                    {String(quick.protector_count || selectedBooking.personnel?.protectors || 0)} security
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-300">Protectees:</span>
+                                  <span className="text-white font-medium">
+                                    {String(quick.protectee_count || selectedBooking.personnel?.protectee || 0)}
+                                  </span>
+                                </div>
+                                {Array.isArray(quick.protectee_names) && quick.protectee_names.length > 0 ? (
+                                  <div className="flex justify-between gap-4">
+                                    <span className="text-gray-300 shrink-0">Names:</span>
+                                    <span className="text-white font-medium text-right">
+                                      {(quick.protectee_names as string[]).join(", ")}
+                                    </span>
+                                  </div>
+                                ) : null}
+                              </>
+                            )}
+                            <div className="flex justify-between">
+                              <span className="text-gray-300">Contact:</span>
+                              <span className="text-white font-medium">
+                                {selectedBooking.contact?.phone || selectedBooking.client?.phone || "N/A"}
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-300">Pricing:</span>
+                              <span className="text-white font-medium">Send invoice after review</span>
+                            </div>
+                            <div className="text-xs text-gray-400 mt-4">
+                              Submitted:{" "}
+                              {selectedBooking.timestamp
+                                ? new Date(selectedBooking.timestamp).toLocaleString()
+                                : selectedBooking.created_at
+                                  ? new Date(selectedBooking.created_at).toLocaleString()
+                                  : "N/A"}
+                            </div>
+                          </div>
+                        </>
+                      )
+                    }
+
+                    return (
+                      <>
                   <h3 className="text-lg font-semibold text-white mb-4">New Protection Request - #{selectedBooking.id}</h3>
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between">
@@ -1502,6 +1614,9 @@ Please review and approve the payment to proceed with your service.`
                       }
                     </div>
                   </div>
+                      </>
+                    )
+                  })()}
                 </div>
 
                 {/* Operator Actions - Fixed Action Buttons */}

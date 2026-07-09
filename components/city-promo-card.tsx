@@ -5,6 +5,7 @@ import {
   buildCityMetricsLabel,
   DEFAULT_CITY_INSIGHT,
   formatCityPriceRange,
+  normalizeCardCategory,
   type CityInsight,
 } from "@/lib/utils/city-insights"
 import {
@@ -22,6 +23,7 @@ type CityPromoCardProps = {
   bookingHistory?: PromoBookingSignal[]
   onProtectorClick?: () => void
   onVehicleClick?: () => void
+  onBulletproofVehicleClick?: () => void
   onClick?: () => void
 }
 
@@ -32,7 +34,7 @@ function normalizeInsight(row: Partial<CityInsight> & Record<string, unknown>): 
     ...row,
     city_name: cityName,
     city_slug: String(row.city_slug || DEFAULT_CITY_INSIGHT.city_slug),
-    card_category: row.card_category === "vehicle" ? "vehicle" : "protector",
+    card_category: normalizeCardCategory(row.card_category),
     headline: String(row.headline || ""),
     description: String(row.description || ""),
     image_url: String(row.image_url || DEFAULT_CITY_INSIGHT.image_url),
@@ -77,6 +79,7 @@ export default function CityPromoCard({
   bookingHistory = [],
   onProtectorClick,
   onVehicleClick,
+  onBulletproofVehicleClick,
   onClick,
 }: CityPromoCardProps) {
   const [insights, setInsights] = useState<CityInsight[]>([getLocalFallback(userLocation)])
@@ -103,10 +106,16 @@ export default function CityPromoCard({
     const entry = getPromoCardAtIndex(scoredCards, cardIndex)
     if (entry) return entry
     const fallback = getLocalFallback(userLocation)
+    const category = normalizeCardCategory(fallback.card_category)
     return {
       card: fallback,
       score: 0,
-      headline: fallback.headline || `Protector in ${fallback.city_name}`,
+      headline:
+        category === "bulletproof_vehicle"
+          ? `Book a Bulletproof Vehicle in ${fallback.city_name}`
+          : category === "vehicle"
+            ? `Book a Vehicle in ${fallback.city_name}`
+            : `Book a Protector in ${fallback.city_name}`,
       subline: fallback.description || fallback.metrics_label,
     }
   }, [scoredCards, cardIndex, userLocation])
@@ -172,14 +181,18 @@ export default function CityPromoCard({
   }, [advanceCard, scoredCards.length])
 
   const { card: insight, headline, subline } = current
-  const metricsLine = subline || buildCityMetricsLabel(insight)
 
   const handleClick = () => {
     if (insight.cta_url) {
       window.open(insight.cta_url, "_blank", "noopener,noreferrer")
       return
     }
-    if (insight.card_category === "vehicle") {
+    const category = normalizeCardCategory(insight.card_category)
+    if (category === "bulletproof_vehicle") {
+      onBulletproofVehicleClick?.() ?? onVehicleClick?.() ?? onClick?.()
+      return
+    }
+    if (category === "vehicle") {
       onVehicleClick?.() ?? onClick?.()
       return
     }
@@ -213,7 +226,8 @@ export default function CityPromoCard({
       </div>
       <div className={`space-y-1 p-4 transition-opacity duration-300 ${visible ? "opacity-100" : "opacity-0"}`}>
         <h2 className="text-lg font-bold text-white">{headline}</h2>
-        <p className="text-sm text-gray-400">{metricsLine}</p>
+        <p className="text-sm text-gray-400 line-clamp-3">{subline}</p>
+        <p className="text-xs text-gray-500">{buildCityMetricsLabel(insight)}</p>
         <p className="text-xl font-bold text-white">{formatCityPriceRange(insight)}</p>
         <p className="pt-1 text-sm font-medium text-white">{insight.cta_label}</p>
       </div>

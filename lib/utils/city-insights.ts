@@ -1,4 +1,33 @@
-export type PromoCardCategory = 'protector' | 'vehicle'
+export type PromoCardCategory = 'protector' | 'vehicle' | 'bulletproof_vehicle'
+
+export const PROMO_CARD_CATEGORY_LABELS: Record<PromoCardCategory, string> = {
+  protector: 'Protectors',
+  vehicle: 'Vehicles',
+  bulletproof_vehicle: 'Bulletproof Vehicles',
+}
+
+export function normalizeCardCategory(value: unknown): PromoCardCategory {
+  const raw = String(value || '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '_')
+
+  if (raw === 'vehicle' || raw === 'vehicles') return 'vehicle'
+  if (
+    raw === 'bulletproof_vehicle' ||
+    raw === 'bulletproof_vehicles' ||
+    raw === 'bulletproof' ||
+    raw === 'armored_vehicle' ||
+    raw === 'armored'
+  ) {
+    return 'bulletproof_vehicle'
+  }
+  return 'protector'
+}
+
+export function getCardCategoryLabel(category: PromoCardCategory): string {
+  return PROMO_CARD_CATEGORY_LABELS[category]
+}
 
 export type CityInsight = {
   id: string
@@ -48,9 +77,6 @@ export function filterInsightsForCity(insights: CityInsight[], city: string): Ci
     return rowSlug.includes(slug) || slug.includes(rowSlug)
   })
   if (partial.length) return partial
-
-  const matched = findMatchingCityInsight(insights, city)
-  if (matched) return [matched]
 
   const defaults = insights.filter((row) => row.is_default)
   return defaults.length ? defaults : insights

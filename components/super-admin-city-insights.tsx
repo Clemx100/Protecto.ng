@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { ImageIcon, Pencil, Plus, Trash2 } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { ImageIcon, Pencil, Plus, Search, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,11 +16,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { SuperAdminAPI } from "@/lib/api"
 import LoadingLogo from "@/components/loading-logo"
-import { formatCityPriceRange, normalizeCitySlug, type CityInsight } from "@/lib/utils/city-insights"
+import { formatCityPriceRange, getCardCategoryLabel, normalizeCitySlug, normalizeCardCategory, PROMO_CARD_CATEGORY_LABELS, type CityInsight, type PromoCardCategory } from "@/lib/utils/city-insights"
+import {
+  CITY_INSIGHTS_SMART_FIELDS_MIGRATION,
+  needsCityInsightsMigration,
+} from "@/lib/utils/city-insights-schema"
 
 const EMPTY_FORM = {
   city_name: "",
-  card_category: "protector" as "protector" | "vehicle",
+  card_category: "protector" as PromoCardCategory,
   headline: "",
   description: "",
   image_url: "",
@@ -47,6 +51,32 @@ function validateFormFields(form: typeof EMPTY_FORM) {
   return invalidFields
 }
 
+type CategoryFilter = "all" | PromoCardCategory
+
+const CATEGORY_FILTERS: Array<{ id: CategoryFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "protector", label: PROMO_CARD_CATEGORY_LABELS.protector },
+  { id: "vehicle", label: PROMO_CARD_CATEGORY_LABELS.vehicle },
+  { id: "bulletproof_vehicle", label: PROMO_CARD_CATEGORY_LABELS.bulletproof_vehicle },
+]
+
+function matchesSearch(item: CityInsight, query: string) {
+  if (!query) return true
+  const category = getCardCategoryLabel(normalizeCardCategory(item.card_category))
+  const haystack = [
+    item.city_name,
+    item.city_slug,
+    item.headline,
+    item.description,
+    item.metrics_label,
+    item.cta_label,
+    category,
+  ]
+    .join(" ")
+    .toLowerCase()
+  return haystack.includes(query)
+}
+
 export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsightsProps) {
   const [items, setItems] = useState<CityInsight[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,21 +88,46 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
   const [formError, setFormError] = useState("")
   const [formSuccess, setFormSuccess] = useState("")
   const [showValidation, setShowValidation] = useState(false)
-  const [duplicateExistingId, setDuplicateExistingId] = useState<string | null>(null)
+  const [migrationRequired, setMigrationRequired] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all")
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<CategoryFilter, number> = {
+      all: items.length,
+      protector: 0,
+      vehicle: 0,
+      bulletproof_vehicle: 0,
+    }
+    for (const item of items) {
+      counts[normalizeCardCategory(item.card_category)] += 1
+    }
+    return counts
+  }, [items])
+
+  const filteredItems = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    return items.filter((item) => {
+      const category = normalizeCardCategory(item.card_category)
+      if (categoryFilter !== "all" && category !== categoryFilter) return false
+      return matchesSearch(item, query)
+    })
+  }, [items, searchQuery, categoryFilter])
 
   const clearFormMessages = () => {
     setFormError("")
     setFormSuccess("")
-    setDuplicateExistingId(null)
   }
 
   const loadItems = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await SuperAdminAPI.getCityInsights()
-      setItems(data)
+      const result = await SuperAdminAPI.getCityInsights()
+      setItems(result.data)
+      setMigrationRequired(result.migrationRequired)
     } catch (error: any) {
       const message = error?.message || "Failed to load city cards"
+      if (needsCityInsightsMigration(message)) setMigrationRequired(true)
       onMessage({ error: message })
       toast.error(message)
     } finally {
@@ -96,7 +151,7 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
     setEditingId(item.id)
     setForm({
       city_name: item.city_name,
-      card_category: item.card_category === "vehicle" ? "vehicle" : "protector",
+      card_category: normalizeCardCategory(item.card_category),
       headline: item.headline || "",
       description: item.description || "",
       image_url: item.image_url,
@@ -153,7 +208,7 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
     setShowValidation(true)
     const invalidFields = validateFormFields(form)
     if (invalidFields.length > 0) {
-      const message = "City name and card image are required"
+      const message = "City/state and card image are required"
       setFormError(message)
       onMessage({ error: message })
       toast.error(message)
@@ -161,26 +216,13 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
     }
 
     const citySlug = normalizeCitySlug(form.city_name)
-    const duplicate = items.find(
-      (item) =>
-        item.city_slug === citySlug &&
-        item.card_category === form.card_category &&
-        item.id !== editingId,
-    )
-    if (duplicate) {
-      const message = `A ${form.card_category} card for "${duplicate.city_name}" already exists. Edit the existing card instead of creating a duplicate.`
-      setFormError(message)
-      setDuplicateExistingId(duplicate.id)
-      onMessage({ error: message })
-      toast.error(message)
-      return
-    }
 
     setSaving(true)
     clearFormMessages()
     try {
       const payload = {
         city_name: form.city_name.trim(),
+        city_slug: citySlug,
         card_category: form.card_category,
         headline: form.headline.trim(),
         description: form.description.trim(),
@@ -214,10 +256,8 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
       await loadItems()
     } catch (error: any) {
       const message = error?.message || "Failed to save city card"
+      if (needsCityInsightsMigration(message)) setMigrationRequired(true)
       setFormError(message)
-      if (error?.existingId) {
-        setDuplicateExistingId(error.existingId)
-      }
       onMessage({ error: message })
       toast.error(message)
     } finally {
@@ -244,19 +284,13 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
   const cityNameInvalid = invalidFields.includes("city_name")
   const imageUrlInvalid = invalidFields.includes("image_url")
 
-  const openExistingDuplicate = () => {
-    if (!duplicateExistingId) return
-    const existing = items.find((item) => item.id === duplicateExistingId)
-    if (existing) openEdit(existing)
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-white">City Home Cards</h2>
           <p className="text-sm text-slate-400">
-            Manage protector and vehicle promo cards per city. The app personalizes headlines using location and bookings.
+            Create unlimited promo cards for any city or state. Use headline and sort order to differentiate multiple cards in the same location.
           </p>
         </div>
         <Button onClick={openCreate} className="bg-amber-600 hover:bg-amber-700">
@@ -264,6 +298,25 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
           Add City Card
         </Button>
       </div>
+
+      {migrationRequired ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-amber-100">
+          <p className="font-semibold text-amber-50">Database update required before city cards can be saved</p>
+          <p className="mt-2 text-sm text-amber-100/90">
+            The <code className="rounded bg-black/20 px-1">card_category</code> column is missing from{" "}
+            <code className="rounded bg-black/20 px-1">city_insights</code>.
+          </p>
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
+            <li>Open your Supabase project dashboard</li>
+            <li>Go to <strong>SQL Editor</strong> → <strong>New query</strong></li>
+            <li>
+              Copy all SQL from <code>{CITY_INSIGHTS_SMART_FIELDS_MIGRATION}</code> in this repo
+            </li>
+            <li>Paste into the editor and click <strong>Run</strong></li>
+            <li>Refresh this page, then create the card again</li>
+          </ol>
+        </div>
+      ) : null}
 
       {loading ? (
         <Card className="bg-white/5 border-white/10">
@@ -278,8 +331,66 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {items.map((item) => (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4 space-y-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div className="relative w-full lg:max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search city, headline, description, CTA..."
+                  className="bg-slate-900/80 border-white/10 pl-9 text-white"
+                />
+              </div>
+              <p className="text-sm text-slate-400">
+                Showing <span className="font-semibold text-white">{filteredItems.length}</span> of{" "}
+                <span className="font-semibold text-white">{items.length}</span> cards
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {CATEGORY_FILTERS.map((filter) => {
+                const active = categoryFilter === filter.id
+                return (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setCategoryFilter(filter.id)}
+                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                      active
+                        ? "border-amber-500/50 bg-amber-500/20 text-amber-100"
+                        : "border-white/10 bg-slate-900/50 text-slate-300 hover:bg-white/10"
+                    }`}
+                  >
+                    {filter.label}
+                    <span className="ml-1.5 text-xs opacity-80">({categoryCounts[filter.id]})</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {filteredItems.length === 0 ? (
+            <Card className="bg-white/5 border-white/10">
+              <CardContent className="py-10 text-center text-slate-400 space-y-3">
+                <p>No cards match your search or filter.</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-white/20 text-white"
+                  onClick={() => {
+                    setSearchQuery("")
+                    setCategoryFilter("all")
+                  }}
+                >
+                  Clear filters
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {filteredItems.map((item) => (
             <Card key={item.id} className="bg-white/5 border-white/10 overflow-hidden">
               <div className="h-36 bg-slate-800">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -288,10 +399,15 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
               <CardHeader className="pb-2">
                 <CardTitle className="text-white flex items-center justify-between gap-2">
                   <span className="truncate">
-                    {item.headline || (item.card_category === "vehicle" ? `Vehicle in ${item.city_name}` : `Protector in ${item.city_name}`)}
+                    {item.headline ||
+                      (normalizeCardCategory(item.card_category) === "bulletproof_vehicle"
+                        ? `Bulletproof Vehicle in ${item.city_name}`
+                        : normalizeCardCategory(item.card_category) === "vehicle"
+                          ? `Vehicle in ${item.city_name}`
+                          : `Protector in ${item.city_name}`)}
                   </span>
                   <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-400">
-                    {item.card_category === "vehicle" ? "Vehicle" : "Protector"}
+                    {getCardCategoryLabel(normalizeCardCategory(item.card_category))}
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -326,7 +442,9 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
                 </div>
               </CardContent>
             </Card>
-          ))}
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -348,16 +466,16 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>
-                City name <span className="text-red-400">*</span>
+                City / State <span className="text-red-400">*</span>
               </Label>
               <Input
                 value={form.city_name}
                 onChange={(e) => updateForm({ city_name: e.target.value })}
-                placeholder="Lagos"
+                placeholder="Lagos, Ikeja, Lagos State, Abuja..."
                 className={`bg-slate-800 border-white/10 ${cityNameInvalid ? "border-red-500/60" : ""}`}
               />
               {cityNameInvalid ? (
-                <p className="text-xs text-red-400">City name is required</p>
+                <p className="text-xs text-red-400">City or state is required</p>
               ) : null}
             </div>
 
@@ -365,13 +483,12 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
               <Label>Card category</Label>
               <select
                 value={form.card_category}
-                onChange={(e) =>
-                  updateForm({ card_category: e.target.value === "vehicle" ? "vehicle" : "protector" })
-                }
+                onChange={(e) => updateForm({ card_category: normalizeCardCategory(e.target.value) })}
                 className="w-full rounded-md border border-white/10 bg-slate-800 px-3 py-2 text-sm text-white"
               >
-                <option value="protector">Protector</option>
-                <option value="vehicle">Vehicle</option>
+                <option value="protector">Protectors</option>
+                <option value="vehicle">Vehicles</option>
+                <option value="bulletproof_vehicle">Bulletproof Vehicles</option>
               </select>
             </div>
 
@@ -381,9 +498,11 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
                 value={form.headline}
                 onChange={(e) => updateForm({ headline: e.target.value })}
                 placeholder={
-                  form.card_category === "vehicle"
-                    ? "Book a Vehicle in Lagos"
-                    : "Protector in Lagos"
+                  form.card_category === "bulletproof_vehicle"
+                    ? "Book a Bulletproof Vehicle in Lagos"
+                    : form.card_category === "vehicle"
+                      ? "Book a Vehicle in Lagos"
+                      : "Protector in Lagos"
                 }
                 className="bg-slate-800 border-white/10"
               />
@@ -522,16 +641,10 @@ export default function SuperAdminCityInsights({ onMessage }: SuperAdminCityInsi
               role="alert"
             >
               {formError || formSuccess}
-              {formError && duplicateExistingId ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={openExistingDuplicate}
-                  className="mt-2 border-white/20 text-white"
-                >
-                  Edit existing card
-                </Button>
+              {formError && needsCityInsightsMigration(formError) ? (
+                <p className="mt-2 text-xs text-amber-200">
+                  Run <code>{CITY_INSIGHTS_SMART_FIELDS_MIGRATION}</code> in Supabase SQL Editor, then try again.
+                </p>
               ) : null}
             </div>
           )}

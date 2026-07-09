@@ -1,4 +1,8 @@
 type ParsedInstructions = {
+  quick_service_type?: 'itinerary_planning' | 'private_home_security'
+  quick_service_label?: string
+  description?: string
+  address?: string
   selectedProtectorName?: string | null
   protector_listing_id?: string | null
   selectedProtectorPhoto?: string | null
@@ -181,6 +185,16 @@ export function resolveBookingDisplayName(input: {
   protector_count?: number | null
   dress_code?: string | null
 }): string {
+  const parsed = parseBookingSpecialInstructions(input.special_instructions)
+  if (parsed?.quick_service_type) {
+    const label = parsed.quick_service_label || 'Quick Service'
+    if (parsed.quick_service_type === 'private_home_security') {
+      const location = shortLocationLabel(parsed.address || input.pickup_address || input.pickupLocation)
+      return `${label} | ${location}`
+    }
+    return label
+  }
+
   const service = resolveBookingServiceLabel(input)
   const route = resolveBookingRouteLabel(
     input.pickup_address || input.pickupLocation,

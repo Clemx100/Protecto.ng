@@ -380,8 +380,10 @@ CREATE INDEX idx_location_tracking_booking ON location_tracking(booking_id);
 CREATE INDEX idx_location_tracking_timestamp ON location_tracking(timestamp);
 CREATE INDEX idx_notifications_user ON notifications(user_id);
 CREATE INDEX idx_notifications_read ON notifications(is_read);
-CREATE UNIQUE INDEX idx_city_insights_city_category ON city_insights (LOWER(city_name), card_category);
-CREATE UNIQUE INDEX idx_city_insights_slug_category ON city_insights (city_slug, card_category);
+CREATE INDEX idx_city_insights_slug ON city_insights (city_slug);
+CREATE INDEX idx_city_insights_city_name ON city_insights (LOWER(city_name));
+CREATE INDEX idx_city_insights_category ON city_insights (card_category);
+CREATE INDEX idx_city_insights_slug_category_lookup ON city_insights (city_slug, card_category);
 CREATE INDEX idx_city_insights_active ON city_insights (is_active);
 
 -- Create updated_at trigger function

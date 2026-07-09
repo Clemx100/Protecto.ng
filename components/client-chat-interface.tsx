@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react"
 import { isVehicleBooking, resolveBookingAvatarImage, resolveBookingDisplayName } from "@/lib/utils/booking-display"
 import {
   type OutgoingChatAttachment,
@@ -9,7 +9,9 @@ import {
 } from "@/lib/utils/chat-media"
 import {
   ArrowLeft,
+  CalendarRange,
   Camera,
+  Home,
   MessageSquare,
   Mic,
   Paperclip,
@@ -55,7 +57,7 @@ interface ChatMessage {
   status?: string
   is_system_message?: boolean
   message_type?: string
-  metadata?: {
+  metadata?: QuickServiceMessageMetadata & {
     attachmentType?: "image" | "file" | "audio"
     fileName?: string
     mimeType?: string
@@ -98,6 +100,187 @@ interface ClientChatInterfaceProps {
 }
 
 const OPERATOR_PHONE = "+2347120005328"
+
+type QuickServiceMessageMetadata = {
+  quick_service_type?: "itinerary_planning" | "private_home_security"
+  quick_service_label?: string
+  booking_code?: string
+  description?: string
+  itinerary_file_name?: string | null
+  itinerary_file_url?: string | null
+  security_type?: "armed" | "unarmed"
+  address?: string
+  protector_count?: number
+  protectee_count?: number
+  protectee_names?: string[]
+}
+
+function isQuickServiceMetadata(
+  metadata?: QuickServiceMessageMetadata,
+): metadata is QuickServiceMessageMetadata & { quick_service_type: NonNullable<QuickServiceMessageMetadata["quick_service_type"]> } {
+  return Boolean(metadata?.quick_service_type)
+}
+
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-white/5 py-2 last:border-0">
+      <span className="shrink-0 text-xs text-gray-400">{label}</span>
+      <span className="text-right text-sm leading-snug text-white">{value}</span>
+    </div>
+  )
+}
+
+function QuickServiceRequestCard({
+  metadata,
+  createdAt,
+}: {
+  metadata: QuickServiceMessageMetadata & { quick_service_type: NonNullable<QuickServiceMessageMetadata["quick_service_type"]> }
+  createdAt: string
+}) {
+  const isItinerary = metadata.quick_service_type === "itinerary_planning"
+  const title = metadata.quick_service_label || (isItinerary ? "Plan Your Itinerary" : "Private Home Security")
+  const Icon = isItinerary ? CalendarRange : Home
+  const accent = isItinerary ? "text-blue-300 bg-blue-500/15" : "text-emerald-300 bg-emerald-500/15"
+
+  return (
+    <div className="mx-auto my-3 max-w-[92%] overflow-hidden rounded-2xl border border-white/10 bg-[#171b26]">
+      <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
+        <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${accent}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1 text-left">
+          <p className="truncate text-sm font-semibold text-white">{title}</p>
+          {metadata.booking_code ? (
+            <p className="text-xs text-gray-400">Ref {metadata.booking_code}</p>
+          ) : null}
+        </div>
+        <span className="rounded-full bg-amber-500/15 px-2.5 py-1 text-[11px] font-medium text-amber-200">
+          Pending
+        </span>
+      </div>
+
+      <div className="px-4 py-1">
+        {isItinerary ? (
+          <>
+            <DetailRow label="What you need" value={metadata.description || "—"} />
+            {metadata.itinerary_file_name ? (
+              <DetailRow
+                label="File"
+                value={
+                  metadata.itinerary_file_url ? (
+                    <a
+                      href={metadata.itinerary_file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-300 underline"
+                    >
+                      {metadata.itinerary_file_name}
+                    </a>
+                  ) : (
+                    metadata.itinerary_file_name
+                  )
+                }
+              />
+            ) : null}
+          </>
+        ) : (
+          <>
+            <DetailRow
+              label="Type"
+              value={metadata.security_type === "unarmed" ? "Unarmed" : "Armed"}
+            />
+            <DetailRow label="Address" value={metadata.address || "—"} />
+            <DetailRow
+              label="Team"
+              value={`${metadata.protector_count || 1} guard${(metadata.protector_count || 1) > 1 ? "s" : ""} · ${metadata.protectee_count || 1} protectee${(metadata.protectee_count || 1) > 1 ? "s" : ""}`}
+            />
+            {metadata.protectee_names && metadata.protectee_names.length > 0 ? (
+              <DetailRow label="Names" value={metadata.protectee_names.join(", ")} />
+            ) : null}
+          </>
+        )}
+      </div>
+
+      <div className="border-t border-white/10 bg-white/[0.03] px-4 py-3">
+        <p className="text-center text-xs leading-relaxed text-gray-400">
+          We&apos;ll review your request and send an invoice shortly.
+        </p>
+        <p className="mt-2 text-center text-[11px] text-gray-500">{formatMessageTime(createdAt)}</p>
+      </div>
+    </div>
+  )
+}
+
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*/g, "")
+    .replace(/(?<!\*)\*(?!\*)/g, "")
+    .replace(/^---$/gm, "")
+    .replace(/^•\s*/gm, "")
+    .trim()
+}
+
+function looksLikeLegacyQuickServiceMessage(message: string): boolean {
+  return (
+    message.includes("Private Home Security") ||
+    message.includes("Plan Your Itinerary") ||
+    message.includes("Home security request") ||
+    message.includes("Itinerary request")
+  )
+}
+
+function resolveQuickServiceMetadata(msg: ChatMessage): (QuickServiceMessageMetadata & {
+  quick_service_type: NonNullable<QuickServiceMessageMetadata["quick_service_type"]>
+}) | null {
+  if (isQuickServiceMetadata(msg.metadata)) {
+    if (msg.metadata.address || msg.metadata.description || msg.metadata.itinerary_file_name) {
+      return msg.metadata
+    }
+  }
+
+  if (!looksLikeLegacyQuickServiceMessage(msg.message)) {
+    return isQuickServiceMetadata(msg.metadata) ? msg.metadata : null
+  }
+
+  const bookingMatch = msg.message.match(/#(QS\d+|REQ\d+)/)
+  const clean = stripMarkdown(msg.message)
+
+  if (msg.message.includes("Plan Your Itinerary") || msg.message.includes("Itinerary request")) {
+    const fileMatch = msg.message.match(/Itinerary file:\s*(.+)/i)
+    const description = clean
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line && !line.includes("Itinerary") && !line.includes("Status") && !line.includes("Submitted") && !line.includes("Operator will"))
+
+    return {
+      quick_service_type: "itinerary_planning",
+      quick_service_label: "Let's Plan Your Itinerary",
+      booking_code: bookingMatch?.[1] || msg.metadata?.booking_code,
+      description: msg.metadata?.description || description,
+      itinerary_file_name: msg.metadata?.itinerary_file_name || fileMatch?.[1]?.trim(),
+      itinerary_file_url: msg.metadata?.itinerary_file_url,
+    }
+  }
+
+  const typeMatch = msg.message.match(/Type:\s*(Armed|Unarmed)/i)
+  const addressMatch = msg.message.match(/Address:\s*(.+)/i)
+  const personnelMatch = msg.message.match(/Security personnel:\s*(\d+)/i)
+  const protecteeMatch = msg.message.match(/Protectees:\s*(\d+)/i)
+  const namesMatch = msg.message.match(/Names:\s*(.+)/i)
+
+  return {
+    quick_service_type: "private_home_security",
+    quick_service_label: "Private Home Security",
+    booking_code: bookingMatch?.[1] || msg.metadata?.booking_code,
+    security_type: typeMatch?.[1]?.toLowerCase() === "unarmed" ? "unarmed" : "armed",
+    address: msg.metadata?.address || addressMatch?.[1]?.trim(),
+    protector_count: msg.metadata?.protector_count || (personnelMatch ? Number(personnelMatch[1]) : 1),
+    protectee_count: msg.metadata?.protectee_count || (protecteeMatch ? Number(protecteeMatch[1]) : 1),
+    protectee_names:
+      msg.metadata?.protectee_names ||
+      (namesMatch?.[1] ? namesMatch[1].split(",").map((name) => name.trim()).filter(Boolean) : []),
+  }
+}
 
 const CHAT_EMOJIS = [
   "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🙂", "😉",
@@ -222,7 +405,38 @@ function getBookingAvatar(booking: ChatBooking): string {
   return booking.protectorImage || resolveBookingAvatarImage(avatarInput)
 }
 
+function getQuickServiceLabel(booking: ChatBooking): string | null {
+  if (!booking.special_instructions) return null
+  try {
+    const parsed =
+      typeof booking.special_instructions === "string"
+        ? JSON.parse(booking.special_instructions)
+        : booking.special_instructions
+    return parsed?.quick_service_label || null
+  } catch {
+    return null
+  }
+}
+
+function getSystemMessageTitle(msg: ChatMessage): string {
+  const metadataLabel = (msg as ChatMessage & { metadata?: { quick_service_label?: string } }).metadata
+    ?.quick_service_label
+  if (metadataLabel) return metadataLabel
+
+  if (msg.message.includes("Private Home Security")) return "Private Home Security"
+  if (msg.message.includes("Plan Your Itinerary")) return "Plan Your Itinerary"
+  return "Protection Request"
+}
+
 function getBookingSubtitle(booking: ChatBooking): string {
+  const quickLabel = getQuickServiceLabel(booking)
+  if (quickLabel) {
+    if (booking.destination && booking.destination !== "Pending operator review") {
+      return booking.destination
+    }
+    return booking.pickupLocation || quickLabel
+  }
+
   if (booking.destination) {
     return `${booking.pickupLocation} => ${booking.destination}`
   }
@@ -238,7 +452,7 @@ function getLastMessagePreview(bookingId: string): { text: string; time: string 
     if (!messages.length) return null
     const last = messages[messages.length - 1]
     const text = last.is_system_message
-      ? "Protection request details"
+      ? last.metadata?.quick_service_label || "Protection request details"
       : isChatAttachmentMessage(last)
         ? getAttachmentPreviewLabel(last)
         : last.message?.slice(0, 80) || "New message"
@@ -342,18 +556,29 @@ function MessageBubble({
     new Date(prevMessage.created_at).toDateString() !== new Date(msg.created_at).toDateString()
 
   if (isSystem) {
+    const quickMeta = resolveQuickServiceMetadata(msg)
+
+    if (quickMeta) {
+      return (
+        <>
+          {showDate && <DateSeparator date={msg.created_at} />}
+          <QuickServiceRequestCard metadata={quickMeta} createdAt={msg.created_at} />
+        </>
+      )
+    }
+
     return (
       <>
         {showDate && <DateSeparator date={msg.created_at} />}
-        <div className="mx-auto my-3 max-w-[90%] rounded-2xl border border-white/10 bg-gradient-to-br from-[#1e2433] via-[#171b26] to-[#12151d] p-3 text-center">
-          <div className="mb-2 flex items-center justify-center gap-2">
+        <div className="mx-auto my-3 max-w-[90%] rounded-2xl border border-white/10 bg-[#171b26] p-4">
+          <div className="mb-2 flex items-center gap-2">
             <Shield className="h-4 w-4 text-blue-300" />
-            <span className="text-sm font-medium text-white">Protection Request</span>
+            <span className="text-sm font-medium text-white">{getSystemMessageTitle(msg)}</span>
           </div>
-          <p className="whitespace-pre-line text-left text-sm leading-relaxed text-gray-200">
-            {msg.message}
+          <p className="whitespace-pre-line text-sm leading-relaxed text-gray-300">
+            {stripMarkdown(msg.message)}
           </p>
-          <p className="mt-2 text-xs text-gray-400">{formatMessageTime(msg.created_at)}</p>
+          <p className="mt-3 text-xs text-gray-500">{formatMessageTime(msg.created_at)}</p>
         </div>
       </>
     )
