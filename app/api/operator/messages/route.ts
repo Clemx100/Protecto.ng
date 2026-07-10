@@ -40,11 +40,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Booking ID is required' }, { status: 400 })
     }
 
-    // First, try to find the booking by booking_code if bookingId is not a UUID
+    // Resolve booking UUID from booking_code (REQ..., QS..., etc.) when not a UUID
     let actualBookingId = bookingId
-    
-    // Check if bookingId is a booking code (starts with REQ) or a UUID
-    if (bookingId.startsWith('REQ')) {
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)
+
+    if (!isUUID) {
       console.log('🔍 Looking up booking by code:', bookingId)
       const { data: booking, error: bookingError } = await supabase
         .from('bookings')
@@ -142,11 +142,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Booking ID and content are required' }, { status: 400 })
     }
 
-    // First, try to find the booking by booking_code if bookingId is not a UUID
+    // Resolve booking UUID from booking_code (REQ..., QS..., etc.) when not a UUID
     let actualBookingId = bookingId
-    
-    // Check if bookingId is a booking code (starts with REQ) or a UUID
-    if (bookingId.startsWith('REQ')) {
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)
+
+    if (!isUUID) {
       console.log('🔍 Looking up booking by code:', bookingId)
       const { data: booking, error: bookingError } = await supabase
         .from('bookings')

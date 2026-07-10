@@ -17,6 +17,7 @@ import {
   Paperclip,
   Phone,
   Search,
+  Send,
   Shield,
   Smile,
   Square,
@@ -97,6 +98,7 @@ interface ClientChatInterfaceProps {
   userInitials?: string
   userAvatarUrl?: string
   onAccountClick?: () => void
+  onExitChat?: () => void
 }
 
 const OPERATOR_PHONE = "+2347120005328"
@@ -462,6 +464,58 @@ function getLastMessagePreview(bookingId: string): { text: string; time: string 
   }
 }
 
+function getChatLastReadAt(bookingId: string): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    return localStorage.getItem(`chat_last_read_${bookingId}`)
+  } catch {
+    return null
+  }
+}
+
+export function markChatAsRead(bookingId: string, readAt: string = new Date().toISOString()) {
+  if (typeof window === "undefined" || !bookingId) return
+  try {
+    localStorage.setItem(`chat_last_read_${bookingId}`, readAt)
+    window.dispatchEvent(new Event("protector-chat-unread"))
+  } catch {
+    // ignore storage failures
+  }
+}
+
+export function getUnreadCountForBooking(bookingId: string): number {
+  if (typeof window === "undefined") return 0
+  try {
+    const cached = localStorage.getItem(`chat_messages_${bookingId}`)
+    if (!cached) return 0
+    const messages: ChatMessage[] = JSON.parse(cached)
+    if (!Array.isArray(messages) || messages.length === 0) return 0
+
+    const lastReadAt = getChatLastReadAt(bookingId)
+    const lastReadMs = lastReadAt ? Date.parse(lastReadAt) : 0
+
+    return messages.filter((msg) => {
+      const sender = String(msg.sender_type || "").toLowerCase()
+      // Client only counts incoming operator/system messages as unread.
+      if (sender === "client") return false
+      const createdMs = Date.parse(msg.created_at || "")
+      if (!Number.isFinite(createdMs)) return false
+      return !lastReadMs || createdMs > lastReadMs
+    }).length
+  } catch {
+    return 0
+  }
+}
+
+export function getTotalUnreadChatCount(bookingIds: string[]): number {
+  return bookingIds.reduce((sum, id) => sum + getUnreadCountForBooking(id), 0)
+}
+
+export function notifyChatUnreadChanged() {
+  if (typeof window === "undefined") return
+  window.dispatchEvent(new Event("protector-chat-unread"))
+}
+
 function getStatusLabel(status: string): string {
   return status.replace(/_/g, " ").replace(/-/g, " ")
 }
@@ -471,12 +525,14 @@ function Avatar({
   image,
   size = "md",
   online = false,
+  unreadCount = 0,
   onClick,
 }: {
   label: string
   image?: string
   size?: "sm" | "md" | "lg"
   online?: boolean
+  unreadCount?: number
   onClick?: () => void
 }) {
   const sizeClass = size === "lg" ? "h-10 w-10" : size === "sm" ? "h-11 w-11" : "h-12 w-12"
@@ -499,6 +555,15 @@ function Avatar({
     </div>
   )
 
+  const badge =
+    unreadCount > 0 ? (
+      <span className="absolute -bottom-0.5 -right-0.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#12151d] bg-gradient-to-r from-blue-500 to-indigo-600 px-1 text-[10px] font-semibold leading-none text-white">
+        {unreadCount > 99 ? "99+" : unreadCount}
+      </span>
+    ) : online ? (
+      <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#12151d] bg-blue-400" />
+    ) : null
+
   if (onClick) {
     return (
       <button
@@ -508,9 +573,7 @@ function Avatar({
         aria-label="Open account"
       >
         {avatarContent}
-        {online && (
-          <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#12151d] bg-blue-400" />
-        )}
+        {badge}
       </button>
     )
   }
@@ -518,9 +581,7 @@ function Avatar({
   return (
     <div className="relative flex-shrink-0">
       {avatarContent}
-      {online && (
-        <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-[#12151d] bg-blue-400" />
-      )}
+      {badge}
     </div>
   )
 }
@@ -664,6 +725,7 @@ function ChatListView({
   userInitials,
   userAvatarUrl,
   onAccountClick,
+  onExitChat,
 }: {
   activeBookings: ChatBooking[]
   onSelectBooking: (booking: ChatBooking) => void
@@ -671,6 +733,7 @@ function ChatListView({
   userInitials?: string
   userAvatarUrl?: string
   onAccountClick?: () => void
+  onExitChat?: () => void
 }) {
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
@@ -687,19 +750,43 @@ function ChatListView({
     })
   }, [activeBookings, searchQuery])
 
-  const totalUnread = useMemo(() => {
-    return activeBookings.reduce((sum, booking) => {
-      const preview = getLastMessagePreview(booking.id)
-      if (!preview) return sum
-      return sum + 1
-    }, 0)
+  const [totalUnread, setTotalUnread] = useState(0)
+  const [unreadTick, setUnreadTick] = useState(0)
+
+  useEffect(() => {
+    const refresh = () => {
+      setTotalUnread(getTotalUnreadChatCount(activeBookings.map((b) => b.id)))
+      setUnreadTick((t) => t + 1)
+    }
+    refresh()
+    if (typeof window === "undefined") return
+    window.addEventListener("protector-chat-unread", refresh)
+    window.addEventListener("storage", refresh)
+    const interval = window.setInterval(refresh, 5000)
+    return () => {
+      window.removeEventListener("protector-chat-unread", refresh)
+      window.removeEventListener("storage", refresh)
+      window.clearInterval(interval)
+    }
   }, [activeBookings])
 
   return (
     <div className="flex h-full flex-col bg-gradient-to-b from-[#12151d] via-[#171b26] to-[#12151d]">
       <div className="px-4 pb-3 pt-4">
         <div className="mb-4 flex items-center justify-between">
-          <h1 className="text-[22px] font-semibold text-white">Chats</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            {onExitChat && (
+              <button
+                type="button"
+                onClick={onExitChat}
+                className="rounded-full p-1 text-blue-300/80 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Back to home"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            )}
+            <h1 className="text-[22px] font-semibold text-white">Chats</h1>
+          </div>
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -741,7 +828,7 @@ function ChatListView({
           <span className="text-sm font-medium text-blue-300">Active</span>
           {totalUnread > 0 && (
             <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 px-1.5 text-[11px] font-semibold text-white">
-              {totalUnread}
+              {totalUnread > 99 ? "99+" : totalUnread}
             </span>
           )}
         </div>
@@ -770,7 +857,9 @@ function ChatListView({
           </div>
         ) : (
           filteredBookings.map((booking) => {
+            void unreadTick
             const preview = getLastMessagePreview(booking.id)
+            const unreadCount = getUnreadCountForBooking(booking.id)
             const title = getBookingTitle(booking)
             const subtitle = preview?.text || getBookingSubtitle(booking)
             const time = preview ? formatRelativeTime(preview.time) : booking.startTime || ""
@@ -782,17 +871,35 @@ function ChatListView({
                 onClick={() => onSelectBooking(booking)}
                 className="flex w-full items-center gap-3 border-b border-white/10 px-4 py-3 text-left transition-colors hover:bg-white/5"
               >
-                <Avatar label={title} image={getBookingAvatar(booking)} online />
+                <Avatar
+                  label={title}
+                  image={getBookingAvatar(booking)}
+                  online={unreadCount === 0}
+                  unreadCount={unreadCount}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="truncate font-medium text-white">{title}</p>
-                    <span className="flex-shrink-0 text-xs text-gray-400">{time}</span>
+                    <p className={`truncate font-medium ${unreadCount > 0 ? "text-white" : "text-white/95"}`}>
+                      {title}
+                    </p>
+                    <span className={`flex-shrink-0 text-xs ${unreadCount > 0 ? "font-medium text-blue-300" : "text-gray-400"}`}>
+                      {time}
+                    </span>
                   </div>
                   <div className="mt-0.5 flex items-center justify-between gap-2">
-                    <p className="truncate text-sm text-gray-400">{subtitle}</p>
-                    <span className="flex-shrink-0 rounded-full border border-blue-400/20 bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium capitalize text-blue-300">
-                      {getStatusLabel(booking.status)}
-                    </span>
+                    <p className={`truncate text-sm ${unreadCount > 0 ? "font-medium text-gray-200" : "text-gray-400"}`}>
+                      {subtitle}
+                    </p>
+                    <div className="flex flex-shrink-0 items-center gap-1.5">
+                      {unreadCount > 0 ? (
+                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 px-1.5 text-[10px] font-semibold text-white">
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      ) : null}
+                      <span className="rounded-full border border-blue-400/20 bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium capitalize text-blue-300">
+                        {getStatusLabel(booking.status)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </button>
@@ -836,7 +943,7 @@ function ChatThreadView({
   const title = getBookingTitle(booking)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const messageInputRef = useRef<HTMLInputElement>(null)
+  const messageInputRef = useRef<HTMLTextAreaElement>(null)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const recordingStreamRef = useRef<MediaStream | null>(null)
@@ -848,6 +955,17 @@ function ChatThreadView({
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+
+  useEffect(() => {
+    markChatAsRead(booking.id)
+  }, [booking.id, chatMessages.length])
+
+  useEffect(() => {
+    if (!messageInputRef.current) return
+    if (!newChatMessage) {
+      messageInputRef.current.style.height = "auto"
+    }
+  }, [newChatMessage])
 
   const insertEmoji = useCallback(
     (emoji: string) => {
@@ -1006,8 +1124,8 @@ function ChatThreadView({
   const composerDisabled = isSendingMessage || isUploadingAttachment
 
   return (
-    <div className="flex h-full flex-col bg-gradient-to-b from-[#12151d] via-[#171b26] to-[#12151d]">
-      <div className="flex items-center gap-3 border-b border-white/10 bg-[#1e2433] px-3 py-3">
+    <div className="relative flex h-full min-h-[calc(100vh-6rem)] flex-col bg-gradient-to-b from-[#12151d] via-[#171b26] to-[#12151d]">
+      <div className="fixed top-0 left-0 right-0 z-40 mx-auto flex w-full max-w-md items-center gap-3 border-b border-white/10 bg-[#1e2433]/95 px-3 py-3 backdrop-blur-md">
         <button
           type="button"
           onClick={onBackToList}
@@ -1032,6 +1150,8 @@ function ChatThreadView({
           <Phone className="h-5 w-5" />
         </button>
       </div>
+      {/* Spacer so messages clear the fixed header */}
+      <div className="h-[68px] flex-shrink-0" aria-hidden />
 
       <input
         ref={cameraInputRef}
@@ -1099,74 +1219,50 @@ function ChatThreadView({
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="border-t border-white/10 bg-[#1e2433] px-3 py-3">
+      {/* Spacer so messages clear the fixed composer */}
+      <div className="h-[60px] flex-shrink-0 sm:h-[64px]" aria-hidden />
+
+      <div className="fixed bottom-0 left-0 right-0 z-40 mx-auto w-full max-w-md border-t border-white/10 bg-[#1e2433]/95 px-2 py-2 backdrop-blur-md sm:px-3 sm:py-2.5">
         {isRecording ? (
-          <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-3">
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
             <button
               type="button"
               onClick={cancelRecording}
-              className="text-gray-400 hover:text-red-400"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-white/10 hover:text-red-400"
               aria-label="Cancel recording"
             >
               <Trash2 className="h-5 w-5" />
             </button>
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-              <span className="text-sm text-white">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />
+              <span className="truncate text-sm text-white sm:text-[15px]">
                 Recording {formatAudioDuration(recordingSeconds)}
               </span>
             </div>
             <button
               type="button"
               onClick={finishRecording}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white"
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md sm:h-12 sm:w-12"
               aria-label="Send voice note"
             >
-              <Square className="h-4 w-4 fill-current" />
+              <Send className="h-[18px] w-[18px] translate-x-px" />
             </button>
           </div>
         ) : (
-          <div className="flex items-end gap-2">
-            <button
-              type="button"
-              className="pb-2 text-blue-300/80 hover:text-white disabled:opacity-50"
-              aria-label="Take photo"
-              disabled={composerDisabled || !onSendAttachment}
-              onClick={() => cameraInputRef.current?.click()}
-            >
-              <Camera className="h-6 w-6" />
-            </button>
-            <div className="relative flex min-h-[42px] flex-1 items-center rounded-full border border-white/10 bg-white/5 px-4 py-2">
-              <input
-                ref={messageInputRef}
-                type="text"
-                value={newChatMessage}
-                onChange={(e) => onNewChatMessageChange(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !composerDisabled && onSendMessage()}
-                onFocus={() => setShowEmojiPicker(false)}
-                placeholder={isUploadingAttachment ? "Sending attachment..." : "Message"}
-                disabled={composerDisabled}
-                className="flex-1 bg-transparent text-[15px] text-white placeholder-gray-500 focus:outline-none disabled:opacity-60"
-              />
-              <div ref={emojiPickerRef} className="relative flex items-center gap-3 pl-2 text-blue-300/80">
+          <div className="flex items-end gap-1.5 sm:gap-2">
+            <div className="relative flex min-h-[44px] min-w-0 flex-1 items-end rounded-[24px] border border-white/10 bg-white/5 px-1.5 py-1 sm:min-h-[48px] sm:px-2 sm:py-1.5">
+              <div ref={emojiPickerRef} className="relative flex flex-shrink-0 items-center self-end pb-1.5 pl-1">
                 <button
                   type="button"
-                  className="hover:text-white disabled:opacity-50"
-                  aria-label="Upload file or photo"
-                  disabled={composerDisabled || !onSendAttachment}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Paperclip className="h-5 w-5" />
-                </button>
-                <button
-                  type="button"
-                  className={`hover:text-white disabled:opacity-50 ${showEmojiPicker ? "text-white" : ""}`}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full text-blue-300/80 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50 sm:h-10 sm:w-10 ${
+                    showEmojiPicker ? "text-white" : ""
+                  }`}
                   aria-label="Open emoji picker"
                   aria-expanded={showEmojiPicker}
                   disabled={composerDisabled}
                   onClick={() => setShowEmojiPicker((open) => !open)}
                 >
-                  <Smile className="h-5 w-5" />
+                  <Smile className="h-5 w-5 sm:h-[22px] sm:w-[22px]" />
                 </button>
                 {showEmojiPicker ? (
                   <EmojiPickerPanel
@@ -1178,28 +1274,74 @@ function ChatThreadView({
                   />
                 ) : null}
               </div>
+
+              <textarea
+                ref={messageInputRef}
+                rows={1}
+                value={newChatMessage}
+                onChange={(e) => {
+                  onNewChatMessageChange(e.target.value)
+                  const el = e.target
+                  el.style.height = "auto"
+                  el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault()
+                    if (!composerDisabled && newChatMessage.trim()) onSendMessage()
+                  }
+                }}
+                onFocus={() => setShowEmojiPicker(false)}
+                placeholder={isUploadingAttachment ? "Sending..." : "Message"}
+                disabled={composerDisabled}
+                className="max-h-[120px] min-h-[28px] flex-1 resize-none self-center bg-transparent py-2 text-[15px] leading-5 text-white placeholder-gray-500 focus:outline-none disabled:opacity-60 sm:text-base"
+              />
+
+              <div className="flex flex-shrink-0 items-center gap-0.5 self-end pb-1 pr-0.5 sm:gap-1">
+                <button
+                  type="button"
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-blue-300/80 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50 sm:h-10 sm:w-10"
+                  aria-label="Upload file or photo"
+                  disabled={composerDisabled || !onSendAttachment}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip className="h-5 w-5 rotate-45 sm:h-[22px] sm:w-[22px]" />
+                </button>
+                {!newChatMessage.trim() && (
+                  <button
+                    type="button"
+                    className="flex h-9 w-9 items-center justify-center rounded-full text-blue-300/80 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-50 sm:h-10 sm:w-10"
+                    aria-label="Take photo"
+                    disabled={composerDisabled || !onSendAttachment}
+                    onClick={() => cameraInputRef.current?.click()}
+                  >
+                    <Camera className="h-5 w-5 sm:h-[22px] sm:w-[22px]" />
+                  </button>
+                )}
+              </div>
             </div>
+
             {newChatMessage.trim() ? (
               <button
                 type="button"
                 onClick={onSendMessage}
                 disabled={composerDisabled}
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white disabled:opacity-50"
+                className="mb-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md transition-transform active:scale-95 disabled:opacity-50 sm:h-12 sm:w-12"
                 aria-label="Send message"
               >
-                <MessageSquare className="h-5 w-5" />
+                <Send className="h-[18px] w-[18px] translate-x-px sm:h-5 sm:w-5" />
               </button>
             ) : (
               <button
                 type="button"
-                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-blue-300/80 hover:text-white disabled:opacity-50"
+                className="mb-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-md transition-transform active:scale-95 disabled:opacity-50 sm:h-12 sm:w-12"
                 aria-label="Record voice note"
                 disabled={composerDisabled || !onSendAttachment}
                 onClick={() => {
                   void startRecording()
                 }}
               >
-                <Mic className="h-5 w-5" />
+                <Mic className="h-5 w-5 sm:h-[22px] sm:w-[22px]" />
               </button>
             )}
           </div>
@@ -1230,6 +1372,7 @@ export default function ClientChatInterface({
   userInitials,
   userAvatarUrl,
   onAccountClick,
+  onExitChat,
 }: ClientChatInterfaceProps) {
   if (showThread && selectedBooking) {
     return (
@@ -1260,6 +1403,7 @@ export default function ClientChatInterface({
         userInitials={userInitials}
         userAvatarUrl={userAvatarUrl}
         onAccountClick={onAccountClick}
+        onExitChat={onExitChat}
       />
     </div>
   )

@@ -10,7 +10,11 @@ import { createClient } from "@/lib/supabase/client"
 import type { User as SupabaseUser } from "@supabase/supabase-js"
 import { fallbackAuth } from "@/lib/services/fallbackAuth"
 import { unifiedChatService } from "@/lib/services/unifiedChatService"
-import ClientChatInterface from "@/components/client-chat-interface"
+import ClientChatInterface, {
+  getTotalUnreadChatCount,
+  markChatAsRead,
+  notifyChatUnreadChanged,
+} from "@/components/client-chat-interface"
 import {
   type OutgoingChatAttachment,
   attachmentMessageLabel,
@@ -1493,6 +1497,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
         // Save to localStorage for persistence
         if (typeof window !== 'undefined') {
           localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(loadedMessages))
+          notifyChatUnreadChanged()
           console.log('💾 Messages saved to localStorage as backup')
         }
         
@@ -1547,6 +1552,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
                 // CRITICAL: Save to localStorage immediately to prevent loss
                 if (typeof window !== 'undefined') {
                   localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(updated))
+                  notifyChatUnreadChanged()
                   console.log('💾 Messages backed up to localStorage')
                 }
                 
@@ -1599,6 +1605,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
               // Save merged messages to localStorage
               if (typeof window !== 'undefined') {
                 localStorage.setItem(`chat_messages_${booking.id}`, JSON.stringify(merged))
+                notifyChatUnreadChanged()
                 console.log('💾 Polling: Messages backed up to localStorage')
               }
               
@@ -2778,6 +2785,25 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     const fullName = `${userProfile.firstName} ${userProfile.lastName}`.trim()
     return fullName || userProfile.email?.split("@")[0] || "You"
   }, [userProfile.firstName, userProfile.lastName, userProfile.email])
+
+  const [totalUnreadChats, setTotalUnreadChats] = useState(0)
+
+  useEffect(() => {
+    const refreshUnread = () => {
+      const ids = activeBookings.map((b) => b.id).filter(Boolean)
+      setTotalUnreadChats(getTotalUnreadChatCount(ids))
+    }
+    refreshUnread()
+    if (typeof window === "undefined") return
+    window.addEventListener("protector-chat-unread", refreshUnread)
+    window.addEventListener("storage", refreshUnread)
+    const interval = window.setInterval(refreshUnread, 5000)
+    return () => {
+      window.removeEventListener("protector-chat-unread", refreshUnread)
+      window.removeEventListener("storage", refreshUnread)
+      window.clearInterval(interval)
+    }
+  }, [activeBookings])
 
   const applySuggestionPrefill = useCallback((prefill?: BookingSuggestion['prefill']) => {
     if (!prefill) return
@@ -5565,12 +5591,14 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
 
   const handleChatNavigation = (booking: any) => {
     console.log('📱 Opening chat for booking:', booking.id)
+    markChatAsRead(booking.id)
     loadMessagesForBooking(booking)
     setShowChatThread(true)
     setActiveTab('chat')
   }
 
   const handleSelectChatBooking = (booking: BookingDisplay) => {
+    markChatAsRead(booking.id)
     loadMessagesForBooking(booking)
     setShowChatThread(true)
   }
@@ -5853,7 +5881,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       </header>
       )}
 
-      <main className={`flex-1 pb-24 ${activeTab === "protector" || activeTab === "bookings" || activeTab === "chat" ? "pt-0" : "pt-20"}`}>
+      <main className={`flex-1 ${activeTab === "chat" && showChatThread ? "pb-0" : "pb-24"} ${activeTab === "protector" || activeTab === "bookings" || activeTab === "chat" ? "pt-0" : "pt-20"}`}>
         {/* Home/Protector Tab */}
         {activeTab === "protector" && (
           <ProtectorUberHome
@@ -7362,6 +7390,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               userInitials={userDisplayName}
               userAvatarUrl={userProfile.avatarUrl}
               onAccountClick={() => setActiveTab("account")}
+              onExitChat={() => {
+                setShowChatThread(false)
+                setActiveTab("protector")
+              }}
             />
           </div>
         )}
@@ -7812,7 +7844,8 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
       </main>
 
 
-      {/* Footer — Uber-style bottom nav */}
+      {/* Footer — Uber-style bottom nav (hidden inside open DM thread) */}
+      {!(activeTab === "chat" && showChatThread) && (
       <footer className="fixed bottom-0 left-0 right-0 w-full max-w-md mx-auto bg-[#121212] text-white px-4 py-3 z-50 border-t border-[#2a2a2a]">
         <div className="flex items-center justify-between">
           <button
@@ -7830,11 +7863,18 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
               setShowChatThread(false)
               setActiveTab("chat")
             }}
-            className={`flex flex-col items-center justify-center gap-1 min-w-[4rem] ${
+            className={`relative flex flex-col items-center justify-center gap-1 min-w-[4rem] ${
               activeTab === "chat" ? "text-white" : "text-gray-500"
             }`}
           >
-            <MessageSquare className="h-5 w-5" strokeWidth={activeTab === "chat" ? 2.5 : 2} />
+            <span className="relative">
+              <MessageSquare className="h-5 w-5" strokeWidth={activeTab === "chat" ? 2.5 : 2} />
+              {totalUnreadChats > 0 && (
+                <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-semibold leading-none text-white">
+                  {totalUnreadChats > 99 ? "99+" : totalUnreadChats}
+                </span>
+              )}
+            </span>
             <span className="text-[11px] font-medium">Chat</span>
           </button>
 
@@ -7871,6 +7911,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           )}
         </div>
       </footer>
+      )}
 
       {/* Invoice Modal */}
       {showInvoiceModal && (

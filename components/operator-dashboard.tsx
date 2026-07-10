@@ -229,59 +229,47 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     setFilteredBookings(filtered)
   }, [bookings, searchQuery, statusFilter])
 
-  // Set up real-time chat subscription when selectedBooking changes
+  // Set up real-time chat subscription when selected booking identity changes
   useEffect(() => {
-    if (selectedBooking) {
-      console.log('Setting up chat subscription for booking:', selectedBooking.id)
-      
-      // Clean up existing subscription
-      if (chatSubscription) {
-        chatService.unsubscribe(chatSubscription)
-      }
-      
-      // Set up new subscription
-      const subscription = chatService.subscribeToMessages(
-        selectedBooking.database_id || selectedBooking.id,
-        (message) => {
-          console.log('📨 New message received in operator dashboard:', message)
-          let messageToNotify: ChatMessage | null = null
-          
-          // Check if message already exists to avoid duplicates
-          setMessages((prev: ChatMessage[]) => {
-            const exists = prev.some(msg => msg.id === message.id)
-            if (exists) {
-              // Update existing message
-              return prev.map(msg => 
-                msg.id === message.id ? { ...msg, ...message } : msg
-              )
-            } else {
-              // Add new message
-              messageToNotify = message
-              return [...prev, message]
-            }
-          })
+    if (!selectedBooking) return
 
-          if (messageToNotify) {
-            notifyOperatorIncomingMessage(messageToNotify, selectedBooking.id)
-          }
-          
-          // Don't auto-scroll - let operator control their view
-          // setTimeout(() => scrollToBottom(), 100)
-        }
-      )
-      
-      setChatSubscription(subscription)
-      
-      // Load initial messages
-      loadMessages(selectedBooking.database_id || selectedBooking.id)
+    const bookingKey = selectedBooking.database_id || selectedBooking.id
+    console.log('Setting up chat subscription for booking:', bookingKey)
+
+    // Clean up existing subscription
+    if (chatSubscription) {
+      chatService.unsubscribe(chatSubscription)
     }
-    
+
+    const subscription = chatService.subscribeToMessages(bookingKey, (message) => {
+      console.log('📨 New message received in operator dashboard:', message)
+      let messageToNotify: ChatMessage | null = null
+
+      setMessages((prev: ChatMessage[]) => {
+        const exists = prev.some((msg) => msg.id === message.id)
+        if (exists) {
+          return prev.map((msg) => (msg.id === message.id ? { ...msg, ...message } : msg))
+        }
+        messageToNotify = message
+        return [...prev, message]
+      })
+
+      if (messageToNotify) {
+        notifyOperatorIncomingMessage(messageToNotify, selectedBooking.id)
+      }
+    })
+
+    setChatSubscription(subscription)
+    loadMessages(bookingKey)
+
     return () => {
-      if (chatSubscription) {
-        chatService.unsubscribe(chatSubscription)
+      if (subscription) {
+        chatService.unsubscribe(subscription)
       }
     }
-  }, [selectedBooking])
+    // Only rebind when the booking identity changes — not on every status refresh object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBooking?.id, selectedBooking?.database_id])
 
   // Real-time refresh for operator dashboard
   useEffect(() => {
@@ -394,9 +382,6 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
               chatMessage,
             ]
             localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedClientMessages))
-            
-            // Don't auto-scroll - let operator control their view
-            // scrollToBottom()
           }
         }
       )
@@ -404,17 +389,12 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         console.log('Messages channel subscription status:', status)
       })
 
-    // More frequent refresh for testing - every 3 seconds
+    // Refresh booking list periodically; do NOT reload the open chat thread
+    // (that caused message IDs to flicker disappear/reappear).
     const refreshInterval = setInterval(() => {
       console.log('Refreshing bookings...')
       loadBookings()
-      if (selectedBooking) {
-        // Use database_id if available, otherwise use the booking code
-        const bookingIdToLoad = selectedBooking.database_id || selectedBooking.id
-        console.log('Refreshing messages for booking:', bookingIdToLoad)
-        loadMessages(bookingIdToLoad)
-      }
-    }, 3000)
+    }, 10000)
 
     return () => {
       console.log('Cleaning up real-time subscriptions...')
@@ -422,7 +402,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       supabase.removeChannel(bookingsChannel)
       supabase.removeChannel(messagesChannel)
     }
-  }, [selectedBooking])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBooking?.id])
 
   const initializeDashboard = async () => {
     try {
@@ -644,9 +625,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       return bookingIdOrCode
     }
     
-    // If it's a booking code, try to find it in local bookings first
-    if (bookingIdOrCode.startsWith('REQ')) {
-      const booking = bookings.find(b => b.id === bookingIdOrCode)
+    // If it's a booking code (REQ..., QS..., etc.), try local bookings then DB
+    if (!uuidPattern.test(bookingIdOrCode)) {
+      const booking = bookings.find((b: any) => b.id === bookingIdOrCode || b.booking_code === bookingIdOrCode)
       if (booking?.database_id && uuidPattern.test(booking.database_id)) {
         console.log('✅ Found UUID in local bookings:', booking.database_id)
         return booking.database_id
@@ -682,11 +663,17 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     console.log('📥 Loading messages for booking:', bookingId)
     
     try {
-      const messages = await chatService.getMessages(bookingId)
-      setMessages(messages)
-      rememberSeenMessageIds(messages)
-      // Don't auto-scroll - let operator control their view
-      // scrollToBottom()
+      const fetched = await chatService.getMessages(bookingId)
+      setMessages((prev) => {
+        // Merge instead of replace so optimistic/realtime messages don't flash away.
+        const byId = new Map<string, ChatMessage>()
+        for (const msg of prev) byId.set(msg.id, msg)
+        for (const msg of fetched) byId.set(msg.id, { ...byId.get(msg.id), ...msg })
+        return Array.from(byId.values()).sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+        )
+      })
+      rememberSeenMessageIds(fetched)
     } catch (error) {
       console.error('Failed to load messages:', error)
       setError('Failed to load messages')
@@ -700,7 +687,22 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     }
 
     const messageText = newMessage.trim()
+    const tempId = `temp_op_${Date.now()}`
     setNewMessage("") // Clear input immediately
+
+    const optimisticMessage: ChatMessage = {
+      id: tempId,
+      booking_id: selectedBooking.database_id || selectedBooking.id,
+      booking_code: selectedBooking.id,
+      sender_type: 'operator',
+      sender_id: 'operator',
+      message: messageText,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      message_type: 'text',
+      status: 'sending',
+    }
+    setMessages((prev) => [...prev, optimisticMessage])
 
     try {
       // Get auth headers for operator API
@@ -717,14 +719,19 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
         })
       })
 
+
       if (response.ok) {
         const result = await response.json()
         if (result.success) {
           const message = result.data
-          // Add to local state
-          setMessages(prev => [...prev, message])
-          // Don't auto-scroll - let operator control their view
-          // scrollToBottom()
+          setMessages((prev) => {
+            const withoutTemp = prev.filter((msg) => msg.id !== tempId)
+            const exists = withoutTemp.some((msg) => msg.id === message.id)
+            if (exists) {
+              return withoutTemp.map((msg) => (msg.id === message.id ? { ...msg, ...message, status: 'sent' } : msg))
+            }
+            return [...withoutTemp, { ...message, status: 'sent' }]
+          })
           setSuccess('Message sent successfully!')
         } else {
           throw new Error(result.error || 'Failed to send message')
@@ -736,6 +743,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       
     } catch (error) {
       console.error('❌ Error sending message:', error)
+      setMessages((prev) => prev.filter((msg) => msg.id !== tempId))
       setError('Failed to send message. Please try again.')
       setNewMessage(messageText) // Restore message on error
     }

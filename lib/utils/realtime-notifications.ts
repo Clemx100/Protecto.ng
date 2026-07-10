@@ -80,6 +80,8 @@ export const notifyRealtimeEvent = (options: RealtimeNotificationOptions) => {
   toast(options.title, {
     description: options.description,
     duration: 6000,
+    className:
+      "rounded-2xl border border-blue-400/30 bg-gradient-to-br from-blue-600/25 via-[#1e2433] to-indigo-700/20 text-white shadow-[0_12px_40px_rgba(59,130,246,0.28)] backdrop-blur-md",
   })
 
   void sendBrowserNotification(options)
