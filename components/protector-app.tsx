@@ -573,11 +573,25 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
         }
       }
 
+      const quick = getQuickServiceFromBooking({
+        id: booking.id,
+        booking_code: booking.booking_code,
+        pickup_address: booking.pickup_address,
+        destination_address: booking.destination_address,
+        special_instructions: specialInstructions,
+      })
+      const resolvedSpecial = specialInstructions || quick || undefined
+      const displayType = quick
+        ? quick.quick_service_type === "itinerary_planning"
+          ? "itinerary_planning"
+          : "home_security"
+        : formatServiceType(booking.service_type)
+
       return {
       id: booking.id,
       booking_code: booking.booking_code,
-      type: formatServiceType(booking.service_type),
-      protectorName: resolveBookingDisplayName({ ...booking, special_instructions: specialInstructions }),
+      type: displayType,
+      protectorName: resolveBookingDisplayName({ ...booking, special_instructions: resolvedSpecial }),
       vehicleType: resolveVehicleDisplayName(booking) || "Vehicle pending assignment",
       status: formatStatus(booking.status),
       estimatedArrival: resolveBookingEtaLabel(
@@ -590,7 +604,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       startTime: formatTime(booking.scheduled_time),
       protectorImage: resolveBookingAvatarImage(booking),
       dressCode: booking.dress_code,
-      special_instructions: specialInstructions,
+      special_instructions: resolvedSpecial,
       currentLocation: booking.pickup_coordinates ? {
         lat: booking.pickup_coordinates.lat || booking.pickup_coordinates.x,
         lng: booking.pickup_coordinates.lng || booking.pickup_coordinates.y
@@ -600,7 +614,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       duration: `${booking.duration_hours || 0}h`,
       rating: booking.assigned_agent?.rating || 5,
       // Include raw data for modals
-      service_type: booking.service_type,
+      service_type: quick?.quick_service_type || booking.service_type,
       booking_mode: booking.booking_mode,
       protector_count: booking.protector_count,
       scheduled_date: booking.scheduled_date,
@@ -1078,7 +1092,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
       console.log('👤 User authenticated, loading bookings and profile...')
       setActiveBookings((prev) => mergePendingWithActive(user.id, [], prev))
       loadBookings()
-      loadUserProfile(user.id)
+      loadUserProfile(user.id, user)
     }
   }, [user?.id])
 
@@ -1339,7 +1353,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   useEffect(() => {
     if (activeTab === 'account' && user?.id && !isEditingProfile) {
       console.log('👤 Account tab opened, refreshing profile...')
-      loadUserProfile(user.id).catch(err => {
+      loadUserProfile(user.id, user).catch(err => {
         console.warn('Failed to refresh profile:', err)
       })
       
@@ -2229,12 +2243,49 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
     if (loadUserProfileInProgressRef.current === userId) return
     loadUserProfileInProgressRef.current = userId
     const fallbackUser = currentUserForFallback ?? user
+
+    const applyAuthFallback = (source: SupabaseUser | null | undefined) => {
+      if (!source) return
+      const next = {
+        email: source.email || "",
+        firstName: source.user_metadata?.first_name || source.user_metadata?.firstName || "",
+        lastName: source.user_metadata?.last_name || source.user_metadata?.lastName || "",
+        phone: source.user_metadata?.phone || source.user_metadata?.phone_number || "",
+        address: source.user_metadata?.address || "",
+        emergencyContact: source.user_metadata?.emergency_contact || source.user_metadata?.emergencyContact || "",
+        emergencyPhone: source.user_metadata?.emergency_phone || source.user_metadata?.emergencyPhone || "",
+        avatarUrl: source.user_metadata?.avatar_url || "",
+      }
+      setUserProfile((prev) => ({
+        email: prev.email || next.email,
+        firstName: prev.firstName || next.firstName,
+        lastName: prev.lastName || next.lastName,
+        phone: prev.phone || next.phone,
+        address: prev.address || next.address,
+        emergencyContact: prev.emergencyContact || next.emergencyContact,
+        emergencyPhone: prev.emergencyPhone || next.emergencyPhone,
+        avatarUrl: prev.avatarUrl || next.avatarUrl,
+      }))
+    }
+
+    // Seed immediately so Profile never stays blank while DB fetch hangs.
+    applyAuthFallback(fallbackUser)
+
     try {
       console.log('👤 [App] Loading user profile for:', userId)
       
       // Use the new data sync utility for validated profile loading
       const { loadProfileWithValidation } = await import('@/lib/utils/data-sync')
-      const { profile, error } = await loadProfileWithValidation(userId)
+      const PROFILE_FETCH_TIMEOUT_MS = 8000
+      const { profile, error } = await Promise.race([
+        loadProfileWithValidation(userId),
+        new Promise<{ profile: null; error: string }>((resolve) =>
+          setTimeout(
+            () => resolve({ profile: null, error: `Profile fetch timed out after ${PROFILE_FETCH_TIMEOUT_MS}ms` }),
+            PROFILE_FETCH_TIMEOUT_MS,
+          ),
+        ),
+      ])
       
       // If profile is missing or incomplete, sync from auth
       if (!profile || !profile.first_name || profile.first_name === 'User') {
@@ -2242,10 +2293,13 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
         const { data: { user: authUser } } = await supabase.auth.getUser()
         const userToSync = authUser ?? fallbackUser
         if (userToSync) {
-          const syncedProfile = await syncUserProfile(userToSync)
+          const syncedProfile = await Promise.race([
+            syncUserProfile(userToSync),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), PROFILE_FETCH_TIMEOUT_MS)),
+          ])
           if (syncedProfile) {
             setUserProfile({
-              email: syncedProfile.email || "",
+              email: syncedProfile.email || userToSync.email || "",
               firstName: syncedProfile.first_name || "",
               lastName: syncedProfile.last_name || "",
               phone: syncedProfile.phone || "",
@@ -2256,13 +2310,14 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
             })
             return
           }
+          applyAuthFallback(userToSync)
         }
       }
       
       if (profile) {
         console.log('✅ [App] Profile loaded successfully:', profile.first_name, profile.last_name)
         setUserProfile({
-          email: profile.email || "",
+          email: profile.email || fallbackUser?.email || "",
           firstName: profile.first_name || "",
           lastName: profile.last_name || "",
           phone: profile.phone || "",
@@ -2273,43 +2328,20 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
         })
         
         // Clear any previous errors
-        if (!error || error.includes('cached data')) {
+        if (!error || error.includes('cached data') || error.includes('timed out')) {
           setAuthError('')
         }
       } else {
         console.warn('⚠️ [App] Could not load profile')
-        setAuthError('Unable to load profile. Please check your connection.')
-        
-        // Use passed-in or state user so fallback works right after login (state may not be updated yet)
-        if (fallbackUser) {
-          setUserProfile({
-            email: fallbackUser.email || "",
-            firstName: fallbackUser.user_metadata?.first_name || fallbackUser.user_metadata?.firstName || "User",
-            lastName: fallbackUser.user_metadata?.last_name || fallbackUser.user_metadata?.lastName || "",
-            phone: fallbackUser.user_metadata?.phone || fallbackUser.user_metadata?.phone_number || "",
-            address: fallbackUser.user_metadata?.address || "",
-            emergencyContact: fallbackUser.user_metadata?.emergency_contact || fallbackUser.user_metadata?.emergencyContact || "",
-            emergencyPhone: fallbackUser.user_metadata?.emergency_phone || fallbackUser.user_metadata?.emergencyPhone || "",
-            avatarUrl: fallbackUser.user_metadata?.avatar_url || "",
-          })
+        if (error && !String(error).includes('timed out')) {
+          setAuthError('Unable to load profile. Please check your connection.')
         }
+        applyAuthFallback(fallbackUser)
       }
     } catch (error) {
       console.error("❌ [App] Error loading user profile:", error)
       setAuthError('Failed to load profile data. Please refresh the page.')
-      
-      if (fallbackUser) {
-        setUserProfile({
-          email: fallbackUser.email || "",
-          firstName: fallbackUser.user_metadata?.first_name || fallbackUser.user_metadata?.firstName || "User",
-          lastName: fallbackUser.user_metadata?.last_name || fallbackUser.user_metadata?.lastName || "",
-          phone: fallbackUser.user_metadata?.phone || fallbackUser.user_metadata?.phone_number || "",
-          address: fallbackUser.user_metadata?.address || "",
-          emergencyContact: fallbackUser.user_metadata?.emergency_contact || fallbackUser.user_metadata?.emergencyContact || "",
-          emergencyPhone: fallbackUser.user_metadata?.emergency_phone || fallbackUser.user_metadata?.emergencyPhone || "",
-          avatarUrl: fallbackUser.user_metadata?.avatar_url || "",
-        })
-      }
+      applyAuthFallback(fallbackUser)
     } finally {
       if (loadUserProfileInProgressRef.current === userId) loadUserProfileInProgressRef.current = null
     }
@@ -7028,6 +7060,11 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   const mapMode = getActivityMapMode(booking)
                   const isHomeSecurity = quick?.quick_service_type === "private_home_security"
                   const isItinerary = quick?.quick_service_type === "itinerary_planning"
+                  const isSiteBooking = mapMode === "site"
+                  const siteAddress =
+                    quick?.address ||
+                    booking.pickupLocation ||
+                    "Location pending"
 
                   return (
                     <div key={booking.id} className="space-y-4 rounded-lg bg-gray-900 p-4">
@@ -7038,17 +7075,21 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                             {booking.status.replace("-", " ")}
                           </span>
                         </div>
-                        {!isItinerary ? (
-                          <span className="font-semibold text-white">
-                            {isHomeSecurity ? "Awaiting review" : `ETA: ${booking.estimatedArrival}`}
-                          </span>
-                        ) : (
+                        {isItinerary ? (
                           <span className="text-sm text-amber-300">Under review</span>
+                        ) : isSiteBooking || isHomeSecurity ? (
+                          <span className="font-semibold text-white">Awaiting review</span>
+                        ) : (
+                          <span className="font-semibold text-white">
+                            ETA: {booking.estimatedArrival || "Pending"}
+                          </span>
                         )}
                       </div>
 
                       <p className="text-sm font-medium text-white">
-                        {booking.protectorName}
+                        {isSiteBooking && !isHomeSecurity
+                          ? `Protector | ${siteAddress.split(",")[0]?.trim() || siteAddress}`
+                          : booking.protectorName}
                       </p>
 
                       {isHomeSecurity ? (
@@ -7093,6 +7134,18 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                             Operator is reviewing your itinerary before confirming stops.
                           </p>
                         </div>
+                      ) : isSiteBooking ? (
+                        <div className="space-y-2 text-sm">
+                          <div className="flex items-start space-x-3">
+                            <div className="mt-1 h-3 w-3 rounded-full bg-emerald-500" />
+                            <div>
+                              <p className="text-sm text-white">{siteAddress}</p>
+                              <p className="text-xs text-gray-400">
+                                Location{booking.startTime ? ` • ${booking.startTime}` : ""}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
                       ) : (
                         <div className="space-y-2">
                           <div className="flex items-start space-x-3">
@@ -7126,7 +7179,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                           >
                             {isTrackingSelected ? "Tracking on Map" : "Track Trip on Map"}
                           </Button>
-                        ) : isHomeSecurity ? (
+                        ) : isSiteBooking || isHomeSecurity ? (
                           <Button
                             onClick={() => setSelectedTrackingBookingId(bookingTrackingId || null)}
                             disabled={!bookingTrackingId}

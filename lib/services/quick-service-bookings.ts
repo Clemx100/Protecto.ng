@@ -195,7 +195,8 @@ export function buildQuickServiceBookingPayload(request: QuickServiceRequest, cl
     duration_hours: 8,
     pickup_address: request.address.trim(),
     pickup_coordinates: '(6.5244,3.3792)',
-    destination_address: request.protecteeNames.filter(Boolean).join(', ') || 'Home security assignment',
+    // Never store protectee names here — Activity map would geocode them as a destination.
+    destination_address: 'Home security assignment',
     scheduled_date: new Date().toISOString().split('T')[0],
     scheduled_time: '12:00:00',
     base_price: 0,
@@ -210,10 +211,16 @@ export function buildQuickServiceBookingPayload(request: QuickServiceRequest, cl
 }
 
 export function parseQuickServiceFromBooking(booking: {
-  special_instructions?: string | null
+  special_instructions?: string | object | null
   pickup_address?: string | null
 }) {
   if (!booking.special_instructions) return null
+
+  if (typeof booking.special_instructions === 'object') {
+    const parsed = booking.special_instructions as QuickServiceSpecial
+    return parsed?.quick_service_type ? parsed : null
+  }
+
   try {
     const parsed = JSON.parse(booking.special_instructions)
     if (!parsed?.quick_service_type) return null

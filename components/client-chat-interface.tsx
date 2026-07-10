@@ -1091,7 +1091,9 @@ function ChatThreadView({
         ))}
 
         {isLoadingChatMessages && chatMessages.length > 0 && (
-          <p className="py-2 text-center text-xs text-gray-400">Refreshing...</p>
+          <p className="py-2 text-center text-xs text-gray-400">
+            {isCreatingBookingChat ? "Booking..." : "Refreshing..."}
+          </p>
         )}
 
         <div ref={messagesEndRef} />
