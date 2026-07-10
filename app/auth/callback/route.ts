@@ -45,14 +45,18 @@ export async function GET(request: NextRequest) {
     failureReason = `setSession:${error?.message ?? 'unknown'}`
   }
 
-  // 2. PKCE code exchange (covers OAuth/email confirmation)
+  // 2. PKCE code exchange (covers OAuth/email confirmation + recovery without type)
   if (code) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code)
 
     if (!error && data.session) {
       const user = data.session.user
+      const amr = (user as any)?.amr
+      const isRecoverySession =
+        type === 'recovery' ||
+        (Array.isArray(amr) && amr.some((entry: any) => entry?.method === 'recovery'))
 
-      if (type === 'recovery') {
+      if (isRecoverySession) {
         return handleRecoveryRedirect()
       }
 

@@ -7,6 +7,7 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState, Suspense } from "react"
 import LoadingLogo from "@/components/loading-logo"
+import { redirectIfPasswordRecoveryHash } from "@/lib/utils/password-recovery-redirect"
 import { 
   Shield, 
   Settings, 
@@ -83,6 +84,11 @@ function HomePageContent() {
   const [deviceType, setDeviceType] = useState<"ios" | "android" | "desktop">("desktop")
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  // Password reset emails often land on Site URL with tokens in the hash.
+  useEffect(() => {
+    redirectIfPasswordRecoveryHash()
+  }, [])
 
   const handleDownloadClick = () => setShowDownloadModal(true)
   const handleRequestClick = () => setShowRequestModal(true)

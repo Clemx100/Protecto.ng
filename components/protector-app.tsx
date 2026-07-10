@@ -26,6 +26,7 @@ import ActivityPageLayout from "@/components/activity-page-layout"
 import ProtectorListingPicker, { type ProtectorListing } from "@/components/protector-listing-picker"
 import LoadingLogo from "@/components/loading-logo"
 import { GeocodingService } from "@/lib/services/geocoding"
+import { redirectIfPasswordRecoveryHash } from "@/lib/utils/password-recovery-redirect"
 import {
   notifyRealtimeEvent,
   requestNotificationPermissionIfNeeded,
@@ -212,6 +213,11 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
   useEffect(() => {
     authStepRef.current = authStep
   }, [authStep])
+
+  // Catch recovery tokens if Supabase lands on /app with a hash.
+  useEffect(() => {
+    redirectIfPasswordRecoveryHash()
+  }, [])
 
   useEffect(() => {
     const formatTime = () =>
@@ -1982,7 +1988,7 @@ function ProtectorAppInner({ isGooglePlacesLoaded }: { isGooglePlacesLoaded: boo
         setShowLoginForm(true)
         setAuthStep("login")
         authStepRef.current = "login"
-        setAuthSuccess("Your password has been updated. Please log in with your new password.")
+        setAuthSuccess("Password updated. Sign in with your new password.")
 
         if (email) {
           setAuthForm((prev) => ({ ...prev, email: decodeURIComponent(email) }))
@@ -3834,7 +3840,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
         const email = authForm.email.trim().toLowerCase()
 
         if (shouldUseMockDatabase()) {
-          setAuthSuccess(`If an account exists for ${email}, a reset link has been sent.`)
+          setAuthSuccess(`Check your email — we sent a reset link to ${email}.`)
           return
         }
 
@@ -3844,25 +3850,28 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             : process.env.NEXT_PUBLIC_SITE_URL
 
         if (!siteOrigin) {
-          throw new Error("Password reset is temporarily unavailable. Site URL not configured.")
+          throw new Error("Password reset is temporarily unavailable. Please try again shortly.")
         }
 
         const normalizedOrigin = siteOrigin.endsWith("/")
           ? siteOrigin.slice(0, -1)
           : siteOrigin
 
+        // Point directly at the reset page. Also add /auth/callback as a
+        // fallback path that middleware/callback can still handle.
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${normalizedOrigin}/auth/callback?type=recovery`
+          redirectTo: `${normalizedOrigin}/auth/reset-password`,
         })
 
         if (error) {
           if (error.message.includes("Email rate limit exceeded")) {
-            throw new Error("Too many reset attempts. Please check your inbox or try again later.")
+            throw new Error("Too many attempts. Wait a minute, then try again.")
           }
-          throw new Error(error.message)
+          // Keep messaging friendly — don't reveal whether the email exists.
+          console.warn("Password reset request error:", error.message)
         }
 
-        setAuthSuccess(`If an account exists for ${email}, a reset link has been sent.`)
+        setAuthSuccess(`Check your email — we sent a reset link to ${email}.`)
         setAuthError("")
         return
       } else if (authStep === "credentials") {
@@ -4186,7 +4195,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   : authStep === "register"
                     ? "Create Your Account"
                     : authStep === "forgot-password"
-                      ? "Reset Your Password"
+                      ? "Forgot password?"
                       : authStep === "credentials"
                         ? "Complete Your Credentials"
                         : authStep === "email-verification"
@@ -4276,34 +4285,57 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
           )}
 
           {authStep === "forgot-password" && (
-            <div className="space-y-6">
+            <div className="space-y-5">
+              <p className="text-sm text-gray-400">
+                Enter your email and we&apos;ll send a link to set a new password.
+              </p>
+
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-300">Email Address</label>
+                <label className="text-sm font-medium text-gray-300">Email</label>
                 <input
                   type="email"
-                  placeholder="Enter the email you used to sign up"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder="you@email.com"
                   value={authForm.email}
                   onChange={(e) => handleAuthInputChange("email", e.target.value)}
-                  className={`w-full p-4 bg-gray-800/90 text-white rounded-xl border focus:outline-none backdrop-blur-sm transition-all duration-200 ${
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !authLoading) {
+                      e.preventDefault()
+                      void handleLoginSubmit()
+                    }
+                  }}
+                  className={`w-full rounded-xl border bg-gray-800/90 p-4 text-white backdrop-blur-sm transition-all duration-200 focus:outline-none ${
                     formErrors.email
                       ? "border-red-500 focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
                       : "border-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
                   }`}
                 />
                 {formErrors.email && (
-                  <p className="text-red-400 text-xs flex items-center gap-1">
+                  <p className="flex items-center gap-1 text-xs text-red-400">
                     <span>⚠</span>
                     {formErrors.email}
                   </p>
                 )}
               </div>
 
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 space-y-2">
-                <p className="text-sm text-blue-200 font-medium">We’ll send you a secure link to reset your password.</p>
-                <p className="text-xs text-blue-200/80">
-                  Check your inbox (and spam folder) for an email from Protector.Ng. The link expires after 1 hour.
-                </p>
-              </div>
+              {authSuccess ? (
+                <div className="space-y-3 rounded-2xl border border-blue-400/25 bg-gradient-to-br from-blue-500/15 to-indigo-500/10 p-4">
+                  <p className="text-sm font-medium text-blue-100">Almost done</p>
+                  <ol className="list-decimal space-y-1.5 pl-4 text-xs text-blue-100/85">
+                    <li>Open the email from Protector.Ng</li>
+                    <li>Tap the reset link</li>
+                    <li>Choose a new password and sign in</li>
+                  </ol>
+                  <p className="text-xs text-blue-200/70">
+                    Can&apos;t find it? Check spam, or tap the button below to resend.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-gray-400">
+                  The link usually arrives in under a minute and works for about 1 hour.
+                </div>
+              )}
             </div>
           )}
 
@@ -4677,7 +4709,9 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                   : authStep === "register"
                     ? "Creating account..."
                     : authStep === "forgot-password"
-                      ? "Sending reset link..."
+                      ? authSuccess
+                        ? "Resending..."
+                        : "Sending link..."
                     : authStep === "email-verification"
                       ? "Resending email..."
                       : authStep === "profile-completion"
@@ -4689,7 +4723,7 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
             ) : authStep === "register" ? (
               "Continue"
             ) : authStep === "forgot-password" ? (
-              "Send Reset Link"
+              authSuccess ? "Resend link" : "Send reset link"
             ) : authStep === "credentials" ? (
               "Complete Credentials"
             ) : authStep === "email-verification" ? (
@@ -4711,10 +4745,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                       authStepRef.current = "login"
                       clearAuthMessages()
                     }}
-                    className="text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors duration-200 hover:underline"
+                    className="text-sm font-medium text-blue-400 transition-colors duration-200 hover:text-blue-300 hover:underline"
                     disabled={authLoading}
                   >
-                    Remembered your password? Log in
+                    Back to login
                   </button>
                   <button
                     onClick={() => {
@@ -4722,10 +4756,10 @@ ${Object.entries(payload.vehicles || {}).map(([vehicle, count]) => `• ${vehicl
                       authStepRef.current = "register"
                       clearAuthMessages()
                     }}
-                    className="text-gray-400 hover:text-gray-200 text-xs transition-colors duration-200 hover:underline"
+                    className="text-xs text-gray-400 transition-colors duration-200 hover:text-gray-200 hover:underline"
                     disabled={authLoading}
                   >
-                    Need an account? Sign up
+                    Don&apos;t have an account? Sign up
                   </button>
                 </div>
               ) : (

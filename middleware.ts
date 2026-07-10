@@ -9,29 +9,34 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url, { status: 308 })
   }
 
-  // Supabase password reset and magic links occasionally land on the site root.
-  // When we detect these auth params on "/", reroute them to the auth callback handler.
+  // Supabase password reset / magic links sometimes land on the site root
+  // with query params (hash tokens are handled client-side on the homepage).
   if (
     request.nextUrl.pathname === '/' &&
     (request.nextUrl.searchParams.has('code') ||
       request.nextUrl.searchParams.has('access_token') ||
-      request.nextUrl.searchParams.has('token_hash'))
+      request.nextUrl.searchParams.has('token_hash') ||
+      request.nextUrl.searchParams.get('type') === 'recovery')
   ) {
     const url = request.nextUrl.clone()
-    url.pathname = '/auth/callback'
+    const type = request.nextUrl.searchParams.get('type')
+    const isRecovery =
+      type === 'recovery' ||
+      request.nextUrl.searchParams.has('token_hash') ||
+      request.nextUrl.searchParams.has('access_token')
 
-    // Carry over all original auth parameters to the callback route.
+    // Recovery → reset password page; other auth codes → callback.
+    url.pathname = isRecovery ? '/auth/reset-password' : '/auth/callback'
+
     const searchParams = new URLSearchParams(request.nextUrl.search)
-
-    if (!searchParams.has('next')) {
+    if (!isRecovery && !searchParams.has('next')) {
       searchParams.set('next', '/app')
     }
-    if (!searchParams.has('type')) {
+    if (isRecovery && !searchParams.has('type')) {
       searchParams.set('type', 'recovery')
     }
 
     url.search = searchParams.toString()
-
     return NextResponse.redirect(url)
   }
 

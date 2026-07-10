@@ -39,15 +39,13 @@ export default function ChangePasswordPage() {
     const hasUpperCase = /[A-Z]/.test(password)
     const hasLowerCase = /[a-z]/.test(password)
     const hasNumbers = /\d/.test(password)
-    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password)
-    
+
     return {
       minLength,
       hasUpperCase,
       hasLowerCase,
       hasNumbers,
-      hasSpecialChar,
-      isValid: minLength && hasUpperCase && hasLowerCase && hasNumbers && hasSpecialChar
+      isValid: minLength && hasUpperCase && hasLowerCase && hasNumbers,
     }
   }
 
@@ -189,10 +187,6 @@ export default function ChangePasswordPage() {
                   <div className={`flex items-center space-x-2 ${passwordValidation.hasNumbers ? 'text-green-400' : 'text-gray-400'}`}>
                     <CheckCircle className="h-3 w-3" />
                     <span>One number</span>
-                  </div>
-                  <div className={`flex items-center space-x-2 ${passwordValidation.hasSpecialChar ? 'text-green-400' : 'text-gray-400'}`}>
-                    <CheckCircle className="h-3 w-3" />
-                    <span>One special character</span>
                   </div>
                 </div>
               </div>
