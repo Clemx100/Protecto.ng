@@ -91,6 +91,19 @@ export default function OperatorLogin({ onLoginSuccess }: OperatorLoginProps) {
 
         if (profile && (profile.role === 'admin' || profile.role === 'agent' || profile.role === 'operator')) {
           console.log('✅ User has valid operator role:', profile.role)
+          try {
+            sessionStorage.setItem(
+              'protector_operator_session_hint',
+              JSON.stringify({
+                id: data.user.id,
+                email: data.user.email || profile.email || '',
+                role: profile.role,
+                savedAt: Date.now(),
+              }),
+            )
+          } catch {
+            // ignore
+          }
           onLoginSuccess(data.user)
           return
         } else {

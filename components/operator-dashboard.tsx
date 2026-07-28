@@ -59,7 +59,14 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: st
 }
 
 export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) {
-  const supabase = createClient()
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) {
+    supabaseRef.current = createClient()
+  }
+  const supabase = supabaseRef.current
+  const selectedBookingRef = useRef<any>(null)
+  const loadBookingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const bookingsRef = useRef<any[]>([])
   
   // State management
   const [selectedBooking, setSelectedBooking] = useState<any>(null)
@@ -67,6 +74,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [realtimeStatus, setRealtimeStatus] = useState<"connecting" | "live" | "reconnecting">("connecting")
   
   // Prefer a fresh access token so expired JWTs don't cause false "auth expired" errors.
   const getAuthHeaders = async (forceRefresh = false) => {
@@ -182,7 +190,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     if (notifiedMessageIdsRef.current.has(messageId)) return
     notifiedMessageIdsRef.current.add(messageId)
 
-    const matchedBooking = bookings.find((booking) =>
+    const currentBookings = bookingsRef.current
+    const currentSelected = selectedBookingRef.current
+    const matchedBooking = currentBookings.find((booking) =>
       booking.id === message.booking_id ||
       booking.booking_code === message.booking_id ||
       booking.database_id === message.booking_id ||
@@ -194,7 +204,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     const bookingLabel =
       matchedBooking?.id ||
       matchedBooking?.booking_code ||
-      selectedBooking?.id ||
+      currentSelected?.id ||
       bookingIdHint ||
       message.booking_code ||
       message.booking_id ||
@@ -214,6 +224,15 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   }
   
   // Initialize dashboard
+  // Keep a live ref so global realtime handlers always see the open chat.
+  useEffect(() => {
+    selectedBookingRef.current = selectedBooking
+  }, [selectedBooking])
+
+  useEffect(() => {
+    bookingsRef.current = bookings
+  }, [bookings])
+
   useEffect(() => {
     initializeDashboard()
   }, [])
@@ -246,7 +265,7 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     const sessionInterval = setInterval(checkSession, 30000)
 
     return () => clearInterval(sessionInterval)
-  }, [])
+  }, [supabase])
 
   // Auto-dismiss error and success messages
   useEffect(() => {
@@ -325,139 +344,200 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBooking?.id, selectedBooking?.database_id])
 
-  // Real-time refresh for operator dashboard
+  // Always-on realtime listener for new requests + chats (does not tear down when switching chats).
   useEffect(() => {
-    console.log('Setting up real-time subscriptions...')
-    
-    // Set up real-time subscription for bookings
-    const bookingsChannel = supabase
-      .channel('operator-bookings')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'bookings'
-        },
-        (payload) => {
-          console.log('Real-time booking update received:', payload)
-          console.log('Event type:', payload.eventType)
-          console.log('New record:', payload.new)
-          
-          // Refresh bookings when any booking changes
-          loadBookings()
+    console.log('Setting up always-on operator realtime subscriptions...')
+    let disposed = false
+    let bookingsChannel: ReturnType<typeof supabase.channel> | null = null
+    let messagesChannel: ReturnType<typeof supabase.channel> | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-          // Show notification for new bookings (toast + browser notification)
-          if (payload.eventType === 'INSERT') {
-            const code = payload.new?.booking_code || 'Unknown'
-            setSuccess(`New booking received: ${code}`)
-            notifyRealtimeEvent({
-              title: 'New booking request',
-              description: `${code} — ${payload.new?.pickup_address || 'New protection request'}`,
-              tag: `operator-booking-${payload.new?.id || code}`,
-            })
+    const scheduleBookingsRefresh = () => {
+      if (loadBookingsDebounceRef.current) {
+        clearTimeout(loadBookingsDebounceRef.current)
+      }
+      loadBookingsDebounceRef.current = setTimeout(() => {
+        if (!disposed) loadBookings()
+      }, 400)
+    }
+
+    const setupChannels = () => {
+      if (disposed) return
+      setRealtimeStatus("connecting")
+
+      if (bookingsChannel) supabase.removeChannel(bookingsChannel)
+      if (messagesChannel) supabase.removeChannel(messagesChannel)
+
+      bookingsChannel = supabase
+        .channel(`operator-bookings-live-${Date.now()}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "bookings",
+          },
+          (payload) => {
+            console.log("Real-time booking update received:", payload.eventType, payload.new)
+            scheduleBookingsRefresh()
+
+            if (payload.eventType === "INSERT") {
+              const code = (payload.new as any)?.booking_code || "Unknown"
+              setSuccess(`New booking received: ${code}`)
+              notifyRealtimeEvent({
+                title: "New booking request",
+                description: `${code} — ${(payload.new as any)?.pickup_address || "New protection request"}`,
+                tag: `operator-booking-${(payload.new as any)?.id || code}`,
+              })
+            } else if (payload.eventType === "UPDATE") {
+              const current = selectedBookingRef.current
+              const updated = payload.new as any
+              if (
+                current &&
+                (current.database_id === updated.id ||
+                  current.id === updated.booking_code ||
+                  current.booking_code === updated.booking_code)
+              ) {
+                setSelectedBooking((prev: any) =>
+                  prev
+                    ? {
+                        ...prev,
+                        status: updated.status || prev.status,
+                        booking_code: updated.booking_code || prev.booking_code,
+                      }
+                    : prev,
+                )
+              }
+            }
+          },
+        )
+        .subscribe((status) => {
+          console.log("Bookings channel subscription status:", status)
+          if (status === "SUBSCRIBED") {
+            setRealtimeStatus("live")
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            setRealtimeStatus("reconnecting")
+            if (!disposed) {
+              if (reconnectTimer) clearTimeout(reconnectTimer)
+              reconnectTimer = setTimeout(setupChannels, 2500)
+            }
           }
-        }
-      )
-      .subscribe((status) => {
-        console.log('Bookings channel subscription status:', status)
-      })
+        })
 
-    // Set up real-time subscription for messages
-    const messagesChannel = supabase
-      .channel('operator-messages')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages'
-        },
-        (payload) => {
-          console.log('Real-time message update received:', payload)
-          const newMessage = payload.new as any
-          const senderType =
-            newMessage.sender_type || (newMessage.message_type === 'system' ? 'system' : 'client')
-          const bookingIdHint = newMessage.booking_code || newMessage.booking_id
-          
-          // Check if this message is for the currently selected booking
-          // Match by database_id OR booking_code for compatibility
-          const matchesBooking = selectedBooking && (
-            newMessage.booking_id === selectedBooking.database_id ||
-            newMessage.booking_id === selectedBooking.id ||
-            newMessage.booking_id === selectedBooking.booking_code
-          )
+      messagesChannel = supabase
+        .channel(`operator-messages-live-${Date.now()}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "messages",
+          },
+          (payload) => {
+            console.log("Real-time message update received:", payload)
+            const newMessage = payload.new as any
+            const senderType =
+              newMessage.sender_type ||
+              (newMessage.message_type === "system" ? "system" : "client")
+            const bookingIdHint = newMessage.booking_code || newMessage.booking_id
+            const current = selectedBookingRef.current
 
-          const isInvoice = newMessage.message_type === 'invoice'
-          const invoiceData = isInvoice ? (newMessage.metadata || newMessage.invoice_data || null) : null
-          const chatMessage: ChatMessage = {
-            id: newMessage.id,
-            booking_id: newMessage.booking_id,
-            booking_code: selectedBooking?.id,
-            sender_type: senderType,
-            sender_id: newMessage.sender_id,
-            message: newMessage.content || newMessage.message,
-            created_at: newMessage.created_at,
-            updated_at: newMessage.created_at,
-            is_system_message: newMessage.message_type === 'system',
-            has_invoice: isInvoice,
-            invoice_data: invoiceData || undefined,
-            message_type: newMessage.message_type,
-            metadata: newMessage.metadata || null,
-            status: 'delivered'
+            const matchesBooking =
+              current &&
+              (newMessage.booking_id === current.database_id ||
+                newMessage.booking_id === current.id ||
+                newMessage.booking_id === current.booking_code)
+
+            const isInvoice = newMessage.message_type === "invoice"
+            const invoiceMeta = isInvoice
+              ? newMessage.metadata || newMessage.invoice_data || null
+              : null
+            const chatMessage: ChatMessage = {
+              id: newMessage.id,
+              booking_id: newMessage.booking_id,
+              booking_code: current?.id,
+              sender_type: senderType,
+              sender_id: newMessage.sender_id,
+              message: newMessage.content || newMessage.message,
+              created_at: newMessage.created_at,
+              updated_at: newMessage.created_at,
+              is_system_message: newMessage.message_type === "system",
+              has_invoice: isInvoice,
+              invoice_data: invoiceMeta || undefined,
+              message_type: newMessage.message_type,
+              metadata: newMessage.metadata || null,
+              status: "delivered",
+            }
+
+            // Always notify for incoming client messages so operator keeps listening.
+            if (senderType === "client") {
+              notifyOperatorIncomingMessage(chatMessage, bookingIdHint)
+              // Keep booking list fresh when chats arrive on any request.
+              scheduleBookingsRefresh()
+            }
+
+            if (matchesBooking && current) {
+              console.log("📨 Processing message for open chat:", {
+                type: newMessage.message_type,
+                hasInvoice: isInvoice,
+              })
+
+              setMessages((prev) => {
+                const exists = prev.some((msg) => msg.id === chatMessage.id)
+                if (exists) return prev
+                return [...prev, chatMessage]
+              })
+
+              try {
+                const storageKey = `chat_${current.id}`
+                const currentStoredMessages = JSON.parse(
+                  localStorage.getItem(storageKey) || "[]",
+                )
+                const updatedMessages = [
+                  ...currentStoredMessages.filter(
+                    (msg: ChatMessage) => msg.id !== chatMessage.id,
+                  ),
+                  chatMessage,
+                ]
+                localStorage.setItem(storageKey, JSON.stringify(updatedMessages))
+              } catch {
+                // ignore storage failures
+              }
+            }
+          },
+        )
+        .subscribe((status) => {
+          console.log("Messages channel subscription status:", status)
+          if (status === "SUBSCRIBED") {
+            setRealtimeStatus("live")
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            setRealtimeStatus("reconnecting")
+            if (!disposed) {
+              if (reconnectTimer) clearTimeout(reconnectTimer)
+              reconnectTimer = setTimeout(setupChannels, 2500)
+            }
           }
+        })
+    }
 
-          if (senderType === 'client') {
-            notifyOperatorIncomingMessage(chatMessage, bookingIdHint)
-          }
-          
-          if (matchesBooking) {
-            console.log('📨 Processing message:', { type: newMessage.message_type, hasInvoice: isInvoice, hasMetadata: !!invoiceData })
-            
-            // Add to local state
-            setMessages(prev => {
-              const exists = prev.some(msg => msg.id === chatMessage.id)
-              if (exists) return prev
-              return [...prev, chatMessage]
-            })
-            
-            // Store in localStorage for both operator and client sync
-            const currentStoredMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
-            const updatedMessages = [
-              ...currentStoredMessages.filter((msg: ChatMessage) => msg.id !== chatMessage.id),
-              chatMessage,
-            ]
-            localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedMessages))
-            
-            // Also update the client's localStorage for real-time sync
-            const clientMessages = JSON.parse(localStorage.getItem(`chat_${selectedBooking.id}`) || '[]')
-            const updatedClientMessages = [
-              ...clientMessages.filter((msg: ChatMessage) => msg.id !== chatMessage.id),
-              chatMessage,
-            ]
-            localStorage.setItem(`chat_${selectedBooking.id}`, JSON.stringify(updatedClientMessages))
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('Messages channel subscription status:', status)
-      })
+    setupChannels()
 
-    // Refresh booking list periodically; do NOT reload the open chat thread
-    // (that caused message IDs to flicker disappear/reappear).
+    // Soft polling fallback so the operator still receives updates if realtime drops.
     const refreshInterval = setInterval(() => {
-      console.log('Refreshing bookings...')
-      loadBookings()
-    }, 10000)
+      if (!disposed) loadBookings()
+    }, 20000)
 
     return () => {
-      console.log('Cleaning up real-time subscriptions...')
+      disposed = true
+      console.log("Cleaning up always-on operator realtime subscriptions...")
       clearInterval(refreshInterval)
-      supabase.removeChannel(bookingsChannel)
-      supabase.removeChannel(messagesChannel)
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (loadBookingsDebounceRef.current) clearTimeout(loadBookingsDebounceRef.current)
+      if (bookingsChannel) supabase.removeChannel(bookingsChannel)
+      if (messagesChannel) supabase.removeChannel(messagesChannel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBooking?.id])
+  }, [])
 
   const initializeDashboard = async () => {
     try {
@@ -1258,6 +1338,31 @@ Please review and approve the payment to proceed with your service.`
               <h1 className="text-xl font-bold text-white">Protector.Ng Operator</h1>
             </div>
             <div className="flex items-center space-x-4">
+              <div
+                className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${
+                  realtimeStatus === "live"
+                    ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-300"
+                    : realtimeStatus === "reconnecting"
+                      ? "border-amber-400/30 bg-amber-500/15 text-amber-200"
+                      : "border-blue-400/30 bg-blue-500/15 text-blue-200"
+                }`}
+                title="Realtime connection status"
+              >
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    realtimeStatus === "live"
+                      ? "bg-emerald-400 animate-pulse"
+                      : realtimeStatus === "reconnecting"
+                        ? "bg-amber-400 animate-pulse"
+                        : "bg-blue-400"
+                  }`}
+                />
+                {realtimeStatus === "live"
+                  ? "Listening live"
+                  : realtimeStatus === "reconnecting"
+                    ? "Reconnecting…"
+                    : "Connecting…"}
+              </div>
               <Bell className="h-6 w-6 text-white" />
               <span className="text-white">Operator Dashboard</span>
               {onLogout && (
