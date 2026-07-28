@@ -68,13 +68,60 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
   const [success, setSuccess] = useState("")
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   
-  // Helper function to get auth headers
-  const getAuthHeaders = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
+  // Prefer a fresh access token so expired JWTs don't cause false "auth expired" errors.
+  const getAuthHeaders = async (forceRefresh = false) => {
+    let session = (await supabase.auth.getSession()).data.session
+
+    const expiresAtMs = session?.expires_at ? session.expires_at * 1000 : 0
+    const isExpiredOrNearExpiry =
+      !session?.access_token ||
+      !expiresAtMs ||
+      expiresAtMs <= Date.now() + 60_000
+
+    if (forceRefresh || isExpiredOrNearExpiry) {
+      const { data, error } = await supabase.auth.refreshSession()
+      if (error) {
+        console.warn('⚠️ Session refresh failed:', error.message)
+      }
+      session = data.session ?? session
+    }
+
+    if (!session?.access_token) {
+      throw new Error('No valid session available')
+    }
+
     return {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session?.access_token || ''}`
+      'Authorization': `Bearer ${session.access_token}`,
     }
+  }
+
+  const fetchWithAuthRetry = async (
+    input: RequestInfo | URL,
+    init: RequestInit = {},
+  ): Promise<Response> => {
+    const headers = await getAuthHeaders()
+    let response = await fetch(input, {
+      ...init,
+      headers: {
+        ...(init.headers || {}),
+        ...headers,
+      },
+    })
+
+    if (response.status === 401) {
+      console.warn('⚠️ Got 401 — refreshing session and retrying once')
+      const retryHeaders = await getAuthHeaders(true)
+      response = await fetch(input, {
+        ...init,
+        headers: {
+          ...(init.headers || {}),
+          ...retryHeaders,
+        },
+      })
+    }
+
+    return response
   }
   
   // Chat and messaging
@@ -177,18 +224,25 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     })
   }, [])
 
-  // Monitor session and prevent message loss
+  // Keep session alive; refresh before it expires so API calls don't fail with 401.
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) {
-        console.warn('⚠️ Session lost, preserving current state...')
-        // Don't clear messages or selected booking when session is lost
-        // This prevents messages from disappearing
+      const expiresAtMs = session?.expires_at ? session.expires_at * 1000 : 0
+      const needsRefresh =
+        !session?.access_token ||
+        !expiresAtMs ||
+        expiresAtMs <= Date.now() + 120_000
+
+      if (needsRefresh) {
+        const { data, error } = await supabase.auth.refreshSession()
+        if (error || !data.session) {
+          console.warn('⚠️ Session lost or could not refresh:', error?.message)
+        }
       }
     }
 
-    // Check session every 30 seconds
+    checkSession()
     const sessionInterval = setInterval(checkSession, 30000)
 
     return () => clearInterval(sessionInterval)
@@ -442,47 +496,35 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     }
 
     try {
-      let headers
-      try {
-        headers = await withTimeout(
-          getAuthHeaders(),
-          OPERATOR_API_TIMEOUT_MS,
-          'Authentication check timed out.'
-        )
-      } catch (authError) {
-        console.error('❌ Authentication error, retrying...', authError)
-        const { data: { session } } = await withTimeout(
-          supabase.auth.refreshSession(),
-          OPERATOR_API_TIMEOUT_MS,
-          'Session refresh timed out.'
-        )
-        if (session) {
-          headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`
-          }
-        } else {
-          throw new Error('No valid session available')
-        }
-      }
-
       const controller = new AbortController()
       const requestTimeout = setTimeout(() => controller.abort(), OPERATOR_API_TIMEOUT_MS)
       let response: Response
       try {
-        response = await fetch('/api/operator/bookings', {
-          method: 'GET',
-          headers,
-          signal: controller.signal,
-        })
+        response = await withTimeout(
+          fetchWithAuthRetry('/api/operator/bookings', {
+            method: 'GET',
+            signal: controller.signal,
+          }),
+          OPERATOR_API_TIMEOUT_MS,
+          'Loading bookings timed out. Please check your network and refresh.',
+        )
       } finally {
         clearTimeout(requestTimeout)
       }
 
       if (!response.ok) {
         if (response.status === 401) {
-          console.error('❌ Authentication failed, user may need to re-login')
-          setError('Authentication expired. Please refresh the page and login again.')
+          let details = ''
+          try {
+            const body = await response.json()
+            details = body?.message || body?.error || ''
+          } catch (_) {}
+          console.error('❌ Authentication failed after refresh retry:', details)
+          setError(
+            details.toLowerCase().includes('role') || details.toLowerCase().includes('access denied')
+              ? 'Access denied. Sign in with an operator, admin, or agent account.'
+              : 'Authentication expired. Please refresh the page and login again.',
+          )
           return
         }
         throw new Error(`HTTP error! status: ${response.status}`)
@@ -705,13 +747,9 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
     setMessages((prev) => [...prev, optimisticMessage])
 
     try {
-      // Get auth headers for operator API
-      const authHeaders = await getAuthHeaders()
-      
       // Send message directly via operator API with proper authentication
-      const response = await fetch('/api/operator/messages', {
+      const response = await fetchWithAuthRetry('/api/operator/messages', {
         method: 'POST',
-        headers: authHeaders,
         body: JSON.stringify({
           bookingId: selectedBooking.id,
           content: messageText,
@@ -737,14 +775,17 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
           throw new Error(result.error || 'Failed to send message')
         }
       } else {
-        const errorData = await response.json()
+        const errorData = await response.json().catch(() => ({}))
+        if (response.status === 401) {
+          throw new Error('Authentication expired. Please refresh and login again.')
+        }
         throw new Error(errorData.error || 'Failed to send message')
       }
       
     } catch (error) {
       console.error('❌ Error sending message:', error)
       setMessages((prev) => prev.filter((msg) => msg.id !== tempId))
-      setError('Failed to send message. Please try again.')
+      setError(error instanceof Error ? error.message : 'Failed to send message. Please try again.')
       setNewMessage(messageText) // Restore message on error
     }
   }
@@ -889,10 +930,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             requestUrl: '/api/bookings/status'
           })
 
-          const authHeaders = await getAuthHeaders()
-          const response = await fetch('/api/bookings/status', {
+          const response = await fetchWithAuthRetry('/api/bookings/status', {
             method: 'PATCH',
-            headers: authHeaders,
             body: JSON.stringify({
               bookingId: databaseId,
               status: newStatus.toLowerCase().replace(/\s+/g, '_'),
@@ -974,9 +1013,6 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
       // Send operator message to database via API (if there's a message to send)
       if (message) {
         try {
-          // Get auth headers for operator API
-          const authHeaders = await getAuthHeaders()
-          
           // Get the database UUID
           const databaseId = await getBookingUUID(selectedBooking.database_id || selectedBooking.id)
           
@@ -984,9 +1020,8 @@ export default function OperatorDashboard({ onLogout }: OperatorDashboardProps) 
             console.error('❌ Could not resolve booking UUID for message')
           } else {
             // Send message via operator messages API
-            const messageResponse = await fetch('/api/operator/messages', {
+            const messageResponse = await fetchWithAuthRetry('/api/operator/messages', {
               method: 'POST',
-              headers: authHeaders,
               body: JSON.stringify({
                 bookingId: databaseId,
                 content: message,
@@ -1059,13 +1094,9 @@ Please review and approve the payment to proceed with your service.`
 
       console.log('📤 Sending invoice message to database...')
 
-      // Get auth headers for operator API
-      const authHeaders = await getAuthHeaders()
-      
       // Send invoice message via API to persist it
-      const response = await fetch('/api/operator/messages', {
+      const response = await fetchWithAuthRetry('/api/operator/messages', {
         method: 'POST',
-        headers: authHeaders,
         body: JSON.stringify({
           bookingId: databaseId,
           content: invoiceContent,
